@@ -25,3 +25,10 @@ pytest
 ruff check .
 mypy src
 ```
+
+## Sensor Tower source contract parser
+
+The initial Sensor Tower parser handles a verified response sample for local
+testing. It does not make network calls, and the semantics of
+`current_units_value` and `current_revenue_value` remain pending API-contract
+confirmation.

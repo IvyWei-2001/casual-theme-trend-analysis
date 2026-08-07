@@ -19,3 +19,7 @@ dist/
 data/*.duckdb
 data/*.duckdb.wal
 data/*.parquet
+
+reference/private/
+data/raw/
+API_*.json
