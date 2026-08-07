@@ -1,0 +1,37 @@
+"""Tests for the local module entrypoint."""
+
+import logging
+from pathlib import Path
+
+import pytest
+
+from src.__main__ import main
+
+_CONFIG_ENVIRONMENT_NAMES = (
+    "APP_APP_NAME",
+    "APP_ENVIRONMENT",
+    "APP_DATABASE_PATH",
+    "APP_LOG_LEVEL",
+    "APP_CONFIG_FILE",
+    "APP_SENSOR_TOWER_API_URL",
+    "APP_SENSOR_TOWER_AUTH_TOKEN",
+    "APP_FEISHU_APP_ID",
+    "APP_FEISHU_APP_SECRET",
+)
+
+
+def test_entrypoint_runs_without_integration_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    for name in _CONFIG_ENVIRONMENT_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.INFO):
+        exit_code = main()
+
+    assert exit_code == 0
+    assert "bootstrap startup complete" in caplog.text
+    assert not (tmp_path / "data" / "casual_theme_trends.duckdb").exists()

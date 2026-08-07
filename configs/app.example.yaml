@@ -1,0 +1,5 @@
+# Optional local YAML configuration. Do not put credentials in this file.
+app_name: casual-theme-trend-analysis
+environment: development
+database_path: data/casual_theme_trends.duckdb
+log_level: INFO
