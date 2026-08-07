@@ -61,6 +61,11 @@ Sensor Tower remains the only approved market-data source. Business logic must c
   Is Unified
   ```
 
+- In the provided sample, `custom_tags` is observed as a key/value object.
+- `Game Theme` is observed as a key under `custom_tags`.
+- The `Game Theme` values observed in the sample are strings.
+- Example observed `Game Theme` values are `Decoration`, `Candy / Dessert`, `Hypercasual`, `Fashion / Aesthetics / Hair`, `Abstract`, `Tabletop`, and `Vehicles - Car`.
+- These examples are sample observations only; no taxonomy rule, hierarchy, or completeness is inferred from them.
 - Field existence is verified for every top-level field and custom-tag label listed above. Existence alone does not establish business semantics.
 
 ### Still TODO
@@ -68,7 +73,7 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 - The actual endpoint URL is still not visible in the repository evidence.
 - The HTTP method, auth transport, token header/query format, and error response contract are still TODO.
 - The response-sample provenance is not sufficient to assign every observed field to the market request or the separate metadata request; field existence remains verified.
-- The exact structure, value types, and cardinality of `custom_tags` are still TODO.
+- Whether all `custom_tags` entries follow the same key/value structure and value-type rules beyond the provided sample is still TODO.
 - The exact semantics, units, currency, period, and transformations of the observed metric fields are still TODO.
 
 ## Top1000 endpoint
@@ -123,18 +128,23 @@ The endpoint must remain `TODO` until it is visible in the old Apps Script or ap
 ### Verified
 
 - The PRD and `AGENTS.md` require theme classification from Sensor Tower Game Theme or Custom Fields.
-- `custom_tags` exists in real response samples.
-- `Game Theme` exists as a verified custom-tag label.
+- `custom_tags` is observed as a key/value object in the provided sample.
+- `Game Theme` is observed as a key under `custom_tags`.
+- The `Game Theme` values observed in the sample are strings.
+- Example observed values are `Decoration`, `Candy / Dessert`, `Hypercasual`, `Fashion / Aesthetics / Hair`, `Abstract`, `Tabletop`, and `Vehicles - Car`.
 - `Game Genre`, `Game Sub-genre`, `Game Product Model`, `Game Art Style`, and `Game Setting` also exist as verified custom-tag labels.
 - The current weekly market filter uses `Game Genre`, not `Game Theme`. It is therefore a market/ranking selection filter and must not be treated as the theme classification itself.
+- The examples above are sample observations only; no taxonomy rule, hierarchy, or completeness is inferred from them.
 
 ### Still TODO
 
-- The exact JSON structure and value type for each `custom_tags` entry.
-- The exact value(s) associated with `Game Theme` for an app.
-- Whether an app can have multiple theme values and how a primary theme is selected, if needed.
-- The approved taxonomy, identifier stability, and taxonomy version.
-- Missing, unknown, deprecated, and changed-theme behavior.
+- Whether `Game Theme` is always exactly one value.
+- The full `Game Theme` taxonomy.
+- The taxonomy version.
+- Historical taxonomy changes.
+- Missing and deprecated value behavior.
+- The stability of theme labels over time.
+- Whether other `custom_tags` entries follow the same structure and value-type rules beyond the provided sample.
 - Whether theme values are returned in the market result, metadata result, or both.
 - The mapping from source tag values to internal `Theme` records.
 

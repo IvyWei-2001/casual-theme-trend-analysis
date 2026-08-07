@@ -46,16 +46,17 @@ Deliverables
 - Sensor Tower API mapping
 - Internal data model
 - MVP implementation plan
-- Feishu implementation review from `daily-newgames-fetcher`
 
 Exit Criteria
 
-- The old Google Sheets / Apps Script contract is documented.
-- The Feishu implementation from `daily-newgames-fetcher` is inspected and its reusable contract is documented.
+- The old Google Sheets / Apps Script contract and internal data model are documented.
+- These conditions are sufficient to begin `INF-001` and the remaining MVP data-pipeline phases.
 
 Status
 
-Completed in the roadmap; the implementation gate remains open until the Feishu inspection is complete.
+Complete enough to begin `INF-001`. Feishu inspection is deferred to Phase 7, `FS-001`, and is not a prerequisite for the MVP data pipeline.
+
+It is not required before Phase 1 Bootstrap, Phase 2 Sensor Tower, Phase 3 DuckDB, Phase 4 historical loading, or Phase 5 theme aggregation.
 
 ---
 
@@ -277,7 +278,7 @@ Tasks
 
 FS-001
 
-Feishu implementation review
+Feishu implementation review and reuse contract
 
 FS-002
 

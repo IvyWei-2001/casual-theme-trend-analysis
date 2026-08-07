@@ -28,14 +28,14 @@ Close the system-audit gap and establish the internal contracts needed by the re
 ### Work items
 
 - Keep the audited Google Sheets / Apps Script behavior documented: Config-sheet URL and token inputs, custom field filter, local 1000-row limit, source app ID extraction, and separate metadata enrichment.
-- Inspect the Feishu implementation in `daily-newgames-fetcher` and document the reusable authentication, destination, field-mapping, and sync contract.
+- Defer inspection of the Feishu implementation in `daily-newgames-fetcher` to step 7, `FS-001`; reuse the existing code when Feishu implementation begins.
 - Keep the Sensor Tower endpoint URL, request method, and unresolved field semantics as explicit TODOs until evidence is available.
 - Confirm the internal `App`, `Theme`, `Snapshot`, and `ThemeMetric` contracts, including source and unified product identity.
 - Establish configuration, logging, mock, and test conventions without implementing business logic in this phase.
 
 ### Exit criteria
 
-Phase 0 is complete only when the old Apps Script contract and the reusable Feishu implementation are both inspected and documented. The current repository meets the first condition from verified evidence but not the second.
+Phase 0 is complete enough to begin `INF-001` once the old Sensor Tower / Apps Script contract and internal data model are documented. Feishu inspection is not a prerequisite for Bootstrap, Sensor Tower, DuckDB, historical loading, or theme aggregation; it is performed in step 7.
 
 ## 2. Sensor Tower adapter
 
@@ -140,7 +140,8 @@ Publish validated monthly theme metrics to Feishu while keeping DuckDB as the so
 
 ### Work items
 
-- Base the adapter on the inspected `daily-newgames-fetcher` Feishu implementation.
+- `FS-001`: Inspect the Feishu implementation in `daily-newgames-fetcher` and document the reusable authentication, destination, field-mapping, and sync contract.
+- Reuse the existing Feishu code and configuration patterns when implementing this phase.
 - Define the smallest output containing theme identity, period, explicit metrics, Trend Score, confidence, and data-quality status.
 - Map internal `ThemeMetric` values to Feishu fields without making Feishu field names part of analytics logic.
 - Add idempotent synchronization and a mock Feishu boundary for tests.
@@ -154,12 +155,12 @@ A validated local result can be synchronized repeatedly without duplicate output
 
 The first monthly dashboard is accepted in this order:
 
-1. Bootstrap the repository contracts and inspect the reusable Feishu implementation.
+1. Bootstrap the repository once the Sensor Tower / Apps Script contract and internal data model are documented.
 2. Normalize one verified Sensor Tower sample through the market/ranking and metadata paths.
 3. Persist the normalized records in DuckDB.
 4. Load and validate a small historical monthly slice.
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.
-7. Sync the results through the Feishu adapter.
+7. Inspect and reuse the existing Feishu implementation through `FS-001`, then sync the results through the Feishu adapter.
 
 Each external boundary needs a deterministic mock, unit tests, and an integration test. Real credentials must be provided through configuration and never committed.
