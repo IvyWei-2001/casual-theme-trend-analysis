@@ -70,8 +70,9 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 
 ### Still TODO
 
-- The actual endpoint URL is still not visible in the repository evidence.
-- The HTTP method, auth transport, token header/query format, and error response contract are still TODO.
+- Before ST-002, the actual endpoint URL, method, and auth transport were
+  unresolved. ST-002 records the verified market-request boundary below; the
+  response error contract remains represented only by sanitized local errors.
 - The response-sample provenance is not sufficient to assign every observed field to the market request or the separate metadata request; field existence remains verified.
 - Whether all `custom_tags` entries follow the same key/value structure and value-type rules beyond the provided sample is still TODO.
 - The exact semantics, units, currency, period, and transformations of the observed metric fields are still TODO.
@@ -80,28 +81,46 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 
 ### Verified
 
-- The existing Google Sheets / Apps Script workflow collects weekly market data for the project.
-- The configured API URL and auth token are read from the `Config` sheet.
-- The weekly request adds an encoded JSON custom field filter through the query parameter `custom_fields_filter_id`.
-- The filter is for `Game Genre` values `Puzzle` and `Tabletop`, with `global: true` and `exclude: false`.
-- The market result is filtered locally to 1000 rows after the fetch. The evidence does not establish that the API request itself is limited to 1000 rows.
-- The workflow extracts source `app_id` values from the market result before a separate metadata request.
+- The verified base URL is `https://api.sensortower.com` and the verified
+  endpoint path is `/v1/unified/sales_report_estimates_comparison_attributes`.
+- The request method is `GET`; the auth token is supplied as the verified
+  `auth_token` query parameter through local configuration.
+- The approved project scope is category `7012`, country `WW`,
+  `device_type=total`, and Game Genre `Puzzle` or `Tabletop` through the
+  unified endpoint. This is a project rule, not a claim about Sensor Tower's
+  universal Casual definition.
+- The verified query parameters are `comparison_attribute=absolute`,
+  `time_range=day`, `measure=units`, `device_type=total`, `category=7012`,
+  `country=WW`, `date`, `end_date`, `limit=1200`,
+  `custom_tags_mode=include_unified_apps`, `data_model=DM_2025_Q2`,
+  `auth_token`, and compact JSON in `custom_fields_filter_id`.
+- The custom-field filter is `Game Genre` with values `Puzzle` and `Tabletop`,
+  `global: true`, and `exclude: false`.
+- `limit=1200` is an over-fetch candidate limit. The local `final_top_n=1000`
+  is applied only after eligibility filtering; it is never sent to the API.
+- Local eligibility preserves source order, performs case-insensitive Game
+  Genre matching, skips missing or disallowed genres, and optionally excludes
+  records whose `Most Popular Country by Revenue` is `China`.
+- The parser supports the two verified tag shapes: top-level `custom_tags`, or
+  `entities[0].custom_tags` overlaid by `aggregate_tags`; unknown source fields
+  remain as DTO extras.
+- The workflow extracts source `app_id` values from the final market result
+  before the separate metadata request. Metadata enrichment is deferred to
+  ST-003 and is not implemented in ST-002.
 - The observed response field names listed in the Evidence boundary section are verified to exist in real samples. Their business semantics are not thereby verified.
 
 ### Still TODO
 
-- Endpoint URL.
-- HTTP method.
-- Auth transport and token placement.
-- All other request parameters, including geography, platform, ranking metric, and time window.
 - Pagination behavior and the response fields used to determine additional pages.
-- Sorting guarantees and the exact rule used to choose the local 1000 rows.
+- A formal Sensor Tower sorting guarantee. ST-002 currently preserves source
+  response order and does not re-sort records.
 - The metadata request URL, parameters, auth reuse, pagination, and response contract.
 - The exact association between observed response fields and the market or metadata response.
 - Whether `country` is an input scope, a returned dimension, or both.
 - Whether `date` is an observation date, period marker, or another date concept.
 
-The endpoint must remain `TODO` until it is visible in the old Apps Script or approved API documentation.
+The verified market endpoint above is limited to the ST-002 candidate boundary;
+historical and metadata endpoint semantics remain separate TODOs.
 
 ## Historical data
 

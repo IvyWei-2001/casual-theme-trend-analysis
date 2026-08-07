@@ -53,6 +53,32 @@ No LLM classification.
 
 Theme classification comes from Sensor Tower Game Theme / Custom Fields.
 
+## Approved project market scope
+
+For the market-candidate pipeline, this project uses the following operational
+scope:
+
+- Sensor Tower category `7012`;
+- country `WW`;
+- Game Genre `Puzzle` or `Tabletop` through the unified endpoint;
+- `device_type=total`.
+
+This is the approved scope for this project. It is not a claim that Sensor
+Tower universally defines every Casual game with this exact rule.
+
+The verified market request asks for up to `api_limit=1200` candidates. The
+local pipeline applies the eligibility rules first and then retains at most
+`final_top_n=1000` records in source order. The local Global filter excludes a
+record when `Most Popular Country by Revenue` is `China`; this tag is not
+interpreted as publisher country. If fewer eligible records remain, the
+pipeline returns the available records and logs a warning; if none remain, it
+raises a typed error.
+
+The request uses `date` and `end_date`, not `start_date`. Metadata enrichment
+occurs only after final selection and is deferred to ST-003. The formal
+Sensor Tower sorting guarantee remains TODO; the current implementation
+preserves source response order.
+
 ---
 
 # 3. Existing Systems

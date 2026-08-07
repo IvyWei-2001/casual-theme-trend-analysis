@@ -14,6 +14,12 @@ _CONFIG_ENVIRONMENT_NAMES = (
     "APP_CONFIG_FILE",
     "APP_SENSOR_TOWER_API_URL",
     "APP_SENSOR_TOWER_AUTH_TOKEN",
+    "APP_SENSOR_TOWER_API_LIMIT",
+    "APP_SENSOR_TOWER_FINAL_TOP_N",
+    "APP_SENSOR_TOWER_ALLOWED_GENRES",
+    "APP_SENSOR_TOWER_EXCLUDE_CHINA_REVENUE_MARKET",
+    "APP_SENSOR_TOWER_SCOPE_NAME",
+    "APP_SENSOR_TOWER_TIMEOUT_SECONDS",
     "APP_FEISHU_APP_ID",
     "APP_FEISHU_APP_SECRET",
 )
@@ -78,3 +84,25 @@ def test_environment_variables_override_yaml(
 
     assert config.database_path == Path("data/from-env.duckdb")
     assert config.log_level == "DEBUG"
+
+
+def test_local_dotenv_settings_are_loaded_without_exposing_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    token = "local-dotenv-token"
+    (tmp_path / ".env").write_text(
+        "APP_SENSOR_TOWER_AUTH_TOKEN=local-dotenv-token\n"
+        "APP_SENSOR_TOWER_API_LIMIT=1200\n"
+        "APP_SENSOR_TOWER_FINAL_TOP_N=1000\n"
+        "APP_SENSOR_TOWER_ALLOWED_GENRES=[\"Puzzle\",\"Tabletop\"]\n",
+        encoding="utf-8",
+    )
+
+    config = load_config()
+
+    assert config.sensor_tower_auth_token is not None
+    assert config.sensor_tower_auth_token.get_secret_value() == token
+    assert token not in repr(config)
