@@ -1,12 +1,12 @@
 # Implementation Plan
 
-This plan keeps the MVP small and follows the audited two-stage Sensor Tower contract. It is an implementation sequence, not an authorization to implement code in this documentation task.
+This plan keeps the first delivery small and prioritizes monthly historical analysis. It follows the audited two-stage Sensor Tower contract. It is an implementation sequence, not an authorization to implement code in this documentation task.
 
 Every implementation issue remains narrow and should produce one pull request with tests, documentation, type hints, logging, and known limitations. No separate market-intelligence modules are introduced by this plan.
 
 ## MVP scope guard
 
-The MVP contains only:
+The first delivery contains only:
 
 - Sensor Tower ingestion;
 - DuckDB persistence;
@@ -15,11 +15,11 @@ The MVP contains only:
 - Trend Score; and
 - Feishu synchronization.
 
-Weekly market data is the first Sensor Tower ingestion mode. Historical monthly loading is the second ingestion mode. They share the same internal `Snapshot` model and differ by `cadence`.
+The first dashboard delivery is monthly-first. Weekly tracking may be added as a later incremental capability, but it must not block the first monthly dashboard.
 
 The MVP does not include AI prediction, machine learning, LLM theme classification, real-time dashboards, multi-region comparison, scheduled automation, or separate Publisher, Genre, Creative, LiveOps, or AI Summary modules.
 
-## A. Bootstrap
+## 1. Bootstrap repository
 
 ### Purpose
 
@@ -37,7 +37,7 @@ Close the system-audit gap and establish the internal contracts needed by the re
 
 Phase 0 is complete only when the old Apps Script contract and the reusable Feishu implementation are both inspected and documented. The current repository meets the first condition from verified evidence but not the second.
 
-## B. Sensor Tower adapter using verified sample
+## 2. Sensor Tower adapter
 
 ### Purpose
 
@@ -57,7 +57,7 @@ Create the narrow external boundary required to normalize one verified response 
 
 One real approved sample and one deterministic mock sample can be normalized into internal `App`, `Theme`, and `Snapshot` records. Sensor Tower field names do not enter aggregation code.
 
-## C. DuckDB persistence
+## 3. DuckDB persistence
 
 ### Purpose
 
@@ -75,11 +75,11 @@ Persist normalized internal records without making DuckDB or Feishu fields part 
 
 The same normalized input can be persisted repeatedly without creating duplicate observations, and stored records can be read using internal model concepts only.
 
-## D. Historical monthly loading
+## 4. Historical monthly loading
 
 ### Purpose
 
-Load historical monthly market observations after the verified adapter and persistence paths are stable.
+Load the historical monthly observations needed for the first dashboard after the verified adapter and persistence paths are stable.
 
 ### Work items
 
@@ -93,7 +93,7 @@ Load historical monthly market observations after the verified adapter and persi
 
 A historical monthly slice can be loaded idempotently into DuckDB, resumed after interruption, and validated by period, scope, source identity, and row counts.
 
-## E. Theme monthly aggregation
+## 5. Theme monthly aggregation
 
 ### Purpose
 
@@ -111,9 +111,9 @@ Aggregate product snapshots into explicit monthly `ThemeMetric` records.
 
 ### Exit criteria
 
-The same internal snapshots produce deterministic monthly theme metrics, scope and cadence are not mixed, and every metric can be traced back to contributing products.
+The same internal snapshots produce deterministic monthly theme metrics, scope and periods are not mixed, and every metric can be traced back to contributing products.
 
-## F. Trend Score
+## 6. Trend Score
 
 ### Purpose
 
@@ -132,7 +132,7 @@ The exact formula, weights, and use of downloads or revenue remain TODO until th
 
 Identical internal inputs always produce the same score, and each score can be explained from its contributing theme metrics and confidence state.
 
-## G. Feishu sync
+## 7. Feishu sync
 
 ### Purpose
 
@@ -141,7 +141,7 @@ Publish validated monthly theme metrics to Feishu while keeping DuckDB as the so
 ### Work items
 
 - Base the adapter on the inspected `daily-newgames-fetcher` Feishu implementation.
-- Define the smallest output containing theme identity, period, cadence, explicit metrics, Trend Score, confidence, and data-quality status.
+- Define the smallest output containing theme identity, period, explicit metrics, Trend Score, confidence, and data-quality status.
 - Map internal `ThemeMetric` values to Feishu fields without making Feishu field names part of analytics logic.
 - Add idempotent synchronization and a mock Feishu boundary for tests.
 - Publish a ranked monthly theme view; real-time dashboards and workflows remain out of scope.
@@ -152,9 +152,9 @@ A validated local result can be synchronized repeatedly without duplicate output
 
 ## MVP verification sequence
 
-The MVP is accepted in this order:
+The first monthly dashboard is accepted in this order:
 
-1. Bootstrap the audited contracts and inspect the reusable Feishu implementation.
+1. Bootstrap the repository contracts and inspect the reusable Feishu implementation.
 2. Normalize one verified Sensor Tower sample through the market/ranking and metadata paths.
 3. Persist the normalized records in DuckDB.
 4. Load and validate a small historical monthly slice.

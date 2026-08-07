@@ -61,11 +61,13 @@ Sensor Tower remains the only approved market-data source. Business logic must c
   Is Unified
   ```
 
+- Field existence is verified for every top-level field and custom-tag label listed above. Existence alone does not establish business semantics.
+
 ### Still TODO
 
 - The actual endpoint URL is still not visible in the repository evidence.
 - The HTTP method, auth transport, token header/query format, and error response contract are still TODO.
-- The response-sample provenance is not sufficient to assign every observed field to the market request or the separate metadata request.
+- The response-sample provenance is not sufficient to assign every observed field to the market request or the separate metadata request; field existence remains verified.
 - The exact structure, value types, and cardinality of `custom_tags` are still TODO.
 - The exact semantics, units, currency, period, and transformations of the observed metric fields are still TODO.
 

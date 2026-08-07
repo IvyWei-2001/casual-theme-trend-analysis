@@ -8,7 +8,7 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
 
 - The market/ranking response and the metadata enrichment response are separate external inputs.
 - The two inputs are joined through source identity before creating a complete internal observation.
-- The project-generated `app_id` is a canonical internal key, not the only identity used for reconciliation.
+- `app_id` is a project-owned internal identifier, but it is not the only identity used for reconciliation.
 - `source_app_id` is retained for the source product identity. `unified_app_id` is retained when the source makes it available.
 - Missing or unavailable data remains explicit. It must not be converted to zero.
 - Weekly and monthly observations share one `Snapshot` model and are distinguished by `cadence`.
@@ -38,13 +38,13 @@ market/ranking response + metadata response
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `app_id` | Internal identifier | Project-owned canonical key used for internal joins. It must not be the only identity key. |
+| `app_id` | Internal identifier | Project-owned canonical key used for internal joins. |
 | `source_app_id` | Source identifier | Source product identifier mapped from the observed `app_id` field. It is required for source-derived records. |
 | `unified_app_id` | Optional source identifier | Unified product identifier when the source provides one. It may be unavailable. |
 | `name` | Text | Normalized display name used in internal reports. |
 | `publisher_name` | Optional text | Normalized publisher name when verified source data provides it. |
 | `release_date` | Optional date | Chosen release-date concept after the release-date tags are verified. |
-| `platforms` | Set of internal platform values | Platforms represented by the product record. |
+| `platform` | Optional internal platform value | Platform represented by the product record when available. |
 | `identity_status` | Enum | Confirmed, ambiguous, or unavailable identity resolution. |
 
 Identity resolution should prefer a verified `unified_app_id` when available, otherwise use the source context plus `source_app_id`. The exact cross-platform and cross-source reconciliation rule is still TODO.
@@ -73,36 +73,36 @@ The source currently verifies the existence of a `Game Theme` custom-tag label, 
 | `snapshot_id` | Internal identifier | Unique internal observation identifier. |
 | `app_id` | Internal identifier | Canonical internal app reference. |
 | `source_app_id` | Source identifier | Source app identifier used to join the market/ranking row with metadata enrichment. |
-| `period_start` | Optional date/time | Start of the normalized observation period. |
-| `period_end` | Optional date/time | End of the normalized observation period. |
+| `period_start` | Date/time | Start of the normalized observation period. |
+| `period_end` | Date/time | End of the normalized observation period. |
+| `source_date` | Optional date/time | Source date mapped from the observed top-level `date` field after its meaning is verified. |
 | `cadence` | Enum | `weekly` or `monthly`; no separate weekly/monthly model classes. |
 | `market_scope` | Internal scope value | Geography and platform scope for the observation. |
 | `ranking_metric` | Optional internal descriptor | The ranking basis used by the source request, once verified. |
 | `rank_position` | Optional integer | Ranking position in the market result after its semantics are verified. |
 | `downloads` | Optional numeric value | Normalized download measure. Units and semantics remain TODO until verified. |
 | `revenue` | Optional numeric value | Normalized revenue measure. Currency and semantics remain TODO until verified. |
-| `theme` | Optional internal theme reference | Normalized theme assignment from the verified `Game Theme` source tag. Cardinality and missing behavior remain TODO. |
-| `source_date` | Optional date/time | Source date mapped from the observed top-level `date` field after its meaning is verified. |
+| `theme_ids` | Zero or more internal identifiers | Normalized theme assignments from the verified `Game Theme` source tag. Cardinality and missing behavior remain TODO. |
 | `availability` | Structured status | Whether each optional measure is observed, unavailable, or not requested. |
 
 The source market/ranking row and metadata record should be merged into a snapshot through `source_app_id`. The source identity must be retained even when the internal canonical `app_id` is resolved.
 
 ## ThemeMetric
 
-`ThemeMetric` is a derived aggregate for one theme, period, cadence, and market scope. The initial implementation targets monthly theme aggregation.
+`ThemeMetric` is a derived aggregate for one theme, period, and market scope. The initial implementation targets monthly theme aggregation.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `theme_metric_id` | Internal identifier | Unique aggregate identifier. |
 | `theme_id` | Internal identifier | Theme being measured. |
-| `period_start` / `period_end` | Date/time | Aggregation period. |
-| `cadence` | Enum | Aggregation frequency, initially monthly for the MVP. |
+| `period_start` | Date/time | Start of the aggregation period. |
+| `period_end` | Date/time | End of the aggregation period. |
 | `market_scope` | Internal scope value | Scope inherited from compatible snapshots. |
+| `product_count` | Integer | Number of distinct products contributing to the theme aggregate. |
 | `downloads` | Optional numeric value | Sum or other approved aggregate of normalized downloads. Exact aggregation semantics are TODO until the source metric is verified. |
 | `download_share` | Optional numeric value | Theme download share within a compatible period and scope. Denominator and semantics are TODO. |
 | `revenue` | Optional numeric value | Sum or other approved aggregate of normalized revenue. Currency and aggregation semantics are TODO. |
 | `revenue_share` | Optional numeric value | Theme revenue share within a compatible period and scope. Denominator and semantics are TODO. |
-| `product_count` | Integer | Number of distinct products contributing to the theme aggregate. |
 | `new_product_count` | Optional integer | Number of products classified as new under a documented comparison rule. |
 | `publisher_count` | Optional integer | Number of distinct normalized publishers when publisher identity is available. |
 | `concentration` | Optional numeric value | Dependence on a small number of contributing products under an approved calculation. |
@@ -117,9 +117,9 @@ There is deliberately no generic `market_volume` field. The model uses explicit 
 
 - One `App` can have many `Snapshot` records.
 - One `Snapshot` belongs to one `App` and carries the source identity used for market-to-metadata joining.
-- One `Snapshot` references its normalized `theme` assignment for that observation.
+- One `Snapshot` references zero or more `Theme` records through `theme_ids` for that observation.
 - One `Theme` can be referenced by snapshots across products and periods.
-- One `ThemeMetric` aggregates compatible snapshots for one theme, cadence, period, and scope.
+- One `ThemeMetric` aggregates compatible snapshots for one theme, period, and scope.
 - Trend Score is derived from `ThemeMetric`; it is not a Sensor Tower source field.
 - Feishu receives selected `ThemeMetric` outputs. It is not the source of truth.
 - DuckDB is the analytical store. Parquet remains the approved file-oriented boundary required by the project rules.

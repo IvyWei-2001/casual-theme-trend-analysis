@@ -18,53 +18,19 @@ Never implement multiple milestones in one Pull Request.
 
 ---
 
-# Overall Roadmap
+# MVP Execution Order
 
-Phase 0
+The first delivery prioritizes monthly historical analysis:
 
-System Audit
+1. Bootstrap repository
+2. Sensor Tower adapter
+3. DuckDB persistence
+4. Historical monthly loading
+5. Theme monthly aggregation
+6. Trend Score
+7. Feishu sync
 
-↓
-
-Phase 1
-
-Infrastructure
-
-↓
-
-Phase 2
-
-Sensor Tower Integration
-
-↓
-
-Phase 3
-
-Historical Backfill
-
-↓
-
-Phase 4
-
-Theme Aggregation
-
-↓
-
-Phase 5
-
-Trend Analysis
-
-↓
-
-Phase 6
-
-Feishu Dashboard
-
-↓
-
-Phase 7
-
-Automation
+Weekly tracking is a later incremental capability. It must not block the first monthly dashboard delivery.
 
 ---
 
@@ -72,21 +38,24 @@ Automation
 
 Goal
 
-Understand current systems.
+Complete the system audit and document the external contracts.
 
 Deliverables
 
 - Existing architecture
-- API mapping
-- Migration plan
+- Sensor Tower API mapping
+- Internal data model
+- MVP implementation plan
+- Feishu implementation review from `daily-newgames-fetcher`
 
 Exit Criteria
 
-Migration plan approved.
+- The old Google Sheets / Apps Script contract is documented.
+- The Feishu implementation from `daily-newgames-fetcher` is inspected and its reusable contract is documented.
 
 Status
 
-Completed
+Completed in the roadmap; the implementation gate remains open until the Feishu inspection is complete.
 
 ---
 
@@ -94,7 +63,7 @@ Completed
 
 Goal
 
-Build project infrastructure.
+Bootstrap the repository for independent local execution.
 
 Tasks
 
@@ -112,11 +81,11 @@ Logging
 
 INF-004
 
-DuckDB
+DuckDB foundation
 
 INF-005
 
-Parquet
+Parquet boundary
 
 INF-006
 
@@ -124,7 +93,7 @@ Storage abstraction
 
 Exit Criteria
 
-Project runs locally.
+The project foundation can run locally without external API access.
 
 ---
 
@@ -132,37 +101,37 @@ Project runs locally.
 
 Goal
 
-Sensor Tower integration.
+Normalize a verified Sensor Tower response sample.
 
 Tasks
 
 ST-001
 
-Authentication
+Authentication boundary
 
 ST-002
 
-HTTP Client
+HTTP client boundary
 
 ST-003
 
-Pagination
+Pagination contract
 
 ST-004
 
-Top1000
+Market/ranking response mapping
 
 ST-005
 
-Historical Rankings
+Metadata enrichment mapping
 
 ST-006
 
-Custom Fields
+Custom-tag mapping
 
 Exit Criteria
 
-Historical monthly data can be fetched.
+The market/ranking and metadata paths can be mapped into internal models using verified response evidence and mocks.
 
 ---
 
@@ -170,13 +139,43 @@ Historical monthly data can be fetched.
 
 Goal
 
-Historical data storage.
+Persist normalized internal records in DuckDB.
+
+Tasks
+
+DB-001
+
+App identity persistence
+
+DB-002
+
+Theme persistence
+
+DB-003
+
+Snapshot persistence
+
+DB-004
+
+Validation and idempotency
+
+Exit Criteria
+
+The same normalized input can be persisted and read without duplicate observations.
+
+---
+
+# Phase 4
+
+Goal
+
+Load historical monthly data for the first dashboard.
 
 Tasks
 
 HB-001
 
-Monthly backfill
+Monthly loading
 
 HB-002
 
@@ -192,41 +191,7 @@ Validation
 
 Exit Criteria
 
-36 months available.
-
----
-
-# Phase 4
-
-Goal
-
-Theme aggregation.
-
-Tasks
-
-TH-001
-
-Product Age
-
-TH-002
-
-Market Share
-
-TH-003
-
-Publisher
-
-TH-004
-
-Entry Exit
-
-TH-005
-
-Rank Migration
-
-Exit Criteria
-
-Monthly theme metrics generated.
+A small verified monthly history is available and can later expand toward the 36-month roadmap target.
 
 ---
 
@@ -234,7 +199,45 @@ Monthly theme metrics generated.
 
 Goal
 
-Trend Analysis.
+Generate monthly theme metrics.
+
+Tasks
+
+TH-001
+
+Theme mapping
+
+TH-002
+
+Product count
+
+TH-003
+
+Downloads and download share
+
+TH-004
+
+Revenue and revenue share
+
+TH-005
+
+Publisher count and concentration
+
+TH-006
+
+Growth and acceleration
+
+Exit Criteria
+
+Monthly `ThemeMetric` records are generated from compatible internal snapshots without assuming unverified metric semantics.
+
+---
+
+# Phase 6
+
+Goal
+
+Calculate an explainable Trend Score.
 
 Tasks
 
@@ -252,53 +255,15 @@ Concentration
 
 TA-004
 
-Saturation
-
-TA-005
-
-Lifecycle
-
-TA-006
-
 Trend Score
 
-TA-007
+TA-005
 
 Confidence
 
 Exit Criteria
 
-Theme ranking available.
-
----
-
-# Phase 6
-
-Goal
-
-Feishu Dashboard.
-
-Tasks
-
-FS-001
-
-Schema
-
-FS-002
-
-Sync
-
-FS-003
-
-Ranking
-
-FS-004
-
-Summary
-
-Exit Criteria
-
-Dashboard available.
+Monthly theme ranking is reproducible, explainable, and explicit about insufficient data.
 
 ---
 
@@ -306,29 +271,38 @@ Dashboard available.
 
 Goal
 
-Automation.
+Synchronize the first monthly theme dashboard to Feishu.
 
 Tasks
 
-AT-001
+FS-001
 
-GitHub Actions
+Feishu implementation review
 
-AT-002
+FS-002
 
-Weekly workflow
+Schema mapping
 
-AT-003
+FS-003
 
-Monthly workflow
+Sync
 
-AT-004
+FS-004
 
-Release Storage
+Ranking and summary
 
 Exit Criteria
 
-Fully automated.
+The validated monthly theme ranking is available in Feishu without making Feishu the source of truth.
+
+---
+
+# Deferred Incremental Capabilities
+
+- Weekly tracking after the monthly dashboard is validated.
+- Scheduled automation after the manual MVP flow is reliable.
+
+This plan does not add new future platform modules.
 
 ---
 
@@ -364,7 +338,7 @@ Must:
 
 Current Focus
 
-Phase 1
+Phase 1 Bootstrap Repository
 
 Current Issue
 
