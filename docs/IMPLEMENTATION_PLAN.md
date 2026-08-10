@@ -63,9 +63,31 @@ One real approved sample and one deterministic mock sample can be normalized int
 
 Persist normalized internal records without making DuckDB or Feishu fields part of business logic.
 
+### DB-001 implemented boundary
+
+The first persistence issue implements a versioned DuckDB storage package with
+`app_metadata` and `market_snapshots` tables. `app_metadata` is the normalized
+14-day metadata cache; missing metadata is not materialized as a placeholder.
+`market_snapshots` uses the composite period identity
+`(scope_name, cadence, period_start, period_end)` and preserves the verified
+source metric and tag names without assigning unresolved download or revenue
+semantics.
+
+Period writes are complete-period replacements. The repository validates IDs,
+rank contiguity, period identity, and request provenance before deleting the
+old period, inserts all rows in one transaction, and commits only after the
+complete replacement succeeds. Parquet is an explicit deterministic
+export/archive boundary with stable columns and ordering; DuckDB remains the
+local source of truth.
+
+DB-001 has no live collection command and does not implement historical
+backfill, theme aggregation, Trend Score, Feishu synchronization, credentials,
+or authenticated URL storage. Live single-period collection is deferred to
+DB-002.
+
 ### Work items
 
-- Persist `App`, `Theme`, and `Snapshot` through a repository abstraction.
+- Persist normalized app metadata and market snapshot rows through a repository abstraction.
 - Preserve `source_app_id`, optional `unified_app_id`, source date, cadence, ranking metric, and explicit unavailable-data state.
 - Make the market/ranking-to-metadata merge idempotent by internal/source identity rules.
 - Keep DuckDB as the analytical store and retain the project-approved Parquet boundary where file-oriented storage is required.
@@ -157,7 +179,7 @@ The first monthly dashboard is accepted in this order:
 
 1. Bootstrap the repository once the Sensor Tower / Apps Script contract and internal data model are documented.
 2. Normalize one verified Sensor Tower sample through the market/ranking and metadata paths.
-3. Persist the normalized records in DuckDB.
+3. Persist the normalized records in DuckDB through DB-001.
 4. Load and validate a small historical monthly slice.
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.

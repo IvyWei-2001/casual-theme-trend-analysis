@@ -19,6 +19,10 @@ dist/
 data/*.duckdb
 data/*.duckdb.wal
 data/*.parquet
+data/**/*.duckdb
+data/**/*.duckdb.wal
+data/**/*.parquet
+data/exports/
 
 reference/private/
 data/raw/

@@ -95,7 +95,31 @@ batch error without IDs, URLs, tokens, or the original HTTPX exception chain.
 The existing Google Sheets cache contract is documented for compatibility:
 maximum age 14 days, key `unified_app_id`, cached values `name`, `publisher`,
 `androidId`, `iosId`, and `updatedAt`, with only missing or expired IDs fetched.
-ST-003 does not persist this cache; persistent caching is deferred to the
-DuckDB storage issue. The endpoint response shape is verified from the working
+ST-003 does not persist this cache; DB-001 now provides the local persistent
+cache described below. The endpoint response shape is verified from the working
 Apps Script contract, while the automated metadata responses are explicitly
 synthetic contract fixtures rather than captured private exports.
+
+## Local analytical storage (DB-001)
+
+DuckDB is the local source of truth for the first persistent analytical layer.
+Schema initialization is explicit and creates the versioned `schema_migrations`,
+`app_metadata`, and `market_snapshots` tables. A market period is identified by
+`scope_name`, `cadence`, `period_start`, and `period_end`; replacing a period
+validates the complete selected set and atomically replaces every row for that
+composite key. Re-running the same period is idempotent.
+
+`app_metadata` stores only normalized metadata returned by the verified
+enrichment boundary. Cache lookup uses `unified_app_id` and a 14-day maximum
+age: exactly 14 days is fresh, older rows are stale, and missing rows remain
+missing. The lookup never performs network access or an automatic refresh.
+
+Parquet is an explicit export/archive boundary, not the transactional source of
+truth. DB-001 exports both tables with stable columns and ordering, ZSTD
+compression, and an atomic temporary-sibling-file replacement. Generated
+`data/**/*.duckdb`, WAL, and Parquet files are ignored and must not be committed.
+
+DB-001 does not call Sensor Tower, provide a live collection command, perform
+historical backfill, aggregate themes, calculate Trend Score, or synchronize
+Feishu. Live single-period collection is deferred to DB-002; historical loading
+remains a later issue.
