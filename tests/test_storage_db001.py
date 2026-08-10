@@ -153,8 +153,16 @@ def test_schema_initialization_is_idempotent_and_has_no_credential_columns(
     repository.initialize_schema()
 
     tables = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
-    assert tables == {"schema_migrations", "app_metadata", "market_snapshots"}
-    assert connection.execute("SELECT version FROM schema_migrations").fetchall() == [(1,)]
+    assert tables == {
+        "schema_migrations",
+        "app_metadata",
+        "market_snapshots",
+        "monthly_market_totals",
+        "theme_monthly_metrics",
+    }
+    assert connection.execute(
+        "SELECT version FROM schema_migrations ORDER BY version"
+    ).fetchall() == [(1,), (2,)]
 
     forbidden_fragments = ("credential", "token", "password", "secret", "url")
     for table_name in tables:
@@ -642,7 +650,13 @@ def test_no_production_database_is_created_by_test_helpers(tmp_path: Path) -> No
 def test_duckdb_schema_does_not_include_credential_columns(tmp_path: Path) -> None:
     repository = _initialized_repository(tmp_path)
     connection = repository.open()
-    for table_name in ("schema_migrations", "app_metadata", "market_snapshots"):
+    for table_name in (
+        "schema_migrations",
+        "app_metadata",
+        "market_snapshots",
+        "monthly_market_totals",
+        "theme_monthly_metrics",
+    ):
         columns = connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
         assert not any(
             any(

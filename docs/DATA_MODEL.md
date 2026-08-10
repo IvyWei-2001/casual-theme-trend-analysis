@@ -24,8 +24,9 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
 
 ## DB-001 persistent storage contract
 
-DuckDB is the local source of truth for normalized analytical records. DB-001
-implements two business tables plus the `schema_migrations` control table:
+DuckDB is the local source of truth for normalized analytical records. Schema
+version 2 contains four business tables plus the `schema_migrations` control
+table:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -62,7 +63,72 @@ source of truth, and generated database/WAL/Parquet files are not committed.
 
 DB-001 does not implement live collection, historical backfill, theme
 aggregation, Trend Score, or Feishu synchronization. Live single-period
-collection is deferred to DB-002.
+collection is deferred to DB-002. AGG-001 adds the two derived tables described
+below without changing the source-table columns.
+
+## AGG-001 schema-v2 derived storage contract
+
+`monthly_market_totals` and `theme_monthly_metrics` are derived from stored
+`market_snapshots` plus the current normalized `app_metadata` cache. The
+aggregation layer receives internal rows only; it does not receive Sensor
+Tower DTOs and never calls Sensor Tower.
+
+`monthly_market_totals` has one row per `(scope_name, cadence, period_start,
+period_end)` and requires `cadence = monthly`. It records:
+
+- `snapshot_count`: every stored source row in the month, including rows with
+  NULL `game_theme`;
+- `theme_present_count` and `theme_missing_count`: NULL versus non-NULL raw
+  `game_theme` counts;
+- `metadata_coverage_count`: rows whose `unified_app_id` has an
+  `app_metadata` row, even when the metadata name or publisher is NULL;
+- `units_absolute_coverage_count` and `units_absolute_sum`: non-NULL source
+  `units_absolute` count and sum;
+- `revenue_absolute_coverage_count` and `revenue_absolute_sum`: the equivalent
+  source `revenue_absolute` count and sum.
+
+The two source sums are NULL at zero coverage. An observed sum of zero remains
+zero. These source names and their business semantics remain unresolved; they
+are not renamed to downloads or revenue.
+
+`theme_monthly_metrics` has one row for every non-NULL raw `game_theme` value
+observed in a month. Labels such as `Unknown`, `N/A`, and an empty string are
+literal source labels. NULL does not create a theme row. Its formulas are:
+
+```text
+product_share = product_count / monthly_market_totals.snapshot_count
+top_100_count = count(rank_position <= 100)
+top_500_count = count(rank_position <= 500)
+average_rank = arithmetic mean(rank_position)
+median_rank = deterministic median(rank_position)
+units_absolute_share = theme units_absolute_sum / month units_absolute_sum
+revenue_absolute_share = theme revenue_absolute_sum / month revenue_absolute_sum
+```
+
+The source metric shares are NULL when the theme sum or month-wide denominator
+is unavailable, including a zero denominator. Missing-theme rows remain in the
+month-wide denominator, so visible theme shares may sum below 1. Product share
+uses the actual stored monthly population rather than a hard-coded 1,000.
+
+New entry is membership in the current stored monthly Top-N population that is
+absent from the immediately preceding stored calendar month, joined by
+`unified_app_id`. It is not an app release, publication, first launch, or new
+theme classification. A missing or empty previous stored month leaves the
+new-entry fields NULL; a previous month outside the requested range is used
+when it exists in DuckDB.
+
+Publisher metrics use the current normalized metadata cache: coverage counts
+non-NULL `publisher_display_name`, publisher count is the distinct non-NULL
+name count, and top-publisher product share is the largest publisher product
+count divided by publisher coverage. The cache is not historically versioned,
+so publisher-name changes are not interpreted historically.
+
+Replacement validates the complete derived payload, deletes only the requested
+scope/month keys, inserts both derived tables in one transaction, and commits
+only after both succeed. A failed replacement leaves the previous derived
+result and all source rows unchanged. DuckDB remains the source of truth;
+`monthly_market_totals.parquet` and `theme_monthly_metrics.parquet` are
+deterministic exports. AGG-001 does not implement Trend Score.
 
 ## Model overview
 

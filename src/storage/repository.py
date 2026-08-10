@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
 from types import TracebackType
@@ -11,6 +12,7 @@ from typing import Any, Self, cast
 
 import duckdb
 
+from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from .connection import open_duckdb_connection
 from .errors import (
     RepositoryNotOpenError,
@@ -30,6 +32,10 @@ from .schema import (
     APP_METADATA_TABLE,
     MARKET_SNAPSHOT_COLUMNS,
     MARKET_SNAPSHOTS_TABLE,
+    MONTHLY_MARKET_TOTALS_COLUMNS,
+    MONTHLY_MARKET_TOTALS_TABLE,
+    THEME_MONTHLY_METRICS_COLUMNS,
+    THEME_MONTHLY_METRICS_TABLE,
     initialize_schema,
 )
 
@@ -37,6 +43,14 @@ _APP_METADATA_COLUMNS_SQL = ", ".join(APP_METADATA_COLUMNS)
 _APP_METADATA_PLACEHOLDERS_SQL = ", ".join("?" for _ in APP_METADATA_COLUMNS)
 _MARKET_SNAPSHOT_COLUMNS_SQL = ", ".join(MARKET_SNAPSHOT_COLUMNS)
 _MARKET_SNAPSHOT_PLACEHOLDERS_SQL = ", ".join("?" for _ in MARKET_SNAPSHOT_COLUMNS)
+_MONTHLY_MARKET_TOTALS_COLUMNS_SQL = ", ".join(MONTHLY_MARKET_TOTALS_COLUMNS)
+_MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in MONTHLY_MARKET_TOTALS_COLUMNS
+)
+_THEME_MONTHLY_METRICS_COLUMNS_SQL = ", ".join(THEME_MONTHLY_METRICS_COLUMNS)
+_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_MONTHLY_METRICS_COLUMNS
+)
 
 _DELETE_MARKET_PERIOD_SQL = """
 DELETE FROM market_snapshots
@@ -62,6 +76,32 @@ ON CONFLICT (unified_app_id) DO UPDATE SET
     ios_app_id = EXCLUDED.ios_app_id,
     fetched_at = EXCLUDED.fetched_at
 """
+
+_DELETE_MONTHLY_MARKET_TOTALS_SQL = """
+DELETE FROM monthly_market_totals
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_DELETE_THEME_MONTHLY_METRICS_SQL = """
+DELETE FROM theme_monthly_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_INSERT_MONTHLY_MARKET_TOTAL_SQL = (
+    f"INSERT INTO {MONTHLY_MARKET_TOTALS_TABLE} ({_MONTHLY_MARKET_TOTALS_COLUMNS_SQL}) "
+    f"VALUES ({_MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL})"
+)
+
+_INSERT_THEME_MONTHLY_METRIC_SQL = (
+    f"INSERT INTO {THEME_MONTHLY_METRICS_TABLE} ({_THEME_MONTHLY_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL})"
+)
 
 
 class DuckDBRepository:
@@ -141,6 +181,96 @@ class DuckDBRepository:
             [key.scope_name, key.cadence, key.period_start, key.period_end],
         ).fetchall()
         return [_market_snapshot_from_database_row(row) for row in rows]
+
+    def get_monthly_market_totals(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+    ) -> list[MonthlyMarketTotal]:
+        """Read schema-v2 month-wide totals in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        rows = connection.execute(
+            f"SELECT {_MONTHLY_MARKET_TOTALS_COLUMNS_SQL} "
+            f"FROM {MONTHLY_MARKET_TOTALS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, cadence",
+            parameters,
+        ).fetchall()
+        return [_monthly_market_total_from_database_row(row) for row in rows]
+
+    def get_theme_monthly_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMonthlyMetric]:
+        """Read schema-v2 theme metrics in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_MONTHLY_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_MONTHLY_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_monthly_metric_from_database_row(row) for row in rows]
+
+    def replace_theme_monthly_range(
+        self,
+        monthly_totals: Sequence[MonthlyMarketTotal],
+        theme_metrics: Sequence[ThemeMonthlyMetric],
+    ) -> None:
+        """Atomically replace a complete set of schema-v2 derived rows."""
+
+        totals_tuple, metrics_tuple, period_keys = _validate_theme_monthly_range(
+            monthly_totals,
+            theme_metrics,
+        )
+        connection = self._require_initialized_connection()
+
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for key in period_keys:
+                parameters = [
+                    key.scope_name,
+                    key.cadence,
+                    key.period_start,
+                    key.period_end,
+                ]
+                connection.execute(_DELETE_MONTHLY_MARKET_TOTALS_SQL, parameters)
+                connection.execute(_DELETE_THEME_MONTHLY_METRICS_SQL, parameters)
+            connection.executemany(
+                _INSERT_MONTHLY_MARKET_TOTAL_SQL,
+                [_monthly_market_total_parameters(row) for row in totals_tuple],
+            )
+            if metrics_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MONTHLY_METRIC_SQL,
+                    [_theme_monthly_metric_parameters(row) for row in metrics_tuple],
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            _rollback(connection)
+            raise
 
     def upsert_app_metadata(self, rows: Sequence[AppMetadataRow]) -> None:
         """Transaction-safely upsert normalized metadata rows by unified ID."""
@@ -253,6 +383,20 @@ class DuckDBRepository:
         from .parquet import export_app_metadata_to_parquet
 
         export_app_metadata_to_parquet(self, path)
+
+    def export_monthly_market_totals_to_parquet(self, path: str | Path) -> None:
+        """Atomically export monthly totals to deterministic Parquet."""
+
+        from .parquet import export_monthly_market_totals_to_parquet
+
+        export_monthly_market_totals_to_parquet(self, path)
+
+    def export_theme_monthly_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export theme metrics to deterministic Parquet."""
+
+        from .parquet import export_theme_monthly_metrics_to_parquet
+
+        export_theme_monthly_metrics_to_parquet(self, path)
 
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
@@ -372,6 +516,54 @@ def _app_metadata_parameters(row: AppMetadataRow) -> tuple[object, ...]:
     )
 
 
+def _monthly_market_total_parameters(row: MonthlyMarketTotal) -> tuple[object, ...]:
+    return (
+        row.scope_name,
+        row.cadence,
+        row.period_start,
+        row.period_end,
+        row.snapshot_count,
+        row.theme_present_count,
+        row.theme_missing_count,
+        row.metadata_coverage_count,
+        row.units_absolute_coverage_count,
+        row.units_absolute_sum,
+        row.revenue_absolute_coverage_count,
+        row.revenue_absolute_sum,
+        row.calculated_at,
+    )
+
+
+def _theme_monthly_metric_parameters(row: ThemeMonthlyMetric) -> tuple[object, ...]:
+    return (
+        row.scope_name,
+        row.cadence,
+        row.period_start,
+        row.period_end,
+        row.game_theme,
+        row.product_count,
+        row.product_share,
+        row.top_100_count,
+        row.top_500_count,
+        row.average_rank,
+        row.median_rank,
+        row.units_absolute_coverage_count,
+        row.units_absolute_sum,
+        row.units_absolute_share,
+        row.revenue_absolute_coverage_count,
+        row.revenue_absolute_sum,
+        row.revenue_absolute_share,
+        row.has_previous_month,
+        row.new_entry_count,
+        row.returning_product_count,
+        row.new_entry_share,
+        row.publisher_coverage_count,
+        row.publisher_count,
+        row.top_publisher_product_share,
+        row.calculated_at,
+    )
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -380,6 +572,96 @@ def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotR
 def _app_metadata_from_database_row(row: Sequence[object]) -> AppMetadataRow:
     values = dict(zip(APP_METADATA_COLUMNS, row, strict=True))
     return AppMetadataRow(**cast(Any, values))
+
+
+def _monthly_market_total_from_database_row(row: Sequence[object]) -> MonthlyMarketTotal:
+    values = dict(zip(MONTHLY_MARKET_TOTALS_COLUMNS, row, strict=True))
+    return MonthlyMarketTotal(**cast(Any, values))
+
+
+def _theme_monthly_metric_from_database_row(row: Sequence[object]) -> ThemeMonthlyMetric:
+    values = dict(zip(THEME_MONTHLY_METRICS_COLUMNS, row, strict=True))
+    return ThemeMonthlyMetric(**cast(Any, values))
+
+
+def _validate_theme_monthly_range(
+    monthly_totals: Sequence[MonthlyMarketTotal],
+    theme_metrics: Sequence[ThemeMonthlyMetric],
+) -> tuple[
+    tuple[MonthlyMarketTotal, ...],
+    tuple[ThemeMonthlyMetric, ...],
+    tuple[SnapshotPeriodKey, ...],
+]:
+    totals_tuple = tuple(monthly_totals)
+    metrics_tuple = tuple(theme_metrics)
+    if not totals_tuple:
+        raise StorageValidationError("monthly aggregation replacement must contain totals")
+    if any(not isinstance(row, MonthlyMarketTotal) for row in totals_tuple):
+        raise StorageValidationError("monthly totals must be MonthlyMarketTotal values")
+    if any(not isinstance(row, ThemeMonthlyMetric) for row in metrics_tuple):
+        raise StorageValidationError("theme metrics must be ThemeMonthlyMetric values")
+    try:
+        totals_tuple = tuple(replace(row) for row in totals_tuple)
+        metrics_tuple = tuple(replace(row) for row in metrics_tuple)
+    except Exception as error:
+        raise StorageValidationError("derived rows failed validation") from error
+
+    period_keys = tuple(
+        SnapshotPeriodKey(
+            scope_name=row.scope_name,
+            cadence=row.cadence,  # type: ignore[arg-type]
+            period_start=row.period_start,
+            period_end=row.period_end,
+        )
+        for row in totals_tuple
+    )
+    if len(set(period_keys)) != len(period_keys):
+        raise StorageValidationError("monthly totals must have unique period identities")
+    period_key_set = set(period_keys)
+    metric_keys = [
+        SnapshotPeriodKey(
+            scope_name=row.scope_name,
+            cadence=row.cadence,  # type: ignore[arg-type]
+            period_start=row.period_start,
+            period_end=row.period_end,
+        )
+        for row in metrics_tuple
+    ]
+    metric_identity_set = {
+        (key, row.game_theme) for key, row in zip(metric_keys, metrics_tuple, strict=True)
+    }
+    if len(metric_identity_set) != len(metrics_tuple):
+        raise StorageValidationError("theme metrics must have unique identities")
+    if any(key not in period_key_set for key in metric_keys):
+        raise StorageValidationError("theme metrics must belong to the replacement periods")
+    return totals_tuple, metrics_tuple, period_keys
+
+
+def _derived_filter_sql(
+    *,
+    scope_name: str | None,
+    cadence: str,
+    period_start: date | None,
+    period_end: date | None,
+    game_theme: str | None = None,
+) -> tuple[str, list[object]]:
+    if cadence != "monthly":
+        raise StorageValidationError("derived tables only support monthly cadence")
+    clauses = ["cadence = ?"]
+    parameters: list[object] = [cadence]
+    if scope_name is not None:
+        clauses.append("scope_name = ?")
+        parameters.append(scope_name)
+    if period_start is not None:
+        clauses.append("period_start >= ?")
+        parameters.append(period_start)
+    if period_end is not None:
+        clauses.append("period_end <= ?")
+        parameters.append(period_end)
+    if game_theme is not None:
+        clauses.append("game_theme = ?")
+        parameters.append(game_theme)
+    return "WHERE " + " AND ".join(clauses), parameters
 
 
 def _rollback(connection: duckdb.DuckDBPyConnection) -> None:

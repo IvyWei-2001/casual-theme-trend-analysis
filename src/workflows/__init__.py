@@ -1,5 +1,6 @@
 """Application workflows for manually executable collection jobs."""
 
+from .aggregate_themes import aggregate_themes, format_aggregate_themes_summary
 from .backfill_months import backfill_months, format_backfill_summary
 from .collect_month import (
     CollectionClient,
@@ -15,6 +16,8 @@ from .errors import (
     WorkflowMetadataIntegrityError,
 )
 from .models import (
+    AggregateThemesRequest,
+    AggregateThemesSummary,
     BackfillMonthRange,
     BackfillMonthsRange,
     BackfillMonthsRequest,
@@ -27,6 +30,8 @@ from .models import (
 __all__ = [
     "CollectionClient",
     "CollectionRepository",
+    "AggregateThemesRequest",
+    "AggregateThemesSummary",
     "BackfillMonthRange",
     "BackfillMonthsError",
     "BackfillMonthsRange",
@@ -39,8 +44,10 @@ __all__ = [
     "WorkflowError",
     "WorkflowMetadataIntegrityError",
     "app_metadata_row_to_sensor_tower_metadata",
+    "aggregate_themes",
     "backfill_months",
     "collect_month",
     "format_backfill_summary",
+    "format_aggregate_themes_summary",
     "format_collection_summary",
 ]

@@ -10,18 +10,22 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
+from .analysis.errors import AggregationError
 from .config import load_config
 from .logging_config import configure_logging
 from .sensor_tower.errors import SensorTowerConfigurationError, SensorTowerError
 from .storage.errors import StorageError
 from .workflows import (
+    AggregateThemesRequest,
     BackfillMonthsError,
     BackfillMonthsRequest,
     CollectMonthRequest,
     InvalidMonthError,
     WorkflowError,
+    aggregate_themes,
     backfill_months,
     collect_month,
+    format_aggregate_themes_summary,
     format_backfill_summary,
     format_collection_summary,
 )
@@ -84,6 +88,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-export",
         action="store_true",
         help="store DuckDB rows but skip the final Parquet exports",
+    )
+    aggregate_parser = subparsers.add_parser(
+        "aggregate-themes",
+        help="aggregate stored monthly Game Theme rows without network access",
+    )
+    aggregate_parser.add_argument(
+        "--start",
+        required=True,
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    aggregate_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
+    )
+    aggregate_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the month plan without database or file access",
+    )
+    aggregate_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="store derived DuckDB rows but skip both derived Parquet exports",
     )
     return parser
 
@@ -189,6 +217,44 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_backfill_summary(backfill_summary))
+        return 0
+
+    if args.command == "aggregate-themes":
+        current_utc = datetime.now(UTC)
+        aggregate_request = AggregateThemesRequest(
+            start_month=args.start,
+            end_month=args.end,
+            database_path=config.database_path,
+            export_directory=config.export_directory,
+            plan_only=args.plan_only,
+            skip_export=args.skip_export,
+        )
+        try:
+            aggregate_summary = aggregate_themes(
+                aggregate_request,
+                config,
+                current_utc=current_utc,
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except AggregationError as error:
+            _print_error(str(error))
+            return 3
+        except StorageError as error:
+            _print_error(str(error))
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 3
+        except OSError:
+            _print_error("local storage operation failed")
+            return 4
+        except Exception:
+            _print_error("theme aggregation failed")
+            return 4
+
+        print(format_aggregate_themes_summary(aggregate_summary))
         return 0
 
     _print_error("unsupported command")
