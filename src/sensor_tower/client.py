@@ -16,8 +16,19 @@ from .errors import (
     SensorTowerConfigurationError,
     SensorTowerHTTPError,
     SensorTowerMalformedResponseError,
+    SensorTowerMetadataError,
+    SensorTowerMetadataHTTPError,
+    SensorTowerMetadataMalformedResponseError,
+    SensorTowerMetadataRequestError,
+    SensorTowerMetadataTimeoutError,
     SensorTowerRequestError,
     SensorTowerTimeoutError,
+)
+from .metadata_parser import SensorTowerMetadataFetchResult, parse_metadata_response
+from .metadata_request import (
+    DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH,
+    SensorTowerMetadataRequest,
+    SensorTowerMetadataRequestConfig,
 )
 from .parser import parse_market_response
 from .request import (
@@ -39,6 +50,7 @@ class SensorTowerClientConfig(BaseModel):
 
     base_url: str = DEFAULT_SENSOR_TOWER_BASE_URL
     endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH
+    metadata_endpoint_path: str = DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH
     auth_token: SecretStr
     timeout: float = Field(default=DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS, gt=0)
 
@@ -55,6 +67,11 @@ class SensorTowerClientConfig(BaseModel):
     def _validate_endpoint_path(cls, value: str) -> str:
         return SensorTowerRequestConfig(endpoint_path=value).endpoint_path
 
+    @field_validator("metadata_endpoint_path")
+    @classmethod
+    def _validate_metadata_endpoint_path(cls, value: str) -> str:
+        return SensorTowerMetadataRequestConfig(endpoint_path=value).endpoint_path
+
 
 class SensorTowerClient:
     """Synchronous Sensor Tower market client with injectable HTTP transport."""
@@ -65,6 +82,7 @@ class SensorTowerClient:
         *,
         base_url: str = DEFAULT_SENSOR_TOWER_BASE_URL,
         endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH,
+        metadata_endpoint_path: str = DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH,
         timeout: float = DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -76,6 +94,9 @@ class SensorTowerClient:
         self._auth_token = resolve_auth_token(auth_token)
         self._base_url = base_url.rstrip("/")
         self._endpoint_path = SensorTowerRequestConfig(endpoint_path=endpoint_path).endpoint_path
+        self._metadata_endpoint_path = SensorTowerMetadataRequestConfig(
+            endpoint_path=metadata_endpoint_path
+        ).endpoint_path
         self._timeout = timeout
         self._client = httpx.Client(
             base_url=self._base_url,
@@ -96,6 +117,7 @@ class SensorTowerClient:
             config.auth_token,
             base_url=config.base_url,
             endpoint_path=config.endpoint_path,
+            metadata_endpoint_path=config.metadata_endpoint_path,
             timeout=config.timeout,
             transport=transport,
         )
@@ -150,6 +172,50 @@ class SensorTowerClient:
                 "Sensor Tower response did not match the verified market record shape"
             ) from error
 
+    def fetch_metadata_batch(
+        self,
+        request: SensorTowerMetadataRequest,
+    ) -> SensorTowerMetadataFetchResult:
+        """Fetch and validate one metadata batch without retries or pacing."""
+
+        if request.endpoint_path != self._metadata_endpoint_path:
+            raise SensorTowerConfigurationError(
+                "Sensor Tower metadata request endpoint path does not match "
+                "client metadata endpoint path"
+            )
+
+        LOGGER.info(
+            "requesting Sensor Tower metadata batch: endpoint=%s requested=%d",
+            self._metadata_endpoint_path,
+            len(request.app_ids),
+        )
+
+        response, request_error = self._get_metadata_response(request)
+        if request_error is not None:
+            raise request_error
+        if response is None:
+            raise SensorTowerMetadataRequestError("Sensor Tower metadata request failed")
+
+        if not 200 <= response.status_code < 300:
+            raise SensorTowerMetadataHTTPError(response.status_code)
+
+        payload, decode_error = _decode_metadata_json(response)
+        if decode_error is not None:
+            raise decode_error
+        if payload is None:
+            raise SensorTowerMetadataMalformedResponseError(
+                "Sensor Tower metadata response did not contain a JSON payload"
+            )
+
+        parsed, parse_error = _parse_metadata_payload(payload, request.app_ids)
+        if parse_error is not None:
+            raise parse_error
+        if parsed is None:
+            raise SensorTowerMetadataMalformedResponseError(
+                "Sensor Tower metadata response could not be parsed"
+            )
+        return parsed
+
     def _get_response(
         self,
         request: SensorTowerMarketRequest,
@@ -166,6 +232,23 @@ class SensorTowerClient:
             return None, SensorTowerTimeoutError()
         except httpx.RequestError:
             return None, SensorTowerRequestError("Sensor Tower market request failed")
+
+    def _get_metadata_response(
+        self,
+        request: SensorTowerMetadataRequest,
+    ) -> tuple[httpx.Response | None, SensorTowerMetadataRequestError | None]:
+        """Return a metadata response or a sanitized error outside HTTPX scope."""
+
+        try:
+            with _suppress_httpx_request_logging():
+                return self._client.get(
+                    self._metadata_endpoint_path,
+                    params=request.to_query_params(self._auth_token),
+                ), None
+        except httpx.TimeoutException:
+            return None, SensorTowerMetadataTimeoutError()
+        except httpx.RequestError:
+            return None, SensorTowerMetadataRequestError("Sensor Tower metadata request failed")
 
     def close(self) -> None:
         """Close the underlying HTTP client."""
@@ -197,3 +280,41 @@ def _suppress_httpx_request_logging() -> Iterator[None]:
     finally:
         for logger, previous_level in previous_levels:
             logger.setLevel(previous_level)
+
+
+def _decode_metadata_json(
+    response: httpx.Response,
+) -> tuple[object | None, SensorTowerMetadataMalformedResponseError | None]:
+    """Decode JSON without retaining the decoder exception as public context."""
+
+    try:
+        return response.json(), None
+    except ValueError:
+        return (
+            None,
+            SensorTowerMetadataMalformedResponseError(
+                "Sensor Tower metadata response did not contain valid JSON"
+            ),
+        )
+
+
+def _parse_metadata_payload(
+    payload: object,
+    requested_app_ids: tuple[str, ...],
+) -> tuple[
+    SensorTowerMetadataFetchResult | None,
+    SensorTowerMetadataError | None,
+]:
+    """Parse a metadata payload and return sanitized expected errors."""
+
+    try:
+        return parse_metadata_response(payload, requested_app_ids), None
+    except SensorTowerMetadataError as error:
+        return None, error
+    except (TypeError, ValueError):
+        return (
+            None,
+            SensorTowerMetadataMalformedResponseError(
+                "Sensor Tower metadata response did not match the verified shape"
+            ),
+        )

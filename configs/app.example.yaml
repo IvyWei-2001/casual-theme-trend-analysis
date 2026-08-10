@@ -24,3 +24,19 @@ sensor_tower_allowed_genres:
 sensor_tower_exclude_china_revenue_market: true
 sensor_tower_scope_name: casual_puzzle_tabletop
 sensor_tower_timeout_seconds: 30.0
+
+# Sensor Tower unified app metadata enrichment settings.
+sensor_tower_metadata_endpoint_path: /v1/unified/apps
+sensor_tower_metadata_batch_size: 50
+sensor_tower_metadata_app_id_type: unified
+sensor_tower_metadata_fields:
+  - name
+  - publisher
+  - android_publisher_ids
+  - itunes_publisher_ids
+  - android_apps
+  - itunes_apps
+  - unified_app_id
+sensor_tower_metadata_max_retries: 2
+sensor_tower_metadata_retry_delay_seconds: 1.5
+sensor_tower_metadata_batch_delay_seconds: 0.3
