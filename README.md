@@ -138,6 +138,13 @@ enrichment boundary. Cache lookup uses `unified_app_id` and a 14-day maximum
 age: exactly 14 days is fresh, older rows are stale, and missing rows remain
 missing. The lookup never performs network access or an automatic refresh.
 
+Normalized metadata never generates the display fallbacks `"Unknown"` or
+`"N/A"`; missing normalized values remain `None`/SQL `NULL`. Raw Sensor Tower
+source observations in `market_snapshots` are a separate class: source strings
+are preserved literally, including those two values, without trimming or
+interpretation. Missing source values remain `None`/SQL `NULL`, and non-string
+source values still fail storage validation.
+
 Parquet is an explicit export/archive boundary, not the transactional source of
 truth. DB-001 exports both tables with stable columns and ordering, ZSTD
 compression, and an atomic temporary-sibling-file replacement. Generated

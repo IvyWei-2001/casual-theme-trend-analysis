@@ -99,13 +99,23 @@ def _require_text(value: object, *, field_name: str) -> str:
     return value
 
 
-def _optional_text(value: object, *, field_name: str) -> str | None:
+def _optional_normalized_text(value: object, *, field_name: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
         raise StorageValidationError(f"{field_name} must be a string or NULL")
     if value in _PLACEHOLDER_TEXT:
         raise StorageValidationError(f"{field_name} must not use placeholder text")
+    return value
+
+
+def _optional_source_text(value: object, *, field_name: str) -> str | None:
+    """Validate an optional raw source observation without rewriting it."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise StorageValidationError(f"{field_name} must be a string or NULL")
     return value
 
 
@@ -166,12 +176,15 @@ class AppMetadataRow:
         object.__setattr__(
             self,
             "name",
-            _optional_text(self.name, field_name="name"),
+            _optional_normalized_text(self.name, field_name="name"),
         )
         object.__setattr__(
             self,
             "publisher_display_name",
-            _optional_text(self.publisher_display_name, field_name="publisher_display_name"),
+            _optional_normalized_text(
+                self.publisher_display_name,
+                field_name="publisher_display_name",
+            ),
         )
         if self.publisher_resolution_source not in _VALID_PUBLISHER_RESOLUTION_SOURCES:
             raise StorageValidationError(
@@ -180,12 +193,12 @@ class AppMetadataRow:
         object.__setattr__(
             self,
             "android_app_id",
-            _optional_text(self.android_app_id, field_name="android_app_id"),
+            _optional_normalized_text(self.android_app_id, field_name="android_app_id"),
         )
         object.__setattr__(
             self,
             "ios_app_id",
-            _optional_text(self.ios_app_id, field_name="ios_app_id"),
+            _optional_normalized_text(self.ios_app_id, field_name="ios_app_id"),
         )
         object.__setattr__(
             self,
@@ -315,7 +328,7 @@ class MarketSnapshotRow:
             object.__setattr__(
                 self,
                 field_name,
-                _optional_text(getattr(self, field_name), field_name=field_name),
+                _optional_source_text(getattr(self, field_name), field_name=field_name),
             )
 
         for field_name in ("earliest_release_date", "release_date_ww"):

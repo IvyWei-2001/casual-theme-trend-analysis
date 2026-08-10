@@ -31,6 +31,7 @@ def _market_record(
     *,
     include_tags: bool = True,
     current_units_value: int = 10,
+    tag_overrides: dict[str, object] | None = None,
 ) -> SensorTowerMarketRecord:
     tags: dict[str, object] = {}
     if include_tags:
@@ -47,6 +48,8 @@ def _market_record(
             "Most Popular Country by Revenue": "US",
             "Is Unified": "true",
         }
+    if tag_overrides:
+        tags.update(tag_overrides)
     return SensorTowerMarketRecord.model_validate(
         {
             "app_id": app_id,
@@ -75,9 +78,14 @@ def _enriched(
     *,
     metadata: SensorTowerNormalizedMetadata | None = None,
     include_tags: bool = True,
+    tag_overrides: dict[str, object] | None = None,
 ) -> EnrichedMarketRecord:
     return EnrichedMarketRecord(
-        market_record=_market_record(app_id, include_tags=include_tags),
+        market_record=_market_record(
+            app_id,
+            include_tags=include_tags,
+            tag_overrides=tag_overrides,
+        ),
         metadata=metadata,
     )
 
@@ -221,6 +229,98 @@ def test_market_mapper_preserves_order_prefers_metadata_id_and_maps_source_field
     assert [record.market_record.model_dump() for record in records] == before
 
 
+@pytest.mark.parametrize(
+    ("tag_name", "field_name", "value"),
+    [
+        ("Game Setting", "game_setting", "N/A"),
+        ("Game Setting", "game_setting", "Unknown"),
+        ("Game Theme", "game_theme", "N/A"),
+        ("Publisher Country", "publisher_country", "Unknown"),
+    ],
+)
+def test_market_mapper_preserves_raw_source_literals(
+    tag_name: str,
+    field_name: str,
+    value: str,
+) -> None:
+    rows = build_market_snapshot_rows(
+        [_enriched(101, tag_overrides={tag_name: value})],
+        scope_name="global",
+        cadence="monthly",
+        period_start=date(2026, 8, 1),
+        period_end=date(2026, 8, 31),
+        scope_country="WW",
+        device_type="total",
+        category=7012,
+        data_model="DM_2025_Q2",
+        collected_at=AS_OF,
+    )
+
+    assert getattr(rows[0], field_name) == value
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "source_country",
+        "game_theme",
+        "game_genre",
+        "game_subgenre",
+        "game_product_model",
+        "game_art_style",
+        "game_setting",
+        "publisher_country",
+        "most_popular_country_by_revenue",
+        "is_unified_source_value",
+    ],
+)
+def test_market_snapshot_rejects_non_string_raw_source_values(field_name: str) -> None:
+    row = _snapshot_rows((101,))[0]
+
+    with pytest.raises(StorageValidationError, match=field_name):
+        replace(row, **{field_name: 123})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [("name", "Unknown"), ("publisher_display_name", "N/A")],
+)
+def test_app_metadata_rejects_generated_placeholder_text(
+    field_name: str,
+    value: str,
+) -> None:
+    values: dict[str, object] = {
+        "unified_app_id": "1",
+        "name": None,
+        "publisher_display_name": None,
+        "publisher_resolution_source": "unavailable",
+        "android_app_id": None,
+        "ios_app_id": None,
+        "fetched_at": AS_OF,
+    }
+    values[field_name] = value
+
+    with pytest.raises(StorageValidationError, match="placeholder text"):
+        AppMetadataRow(**values)  # type: ignore[arg-type]
+
+
+def test_app_metadata_missing_values_remain_none() -> None:
+    row = AppMetadataRow(
+        unified_app_id="1",
+        name=None,
+        publisher_display_name=None,
+        publisher_resolution_source="unavailable",
+        android_app_id=None,
+        ios_app_id=None,
+        fetched_at=AS_OF,
+    )
+
+    assert row.name is None
+    assert row.publisher_display_name is None
+    assert row.android_app_id is None
+    assert row.ios_app_id is None
+
+
 def test_opaque_ids_and_missing_metrics_round_trip_through_duckdb_and_parquet(
     tmp_path: Path,
 ) -> None:
@@ -312,6 +412,37 @@ def test_opaque_ids_and_missing_metrics_round_trip_through_duckdb_and_parquet(
         "SELECT unified_app_id FROM read_parquet(?)",
         [str(metadata_path)],
     ).fetchone() == ("synthetic-unified-app-001",)
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("game_setting", "N/A"),
+        ("game_setting", "Unknown"),
+        ("game_theme", "N/A"),
+        ("publisher_country", "Unknown"),
+        ("game_setting", None),
+    ],
+)
+def test_raw_source_values_round_trip_through_duckdb_and_parquet(
+    tmp_path: Path,
+    field_name: str,
+    value: str | None,
+) -> None:
+    row = replace(_snapshot_rows((101,))[0], **{field_name: value})
+    repository = _initialized_repository(tmp_path)
+    repository.replace_market_snapshot_period([row])
+
+    stored = repository.get_market_snapshot_period(row.period_key)
+    assert getattr(stored[0], field_name) == value
+
+    parquet_path = tmp_path / "exports" / "market.parquet"
+    repository.export_market_snapshots_to_parquet(parquet_path)
+    assert repository.open().execute(
+        f"SELECT {field_name} FROM read_parquet(?)",
+        [str(parquet_path)],
+    ).fetchone() == (value,)
     repository.close()
 
 

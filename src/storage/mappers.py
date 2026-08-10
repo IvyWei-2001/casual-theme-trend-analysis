@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from typing import cast
 
+from src.sensor_tower.dto import (
+    GAME_ART_STYLE_TAG,
+    GAME_GENRE_TAG,
+    GAME_PRODUCT_MODEL_TAG,
+    GAME_SETTING_TAG,
+    GAME_SUBGENRE_TAG,
+    GAME_THEME_TAG,
+    IS_UNIFIED_TAG,
+    MOST_POPULAR_COUNTRY_BY_REVENUE_TAG,
+    PUBLISHER_COUNTRY_TAG,
+)
 from src.sensor_tower.enrichment import EnrichedMarketRecord, selected_record_unified_app_id
 from src.sensor_tower.metadata_parser import SensorTowerMetadataFetchResult
 
@@ -71,19 +83,35 @@ def build_market_snapshot_rows(
                 absolute=market_record.absolute,
                 delta=market_record.delta,
                 transformed_delta=market_record.transformed_delta,
-                game_theme=market_record.custom_tags.game_theme,
-                game_genre=market_record.custom_tags.game_genre,
-                game_subgenre=market_record.custom_tags.game_subgenre,
-                game_product_model=market_record.custom_tags.game_product_model,
-                game_art_style=market_record.custom_tags.game_art_style,
-                game_setting=market_record.custom_tags.game_setting,
+                game_theme=_raw_source_tag(market_record.custom_tags, GAME_THEME_TAG),
+                game_genre=_raw_source_tag(market_record.custom_tags, GAME_GENRE_TAG),
+                game_subgenre=_raw_source_tag(
+                    market_record.custom_tags,
+                    GAME_SUBGENRE_TAG,
+                ),
+                game_product_model=_raw_source_tag(
+                    market_record.custom_tags,
+                    GAME_PRODUCT_MODEL_TAG,
+                ),
+                game_art_style=_raw_source_tag(
+                    market_record.custom_tags,
+                    GAME_ART_STYLE_TAG,
+                ),
+                game_setting=_raw_source_tag(market_record.custom_tags, GAME_SETTING_TAG),
                 earliest_release_date=market_record.custom_tags.earliest_release_date,
                 release_date_ww=market_record.custom_tags.release_date_ww,
-                publisher_country=market_record.custom_tags.publisher_country,
-                most_popular_country_by_revenue=(
-                    market_record.custom_tags.most_popular_country_by_revenue
+                publisher_country=_raw_source_tag(
+                    market_record.custom_tags,
+                    PUBLISHER_COUNTRY_TAG,
                 ),
-                is_unified_source_value=market_record.custom_tags.is_unified,
+                most_popular_country_by_revenue=_raw_source_tag(
+                    market_record.custom_tags,
+                    MOST_POPULAR_COUNTRY_BY_REVENUE_TAG,
+                ),
+                is_unified_source_value=_raw_source_tag(
+                    market_record.custom_tags,
+                    IS_UNIFIED_TAG,
+                ),
                 collected_at=collected_at,
             )
         )
@@ -131,3 +159,14 @@ def _resolve_unified_app_id(enriched_record: EnrichedMarketRecord) -> str:
             "selected market record has no valid unified_app_id fallback"
         )
     return resolved_id
+
+
+def _raw_source_tag(tags: Mapping[str, object], tag_name: str) -> str | None:
+    """Pass a raw source tag through for validation without changing its value.
+
+    The cast keeps the storage-row constructor's normalized type annotation;
+    ``MarketSnapshotRow`` performs the runtime string-or-NULL validation and
+    therefore rejects an invalid source value instead of treating it as absent.
+    """
+
+    return cast(str | None, tags.get(tag_name))

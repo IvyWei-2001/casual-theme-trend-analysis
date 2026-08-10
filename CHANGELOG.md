@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added ST-005 storage validation that distinguishes normalized metadata from
+  raw Sensor Tower source observations: generated `"Unknown"` and `"N/A"`
+  fallbacks remain rejected for normalized metadata, while raw source tags
+  preserve those literals and missing values remain SQL `NULL`. No schema
+  migration was required.
 - Added ST-004 compatibility for the sanitized live Sensor Tower market
   response: opaque string IDs now flow through market parsing, metadata
   enrichment, DuckDB, Parquet, and DB-002; verified optional source metrics
