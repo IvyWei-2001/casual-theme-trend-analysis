@@ -187,8 +187,7 @@ below and implemented as a separate ST-003 adapter.
 - The existing Google Sheets cache contract is a maximum age of 14 days keyed
   by `unified_app_id`, with cached `name`, `publisher`, `androidId`, `iosId`,
   and `updatedAt`; only missing or expired IDs are fetched. ST-003 documents
-  this behavior but does not persist a local cache. Persistent metadata caching
-  is deferred to the DuckDB storage issue.
+  this behavior, and DB-001 persists the normalized equivalent in DuckDB.
 - The response shape and requested fields are verified from the existing
   working Apps Script contract. The automated metadata responses in this
   repository are synthetic contract fixtures, not captured real Sensor Tower
@@ -198,7 +197,8 @@ below and implemented as a separate ST-003 adapter.
 
 - Metadata pagination and any additional response fields not included in the
   verified Apps Script contract are intentionally outside ST-003.
-- Persistent metadata caching is deferred to the DuckDB storage issue.
+- DB-001 implements persistent metadata caching locally; no automatic network
+  refresh is performed by the storage lookup.
 
 ## Historical data
 

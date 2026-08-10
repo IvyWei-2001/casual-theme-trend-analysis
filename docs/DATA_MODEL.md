@@ -14,6 +14,43 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
 - Weekly and monthly observations share one `Snapshot` model and are distinguished by `cadence`.
 - `ThemeMetric` is derived data and never replaces the underlying snapshots.
 
+## DB-001 persistent storage contract
+
+DuckDB is the local source of truth for normalized analytical records. DB-001
+implements two business tables plus the `schema_migrations` control table:
+
+- `app_metadata` is the normalized, persistent metadata cache keyed by
+  `unified_app_id`. It stores only returned metadata, keeps unavailable values
+  as SQL `NULL`, and records the verified publisher-resolution source.
+- `market_snapshots` stores one final selected product per stored market period.
+  It retains the verified source metric and tag names, including
+  `current_units_value` and `current_revenue_value`; their business semantics
+  remain source-contract TODOs and are not renamed to `downloads` or `revenue`.
+
+The composite market-period identity is:
+
+```text
+(scope_name, cadence, period_start, period_end)
+```
+
+Within one period, `unified_app_id` and `rank_position` are each unique. The
+storage repository validates one complete contiguous rank set and matching
+request provenance before starting a transaction. It then deletes and inserts
+the complete period and commits only after all rows succeed, so a failed
+replacement leaves the previous valid period unchanged.
+
+The metadata cache considers a row fresh when `as_of - fetched_at <= 14 days`.
+Exactly 14 days is fresh; older rows are stale. Lookup preserves first-seen
+input order, deduplicates IDs, distinguishes fresh, stale, and missing values,
+and never performs a network refresh. Parquet exports are deterministic archive
+outputs with explicit columns, stable ordering, ZSTD compression, and an
+atomic temporary-sibling-file replacement. Parquet is not the transactional
+source of truth, and generated database/WAL/Parquet files are not committed.
+
+DB-001 does not implement live collection, historical backfill, theme
+aggregation, Trend Score, or Feishu synchronization. Live single-period
+collection is deferred to DB-002.
+
 ## Model overview
 
 ```text
