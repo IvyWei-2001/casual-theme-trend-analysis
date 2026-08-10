@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import date as Date
 from pathlib import Path
 from typing import Any, Final
 
@@ -13,13 +14,27 @@ from dotenv import dotenv_values
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .sensor_tower.client import SensorTowerClientConfig
+from .sensor_tower.errors import SensorTowerConfigurationError
 from .sensor_tower.request import (
     DEFAULT_SENSOR_TOWER_ALLOWED_GENRES,
     DEFAULT_SENSOR_TOWER_API_LIMIT,
+    DEFAULT_SENSOR_TOWER_BASE_URL,
+    DEFAULT_SENSOR_TOWER_CATEGORY,
+    DEFAULT_SENSOR_TOWER_COUNTRY,
+    DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE,
+    DEFAULT_SENSOR_TOWER_DATA_MODEL,
+    DEFAULT_SENSOR_TOWER_DEVICE_TYPE,
+    DEFAULT_SENSOR_TOWER_ENDPOINT_PATH,
     DEFAULT_SENSOR_TOWER_EXCLUDE_CHINA_REVENUE_MARKET,
+    DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE,
+    DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME,
+    DEFAULT_SENSOR_TOWER_FILTER_GLOBAL,
     DEFAULT_SENSOR_TOWER_FINAL_TOP_N,
     DEFAULT_SENSOR_TOWER_SCOPE_NAME,
     DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS,
+    SensorTowerMarketRequest,
+    SensorTowerRequestConfig,
     SensorTowerSelectionConfig,
 )
 
@@ -33,6 +48,15 @@ _ENVIRONMENT_VARIABLES: Final[dict[str, str]] = {
     "APP_LOG_LEVEL": "log_level",
     "APP_SENSOR_TOWER_API_URL": "sensor_tower_api_url",
     "APP_SENSOR_TOWER_AUTH_TOKEN": "sensor_tower_auth_token",
+    "APP_SENSOR_TOWER_ENDPOINT_PATH": "sensor_tower_endpoint_path",
+    "APP_SENSOR_TOWER_CATEGORY": "sensor_tower_category",
+    "APP_SENSOR_TOWER_COUNTRY": "sensor_tower_country",
+    "APP_SENSOR_TOWER_DEVICE_TYPE": "sensor_tower_device_type",
+    "APP_SENSOR_TOWER_CUSTOM_TAGS_MODE": "sensor_tower_custom_tags_mode",
+    "APP_SENSOR_TOWER_DATA_MODEL": "sensor_tower_data_model",
+    "APP_SENSOR_TOWER_FILTER_FIELD_NAME": "sensor_tower_filter_field_name",
+    "APP_SENSOR_TOWER_FILTER_GLOBAL": "sensor_tower_filter_global",
+    "APP_SENSOR_TOWER_FILTER_EXCLUDE": "sensor_tower_filter_exclude",
     "APP_SENSOR_TOWER_API_LIMIT": "sensor_tower_api_limit",
     "APP_SENSOR_TOWER_FINAL_TOP_N": "sensor_tower_final_top_n",
     "APP_SENSOR_TOWER_ALLOWED_GENRES": "sensor_tower_allowed_genres",
@@ -66,6 +90,15 @@ class AppConfig(BaseSettings):
     log_level: str = "INFO"
     sensor_tower_api_url: str | None = None
     sensor_tower_auth_token: SecretStr | None = None
+    sensor_tower_endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH
+    sensor_tower_category: int = DEFAULT_SENSOR_TOWER_CATEGORY
+    sensor_tower_country: str = DEFAULT_SENSOR_TOWER_COUNTRY
+    sensor_tower_device_type: str = DEFAULT_SENSOR_TOWER_DEVICE_TYPE
+    sensor_tower_custom_tags_mode: str = DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE
+    sensor_tower_data_model: str = DEFAULT_SENSOR_TOWER_DATA_MODEL
+    sensor_tower_filter_field_name: str = DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME
+    sensor_tower_filter_global: bool = DEFAULT_SENSOR_TOWER_FILTER_GLOBAL
+    sensor_tower_filter_exclude: bool = DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE
     sensor_tower_api_limit: int = DEFAULT_SENSOR_TOWER_API_LIMIT
     sensor_tower_final_top_n: int = DEFAULT_SENSOR_TOWER_FINAL_TOP_N
     sensor_tower_allowed_genres: tuple[str, ...] = DEFAULT_SENSOR_TOWER_ALLOWED_GENRES
@@ -79,16 +112,29 @@ class AppConfig(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_sensor_tower_settings(self) -> AppConfig:
-        SensorTowerSelectionConfig(
-            api_limit=self.sensor_tower_api_limit,
-            final_top_n=self.sensor_tower_final_top_n,
-            allowed_genres=self.sensor_tower_allowed_genres,
-            exclude_china_revenue_market=self.sensor_tower_exclude_china_revenue_market,
-            scope_name=self.sensor_tower_scope_name,
-        )
+        _ = self.sensor_tower_request_config
+        _ = self.sensor_tower_selection_config
+        if self.sensor_tower_api_url is not None and not self.sensor_tower_api_url.strip():
+            raise ValueError("Sensor Tower API base URL is not configured")
         if self.sensor_tower_timeout_seconds <= 0:
             raise ValueError("sensor_tower_timeout_seconds must be positive")
         return self
+
+    @property
+    def sensor_tower_request_config(self) -> SensorTowerRequestConfig:
+        """Return validated request-boundary settings."""
+
+        return SensorTowerRequestConfig(
+            endpoint_path=self.sensor_tower_endpoint_path,
+            category=self.sensor_tower_category,
+            country=self.sensor_tower_country,
+            device_type=self.sensor_tower_device_type,
+            custom_tags_mode=self.sensor_tower_custom_tags_mode,
+            data_model=self.sensor_tower_data_model,
+            filter_field_name=self.sensor_tower_filter_field_name,
+            filter_global=self.sensor_tower_filter_global,
+            filter_exclude=self.sensor_tower_filter_exclude,
+        )
 
     @property
     def sensor_tower_selection_config(self) -> SensorTowerSelectionConfig:
@@ -100,6 +146,34 @@ class AppConfig(BaseSettings):
             allowed_genres=self.sensor_tower_allowed_genres,
             exclude_china_revenue_market=self.sensor_tower_exclude_china_revenue_market,
             scope_name=self.sensor_tower_scope_name,
+        )
+
+    @property
+    def sensor_tower_client_config(self) -> SensorTowerClientConfig:
+        """Return the validated client settings, including the configured token."""
+
+        if self.sensor_tower_auth_token is None:
+            raise SensorTowerConfigurationError("APP_SENSOR_TOWER_AUTH_TOKEN is not configured")
+        return SensorTowerClientConfig(
+            base_url=self.sensor_tower_api_url or DEFAULT_SENSOR_TOWER_BASE_URL,
+            endpoint_path=self.sensor_tower_endpoint_path,
+            auth_token=self.sensor_tower_auth_token,
+            timeout=self.sensor_tower_timeout_seconds,
+        )
+
+    def build_sensor_tower_market_request(
+        self,
+        observation_date: Date,
+        *,
+        end_date: Date | None = None,
+    ) -> SensorTowerMarketRequest:
+        """Build request and selection settings from this AppConfig once."""
+
+        return SensorTowerMarketRequest.from_config(
+            observation_date,
+            end_date=end_date,
+            request_config=self.sensor_tower_request_config,
+            selection_config=self.sensor_tower_selection_config,
         )
 
 

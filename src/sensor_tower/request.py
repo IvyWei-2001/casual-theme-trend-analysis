@@ -15,8 +15,15 @@ DEFAULT_SENSOR_TOWER_BASE_URL: Final = "https://api.sensortower.com"
 SENSOR_TOWER_MARKET_ENDPOINT_PATH: Final = (
     "/v1/unified/sales_report_estimates_comparison_attributes"
 )
+DEFAULT_SENSOR_TOWER_ENDPOINT_PATH: Final = SENSOR_TOWER_MARKET_ENDPOINT_PATH
 DEFAULT_SENSOR_TOWER_CATEGORY: Final = 7012
 DEFAULT_SENSOR_TOWER_COUNTRY: Final = "WW"
+DEFAULT_SENSOR_TOWER_DEVICE_TYPE: Final = "total"
+DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE: Final = "include_unified_apps"
+DEFAULT_SENSOR_TOWER_DATA_MODEL: Final = "DM_2025_Q2"
+DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME: Final = "Game Genre"
+DEFAULT_SENSOR_TOWER_FILTER_GLOBAL: Final = True
+DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE: Final = False
 DEFAULT_SENSOR_TOWER_API_LIMIT: Final = 1200
 DEFAULT_SENSOR_TOWER_FINAL_TOP_N: Final = 1000
 DEFAULT_SENSOR_TOWER_EXCLUDE_CHINA_REVENUE_MARKET: Final = True
@@ -73,20 +80,47 @@ class SensorTowerCustomFieldsFilter(BaseModel):
         return fields
 
     @classmethod
-    def for_allowed_genres(cls, allowed_genres: Sequence[str]) -> SensorTowerCustomFieldsFilter:
-        """Build the approved Game Genre filter from local configuration."""
+    def for_allowed_genres(
+        cls,
+        allowed_genres: Sequence[str],
+        *,
+        field_name: str = DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME,
+        is_global: bool = DEFAULT_SENSOR_TOWER_FILTER_GLOBAL,
+        exclude: bool = DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE,
+    ) -> SensorTowerCustomFieldsFilter:
+        """Build a custom-field filter from the configured request scope."""
 
         return cls(
             custom_fields=(
                 SensorTowerCustomFieldFilter.model_validate(
                     {
-                        "name": "Game Genre",
+                        "name": field_name,
                         "values": tuple(allowed_genres),
-                        "global": True,
-                        "exclude": False,
+                        "global": is_global,
+                        "exclude": exclude,
                     }
                 ),
             )
+        )
+
+    def matches_scope(
+        self,
+        allowed_genres: Sequence[str],
+        *,
+        field_name: str,
+        is_global: bool,
+        exclude: bool,
+    ) -> bool:
+        """Return whether this explicit filter matches the configured scope."""
+
+        if len(self.custom_fields) != 1:
+            return False
+        field = self.custom_fields[0]
+        return (
+            field.name == field_name
+            and field.values == tuple(allowed_genres)
+            and field.is_global == is_global
+            and field.exclude == exclude
         )
 
     def compact_json(self) -> str:
@@ -97,6 +131,48 @@ class SensorTowerCustomFieldsFilter(BaseModel):
             separators=(",", ":"),
             ensure_ascii=False,
         )
+
+
+class SensorTowerRequestConfig(BaseModel):
+    """Configurable, verified Sensor Tower request-boundary values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH
+    category: int = Field(default=DEFAULT_SENSOR_TOWER_CATEGORY, gt=0)
+    country: str = DEFAULT_SENSOR_TOWER_COUNTRY
+    device_type: str = DEFAULT_SENSOR_TOWER_DEVICE_TYPE
+    custom_tags_mode: str = DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE
+    data_model: str = DEFAULT_SENSOR_TOWER_DATA_MODEL
+    filter_field_name: str = DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME
+    filter_global: bool = DEFAULT_SENSOR_TOWER_FILTER_GLOBAL
+    filter_exclude: bool = DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE
+
+    @field_validator("endpoint_path")
+    @classmethod
+    def _validate_endpoint_path(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Sensor Tower endpoint path must be non-empty")
+        if not cleaned.startswith("/"):
+            raise ValueError("Sensor Tower endpoint path must start with /")
+        if "?" in cleaned:
+            raise ValueError("Sensor Tower endpoint path must not contain a query string")
+        return cleaned
+
+    @field_validator(
+        "country",
+        "device_type",
+        "custom_tags_mode",
+        "data_model",
+        "filter_field_name",
+    )
+    @classmethod
+    def _validate_nonempty_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Sensor Tower request text fields must be non-empty")
+        return cleaned
 
 
 class SensorTowerSelectionConfig(BaseModel):
@@ -144,17 +220,21 @@ class SensorTowerMarketRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH
     comparison_attribute: str = "absolute"
     time_range: str = "day"
     measure: str = "units"
-    device_type: str = "total"
+    device_type: str = DEFAULT_SENSOR_TOWER_DEVICE_TYPE
     category: int = Field(default=DEFAULT_SENSOR_TOWER_CATEGORY, gt=0)
     country: str = DEFAULT_SENSOR_TOWER_COUNTRY
     date: Date
     end_date: Date
     api_limit: int = Field(default=DEFAULT_SENSOR_TOWER_API_LIMIT, gt=0)
-    custom_tags_mode: str = "include_unified_apps"
-    data_model: str = "DM_2025_Q2"
+    custom_tags_mode: str = DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE
+    data_model: str = DEFAULT_SENSOR_TOWER_DATA_MODEL
+    filter_field_name: str = DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME
+    filter_global: bool = DEFAULT_SENSOR_TOWER_FILTER_GLOBAL
+    filter_exclude: bool = DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE
     custom_fields_filter: SensorTowerCustomFieldsFilter | None = None
 
     final_top_n: int = Field(default=DEFAULT_SENSOR_TOWER_FINAL_TOP_N, gt=0)
@@ -196,17 +276,42 @@ class SensorTowerMarketRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_request(self) -> SensorTowerMarketRequest:
+        self.request_config()
         if self.date > self.end_date:
             raise ValueError("date must be less than or equal to end_date")
         if self.api_limit < self.final_top_n:
             raise ValueError("api_limit must be greater than or equal to final_top_n")
+        expected_filter = SensorTowerCustomFieldsFilter.for_allowed_genres(
+            self.allowed_genres,
+            field_name=self.filter_field_name,
+            is_global=self.filter_global,
+            exclude=self.filter_exclude,
+        )
         if self.custom_fields_filter is None:
-            object.__setattr__(
-                self,
-                "custom_fields_filter",
-                SensorTowerCustomFieldsFilter.for_allowed_genres(self.allowed_genres),
-            )
+            object.__setattr__(self, "custom_fields_filter", expected_filter)
+        elif not self.custom_fields_filter.matches_scope(
+            self.allowed_genres,
+            field_name=self.filter_field_name,
+            is_global=self.filter_global,
+            exclude=self.filter_exclude,
+        ):
+            raise ValueError("custom_fields_filter must match the configured request scope")
         return self
+
+    def request_config(self) -> SensorTowerRequestConfig:
+        """Return the verified request settings represented by this request."""
+
+        return SensorTowerRequestConfig(
+            endpoint_path=self.endpoint_path,
+            category=self.category,
+            country=self.country,
+            device_type=self.device_type,
+            custom_tags_mode=self.custom_tags_mode,
+            data_model=self.data_model,
+            filter_field_name=self.filter_field_name,
+            filter_global=self.filter_global,
+            filter_exclude=self.filter_exclude,
+        )
 
     def selection_config(self) -> SensorTowerSelectionConfig:
         """Return the local selection settings represented by this request."""
@@ -227,6 +332,36 @@ class SensorTowerMarketRequest(BaseModel):
                 "Sensor Tower custom field filter is not configured"
             )
         return self.custom_fields_filter.compact_json()
+
+    @classmethod
+    def from_config(
+        cls,
+        observation_date: Date,
+        *,
+        request_config: SensorTowerRequestConfig,
+        selection_config: SensorTowerSelectionConfig,
+        end_date: Date | None = None,
+    ) -> SensorTowerMarketRequest:
+        """Build a request from one validated application configuration."""
+
+        return cls(
+            endpoint_path=request_config.endpoint_path,
+            category=request_config.category,
+            country=request_config.country,
+            device_type=request_config.device_type,
+            custom_tags_mode=request_config.custom_tags_mode,
+            data_model=request_config.data_model,
+            filter_field_name=request_config.filter_field_name,
+            filter_global=request_config.filter_global,
+            filter_exclude=request_config.filter_exclude,
+            date=observation_date,
+            end_date=observation_date if end_date is None else end_date,
+            api_limit=selection_config.api_limit,
+            final_top_n=selection_config.final_top_n,
+            allowed_genres=selection_config.allowed_genres,
+            exclude_china_revenue_market=selection_config.exclude_china_revenue_market,
+            scope_name=selection_config.scope_name,
+        )
 
     def to_query_params(self, auth_token: SecretStr | str) -> dict[str, QueryParameterValue]:
         """Build the verified query mapping for httpx.
@@ -258,6 +393,7 @@ def build_market_request(
     observation_date: Date,
     *,
     end_date: Date | None = None,
+    endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH,
     category: int = DEFAULT_SENSOR_TOWER_CATEGORY,
     country: str = DEFAULT_SENSOR_TOWER_COUNTRY,
     api_limit: int = DEFAULT_SENSOR_TOWER_API_LIMIT,
@@ -268,13 +404,17 @@ def build_market_request(
     comparison_attribute: str = "absolute",
     time_range: str = "day",
     measure: str = "units",
-    device_type: str = "total",
-    custom_tags_mode: str = "include_unified_apps",
-    data_model: str = "DM_2025_Q2",
+    device_type: str = DEFAULT_SENSOR_TOWER_DEVICE_TYPE,
+    custom_tags_mode: str = DEFAULT_SENSOR_TOWER_CUSTOM_TAGS_MODE,
+    data_model: str = DEFAULT_SENSOR_TOWER_DATA_MODEL,
+    filter_field_name: str = DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME,
+    filter_global: bool = DEFAULT_SENSOR_TOWER_FILTER_GLOBAL,
+    filter_exclude: bool = DEFAULT_SENSOR_TOWER_FILTER_EXCLUDE,
 ) -> SensorTowerMarketRequest:
     """Construct a verified market request for one observation date."""
 
     return SensorTowerMarketRequest(
+        endpoint_path=endpoint_path,
         comparison_attribute=comparison_attribute,
         time_range=time_range,
         measure=measure,
@@ -286,6 +426,9 @@ def build_market_request(
         api_limit=api_limit,
         custom_tags_mode=custom_tags_mode,
         data_model=data_model,
+        filter_field_name=filter_field_name,
+        filter_global=filter_global,
+        filter_exclude=filter_exclude,
         final_top_n=final_top_n,
         allowed_genres=tuple(allowed_genres),
         exclude_china_revenue_market=exclude_china_revenue_market,

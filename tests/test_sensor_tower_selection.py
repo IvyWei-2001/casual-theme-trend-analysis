@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pytest
 
 from src.sensor_tower.dto import SensorTowerMarketRecord
-from src.sensor_tower.errors import NoEligibleMarketRecordsError
+from src.sensor_tower.errors import (
+    NoEligibleMarketRecordsError,
+    SensorTowerSelectionConfigurationError,
+)
 from src.sensor_tower.parser import parse_market_response
-from src.sensor_tower.selection import select_market_records
+from src.sensor_tower.request import SensorTowerSelectionConfig, build_market_request
+from src.sensor_tower.selection import fetch_and_select_market_records, select_market_records
 
 
 def _record(
@@ -215,3 +220,67 @@ def test_aggregate_tags_override_entity_tag_with_same_key() -> None:
     record = parse_market_response([row])[0]
 
     assert record.most_popular_country_by_revenue == "China"
+
+
+class _FakeCandidateClient:
+    def __init__(self, records: list[SensorTowerMarketRecord]) -> None:
+        self.records = records
+
+    def fetch_market_candidates(
+        self,
+        request: object,
+    ) -> list[SensorTowerMarketRecord]:
+        return self.records
+
+
+class _NeverCalledClient:
+    def fetch_market_candidates(self, request: object) -> list[SensorTowerMarketRecord]:
+        raise AssertionError("client must not be called when selection configuration drifts")
+
+
+def test_fetch_and_select_derives_selection_config_from_request() -> None:
+    request = build_market_request(
+        date(2026, 8, 7),
+        api_limit=4,
+        final_top_n=1,
+        allowed_genres=("Puzzle",),
+        exclude_china_revenue_market=False,
+        scope_name="derived_scope",
+    )
+
+    selected = fetch_and_select_market_records(
+        _FakeCandidateClient([_record(1), _record(2, genre="Arcade")]),
+        request,
+    )
+
+    assert [record.app_id for record in selected] == [1]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("api_limit", 3),
+        ("final_top_n", 2),
+        ("allowed_genres", ("Tabletop",)),
+        ("exclude_china_revenue_market", False),
+        ("scope_name", "other_scope"),
+    ],
+)
+def test_explicit_selection_config_must_match_request(
+    field_name: str,
+    value: object,
+) -> None:
+    request = build_market_request(
+        date(2026, 8, 7),
+        api_limit=4,
+        final_top_n=1,
+        allowed_genres=("Puzzle",),
+        exclude_china_revenue_market=True,
+        scope_name="request_scope",
+    )
+    selection_values = request.selection_config().model_dump()
+    selection_values[field_name] = value
+    mismatched_config = SensorTowerSelectionConfig.model_validate(selection_values)
+
+    with pytest.raises(SensorTowerSelectionConfigurationError, match=field_name):
+        fetch_and_select_market_records(_NeverCalledClient(), request, mismatched_config)

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from src.sensor_tower.request import (
     SENSOR_TOWER_MARKET_ENDPOINT_PATH,
+    SensorTowerCustomFieldsFilter,
     SensorTowerMarketRequest,
     build_market_request,
 )
@@ -75,6 +76,66 @@ def test_category_country_and_data_model_are_configurable() -> None:
     assert query["data_model"] == "DM_TEST"
     assert query["date"] == "2026-08-01"
     assert query["end_date"] == "2026-08-02"
+
+
+def test_request_boundary_configuration_drives_the_outbound_filter() -> None:
+    request = build_market_request(
+        date(2026, 8, 7),
+        endpoint_path="/v1/configured-market",
+        category=7001,
+        country="US",
+        device_type="phone",
+        custom_tags_mode="include_unified_apps",
+        data_model="DM_TEST",
+        filter_field_name="Game Genre",
+        filter_global=False,
+        filter_exclude=True,
+        allowed_genres=("Puzzle",),
+    )
+
+    assert request.endpoint_path == "/v1/configured-market"
+    assert json.loads(request.custom_fields_filter_id()) == {
+        "custom_fields": [
+            {
+                "exclude": True,
+                "global": False,
+                "name": "Game Genre",
+                "values": ["Puzzle"],
+            }
+        ]
+    }
+
+
+def test_explicit_custom_filter_must_match_configured_genres() -> None:
+    inconsistent_filter = SensorTowerCustomFieldsFilter.for_allowed_genres(("Tabletop",))
+
+    with pytest.raises(ValidationError, match="custom_fields_filter must match"):
+        SensorTowerMarketRequest(
+            date=date(2026, 8, 7),
+            end_date=date(2026, 8, 7),
+            allowed_genres=("Puzzle",),
+            custom_fields_filter=inconsistent_filter,
+        )
+
+
+@pytest.mark.parametrize("endpoint_path", ["", "v1/market", "/v1/market?country=WW"])
+def test_endpoint_path_is_validated(endpoint_path: str) -> None:
+    with pytest.raises(ValidationError):
+        build_market_request(date(2026, 8, 7), endpoint_path=endpoint_path)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["country", "device_type", "custom_tags_mode", "data_model", "filter_field_name"],
+)
+def test_request_text_boundary_fields_are_nonempty(field_name: str) -> None:
+    with pytest.raises(ValidationError):
+        build_market_request(date(2026, 8, 7), **{field_name: " "})
+
+
+def test_request_category_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        build_market_request(date(2026, 8, 7), category=0)
 
 
 def test_invalid_date_range_fails_before_request_construction() -> None:

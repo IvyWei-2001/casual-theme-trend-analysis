@@ -9,7 +9,7 @@ from types import TracebackType
 from typing import Self
 
 import httpx
-from pydantic import SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from .dto import SensorTowerMarketRecord
 from .errors import (
@@ -22,13 +22,38 @@ from .errors import (
 from .parser import parse_market_response
 from .request import (
     DEFAULT_SENSOR_TOWER_BASE_URL,
+    DEFAULT_SENSOR_TOWER_ENDPOINT_PATH,
     DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS,
-    SENSOR_TOWER_MARKET_ENDPOINT_PATH,
     SensorTowerMarketRequest,
+    SensorTowerRequestConfig,
     resolve_auth_token,
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+class SensorTowerClientConfig(BaseModel):
+    """Validated configuration required to construct a Sensor Tower client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = DEFAULT_SENSOR_TOWER_BASE_URL
+    endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH
+    auth_token: SecretStr
+    timeout: float = Field(default=DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS, gt=0)
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Sensor Tower API base URL is not configured")
+        return cleaned.rstrip("/")
+
+    @field_validator("endpoint_path")
+    @classmethod
+    def _validate_endpoint_path(cls, value: str) -> str:
+        return SensorTowerRequestConfig(endpoint_path=value).endpoint_path
 
 
 class SensorTowerClient:
@@ -39,6 +64,7 @@ class SensorTowerClient:
         auth_token: SecretStr | str,
         *,
         base_url: str = DEFAULT_SENSOR_TOWER_BASE_URL,
+        endpoint_path: str = DEFAULT_SENSOR_TOWER_ENDPOINT_PATH,
         timeout: float = DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -49,6 +75,7 @@ class SensorTowerClient:
 
         self._auth_token = resolve_auth_token(auth_token)
         self._base_url = base_url.rstrip("/")
+        self._endpoint_path = SensorTowerRequestConfig(endpoint_path=endpoint_path).endpoint_path
         self._timeout = timeout
         self._client = httpx.Client(
             base_url=self._base_url,
@@ -56,10 +83,30 @@ class SensorTowerClient:
             transport=transport,
         )
 
+    @classmethod
+    def from_config(
+        cls,
+        config: SensorTowerClientConfig,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> SensorTowerClient:
+        """Construct a client from one validated application configuration."""
+
+        return cls(
+            config.auth_token,
+            base_url=config.base_url,
+            endpoint_path=config.endpoint_path,
+            timeout=config.timeout,
+            transport=transport,
+        )
+
     def __repr__(self) -> str:
         """Represent client configuration without exposing the auth token."""
 
-        return f"SensorTowerClient(base_url={self._base_url!r}, timeout={self._timeout!r})"
+        return (
+            f"SensorTowerClient(base_url={self._base_url!r}, "
+            f"endpoint_path={self._endpoint_path!r}, timeout={self._timeout!r})"
+        )
 
     def fetch_market_candidates(
         self,
@@ -69,22 +116,17 @@ class SensorTowerClient:
 
         LOGGER.info(
             "requesting Sensor Tower market candidates: endpoint=%s date=%s end_date=%s limit=%s",
-            SENSOR_TOWER_MARKET_ENDPOINT_PATH,
+            self._endpoint_path,
             request.date.isoformat(),
             request.end_date.isoformat(),
             request.api_limit,
         )
 
-        try:
-            with _suppress_httpx_request_logging():
-                response = self._client.get(
-                    SENSOR_TOWER_MARKET_ENDPOINT_PATH,
-                    params=request.to_query_params(self._auth_token),
-                )
-        except httpx.TimeoutException as error:
-            raise SensorTowerTimeoutError() from error
-        except httpx.RequestError as error:
-            raise SensorTowerRequestError("Sensor Tower market request failed") from error
+        response, request_error = self._get_response(request)
+        if request_error is not None:
+            raise request_error
+        if response is None:
+            raise SensorTowerRequestError("Sensor Tower market request failed")
 
         if not 200 <= response.status_code < 300:
             raise SensorTowerHTTPError(response.status_code)
@@ -102,6 +144,23 @@ class SensorTowerClient:
             raise SensorTowerMalformedResponseError(
                 "Sensor Tower response did not match the verified market record shape"
             ) from error
+
+    def _get_response(
+        self,
+        request: SensorTowerMarketRequest,
+    ) -> tuple[httpx.Response | None, SensorTowerRequestError | None]:
+        """Return a response or a sanitized error after the HTTP exception scope ends."""
+
+        try:
+            with _suppress_httpx_request_logging():
+                return self._client.get(
+                    self._endpoint_path,
+                    params=request.to_query_params(self._auth_token),
+                ), None
+        except httpx.TimeoutException:
+            return None, SensorTowerTimeoutError()
+        except httpx.RequestError:
+            return None, SensorTowerRequestError("Sensor Tower market request failed")
 
     def close(self) -> None:
         """Close the underlying HTTP client."""

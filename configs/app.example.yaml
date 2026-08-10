@@ -7,6 +7,15 @@ log_level: INFO
 # Sensor Tower market request and local selection settings. Credentials belong
 # in the local .env file or environment variables, never in this file.
 sensor_tower_api_url: https://api.sensortower.com
+sensor_tower_endpoint_path: /v1/unified/sales_report_estimates_comparison_attributes
+sensor_tower_category: 7012
+sensor_tower_country: WW
+sensor_tower_device_type: total
+sensor_tower_custom_tags_mode: include_unified_apps
+sensor_tower_data_model: DM_2025_Q2
+sensor_tower_filter_field_name: Game Genre
+sensor_tower_filter_global: true
+sensor_tower_filter_exclude: false
 sensor_tower_api_limit: 1200
 sensor_tower_final_top_n: 1000
 sensor_tower_allowed_genres:

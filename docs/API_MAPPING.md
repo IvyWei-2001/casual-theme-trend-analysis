@@ -96,6 +96,10 @@ Sensor Tower remains the only approved market-data source. Business logic must c
   `auth_token`, and compact JSON in `custom_fields_filter_id`.
 - The custom-field filter is `Game Genre` with values `Puzzle` and `Tabletop`,
   `global: true`, and `exclude: false`.
+- These verified request-boundary values are configurable through `AppConfig`,
+  YAML, and the matching `APP_` environment variables. The defaults above are
+  retained, and the outbound custom-field filter is derived from the same
+  configured genres, field name, `global`, and `exclude` settings.
 - `limit=1200` is an over-fetch candidate limit. The local `final_top_n=1000`
   is applied only after eligibility filtering; it is never sent to the API.
 - Local eligibility preserves source order, performs case-insensitive Game

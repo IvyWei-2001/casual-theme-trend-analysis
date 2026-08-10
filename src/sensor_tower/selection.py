@@ -79,22 +79,45 @@ def select_market_records(
 def fetch_and_select_market_records(
     client: MarketCandidateClient,
     request: SensorTowerMarketRequest,
-    selection_config: SensorTowerSelectionConfig,
+    selection_config: SensorTowerSelectionConfig | None = None,
 ) -> list[SensorTowerMarketRecord]:
-    """Fetch, normalize through the client, and apply local selection rules."""
+    """Fetch and apply the request's local selection rules in source order.
 
-    if request.api_limit != selection_config.api_limit:
-        raise SensorTowerSelectionConfigurationError(
-            "request api_limit must match selection configuration api_limit"
-        )
+    Normal usage derives the selection configuration directly from the request.
+    The optional argument remains available for callers migrating from the
+    earlier API, but every field is compared before a request is made.
+    """
+
+    request_selection_config = request.selection_config()
+    if selection_config is not None:
+        mismatches = _selection_config_mismatches(request_selection_config, selection_config)
+        if mismatches:
+            mismatch_text = ", ".join(mismatches)
+            raise SensorTowerSelectionConfigurationError(
+                "selection configuration does not match request: " + mismatch_text
+            )
 
     candidates = client.fetch_market_candidates(request)
     return select_market_records(
         candidates,
-        allowed_genres=selection_config.allowed_genres,
-        final_top_n=selection_config.final_top_n,
-        exclude_china_revenue_market=selection_config.exclude_china_revenue_market,
+        allowed_genres=request_selection_config.allowed_genres,
+        final_top_n=request_selection_config.final_top_n,
+        exclude_china_revenue_market=request_selection_config.exclude_china_revenue_market,
     )
+
+
+def _selection_config_mismatches(
+    expected: SensorTowerSelectionConfig,
+    actual: SensorTowerSelectionConfig,
+) -> tuple[str, ...]:
+    fields = (
+        "api_limit",
+        "final_top_n",
+        "allowed_genres",
+        "exclude_china_revenue_market",
+        "scope_name",
+    )
+    return tuple(field for field in fields if getattr(expected, field) != getattr(actual, field))
 
 
 def _normalize_genre(value: str) -> str:
