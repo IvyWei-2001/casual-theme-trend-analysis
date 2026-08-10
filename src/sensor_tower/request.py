@@ -174,6 +174,18 @@ class SensorTowerRequestConfig(BaseModel):
             raise ValueError("Sensor Tower request text fields must be non-empty")
         return cleaned
 
+    @model_validator(mode="after")
+    def _validate_supported_filter_scope(self) -> SensorTowerRequestConfig:
+        if self.filter_field_name != DEFAULT_SENSOR_TOWER_FILTER_FIELD_NAME:
+            raise ValueError(
+                "Sensor Tower MVP supports filter_field_name='Game Genre' only"
+            )
+        if not self.filter_global:
+            raise ValueError("Sensor Tower MVP supports filter_global=true only")
+        if self.filter_exclude:
+            raise ValueError("Sensor Tower MVP supports filter_exclude=false only")
+        return self
+
 
 class SensorTowerSelectionConfig(BaseModel):
     """Configurable local over-fetch and eligibility-selection settings."""
@@ -277,6 +289,10 @@ class SensorTowerMarketRequest(BaseModel):
     @model_validator(mode="after")
     def _validate_request(self) -> SensorTowerMarketRequest:
         self.request_config()
+        if self.allowed_genres != DEFAULT_SENSOR_TOWER_ALLOWED_GENRES:
+            raise ValueError(
+                "Sensor Tower MVP supports allowed_genres=['Puzzle', 'Tabletop'] only"
+            )
         if self.date > self.end_date:
             raise ValueError("date must be less than or equal to end_date")
         if self.api_limit < self.final_top_n:

@@ -113,7 +113,11 @@ class AppConfig(BaseSettings):
     @model_validator(mode="after")
     def _validate_sensor_tower_settings(self) -> AppConfig:
         _ = self.sensor_tower_request_config
-        _ = self.sensor_tower_selection_config
+        selection_config = self.sensor_tower_selection_config
+        if selection_config.allowed_genres != DEFAULT_SENSOR_TOWER_ALLOWED_GENRES:
+            raise ValueError(
+                "Sensor Tower MVP supports allowed_genres=['Puzzle', 'Tabletop'] only"
+            )
         if self.sensor_tower_api_url is not None and not self.sensor_tower_api_url.strip():
             raise ValueError("Sensor Tower API base URL is not configured")
         if self.sensor_tower_timeout_seconds <= 0:

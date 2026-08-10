@@ -13,6 +13,7 @@ import pytest
 from src.config import AppConfig
 from src.sensor_tower.client import SensorTowerClient
 from src.sensor_tower.errors import (
+    SensorTowerConfigurationError,
     SensorTowerHTTPError,
     SensorTowerMalformedResponseError,
     SensorTowerRequestError,
@@ -205,6 +206,59 @@ def test_client_uses_injected_endpoint_path() -> None:
     assert captured[0].url.path == endpoint_path
 
 
+def test_client_rejects_mismatched_endpoint_path_before_network_access() -> None:
+    network_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal network_called
+        network_called = True
+        return httpx.Response(200, json=[_market_row()])
+
+    request = build_market_request(date(2026, 8, 7), endpoint_path="/v1/request-path")
+    with SensorTowerClient(
+        TEST_TOKEN,
+        base_url="https://api.sensortower.com",
+        endpoint_path="/v1/client-path",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(SensorTowerConfigurationError) as error:
+            client.fetch_market_candidates(request)
+
+    assert not network_called
+    _assert_secret_absent(str(error.value))
+    _assert_secret_absent(_formatted_error(error.value))
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("filter_field_name", "Game Theme"),
+        ("filter_global", False),
+        ("filter_exclude", True),
+        ("allowed_genres", ("Arcade",)),
+    ],
+)
+def test_unsupported_filter_scope_fails_before_network_access(
+    field_name: str,
+    value: object,
+) -> None:
+    network_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal network_called
+        network_called = True
+        return httpx.Response(200, json=[_market_row()])
+
+    with _client(httpx.MockTransport(handler)) as client:
+        with pytest.raises(ValueError):
+            request = build_market_request(date(2026, 8, 7), **{field_name: value})
+            client.fetch_market_candidates(request)
+
+    assert not network_called
+
+
 def test_app_config_builds_client_request_and_selection_from_one_boundary() -> None:
     captured: list[httpx.Request] = []
     config = AppConfig(
@@ -217,11 +271,11 @@ def test_app_config_builds_client_request_and_selection_from_one_boundary() -> N
         sensor_tower_custom_tags_mode="include_unified_apps",
         sensor_tower_data_model="DM_TEST",
         sensor_tower_filter_field_name="Game Genre",
-        sensor_tower_filter_global=False,
-        sensor_tower_filter_exclude=True,
+        sensor_tower_filter_global=True,
+        sensor_tower_filter_exclude=False,
         sensor_tower_api_limit=4,
         sensor_tower_final_top_n=1,
-        sensor_tower_allowed_genres=("Puzzle",),
+        sensor_tower_allowed_genres=("Puzzle", "Tabletop"),
         sensor_tower_exclude_china_revenue_market=False,
         sensor_tower_scope_name="configured_scope",
     )

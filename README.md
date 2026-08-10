@@ -49,12 +49,16 @@ genres, optionally removes records whose `Most Popular Country by Revenue` is
 and Trend Score are not part of this boundary.
 
 The verified request-boundary settings are available through `AppConfig`, YAML,
-or the matching `APP_` environment variables: endpoint path, category, country,
-device type, custom-tags mode, data model, custom-field name, and its global and
-exclude flags. `AppConfig.build_sensor_tower_market_request()` derives the
-request and local selection settings from one validated configuration. The
-outbound custom-field filter is built from the same allowed genres and filter
-settings; an explicitly supplied inconsistent filter is rejected.
+or the matching `APP_` environment variables for visibility. The current MVP
+supports only `filter_field_name="Game Genre"`, `filter_global=true`,
+`filter_exclude=false`, and allowed genres `Puzzle` and `Tabletop`; unsupported
+filter-scope changes fail configuration validation instead of being silently
+reinterpreted by local selection. `AppConfig.build_sensor_tower_market_request()`
+derives the request and local selection settings from one validated
+configuration. The outbound custom-field filter is built from the approved
+scope and an explicitly supplied inconsistent filter is rejected. The request
+and client endpoint paths must also match; a mismatch fails before network
+access.
 
 For local credentials, copy `.env.example` to `.env` and set
 `APP_SENSOR_TOWER_AUTH_TOKEN`. The token is never included in logs, object

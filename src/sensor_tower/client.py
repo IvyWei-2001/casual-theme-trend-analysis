@@ -114,6 +114,11 @@ class SensorTowerClient:
     ) -> list[SensorTowerMarketRecord]:
         """Fetch and parse one market response without pagination or retries."""
 
+        if request.endpoint_path != self._endpoint_path:
+            raise SensorTowerConfigurationError(
+                "Sensor Tower request endpoint path does not match client endpoint path"
+            )
+
         LOGGER.info(
             "requesting Sensor Tower market candidates: endpoint=%s date=%s end_date=%s limit=%s",
             self._endpoint_path,

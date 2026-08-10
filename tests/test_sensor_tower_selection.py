@@ -243,7 +243,7 @@ def test_fetch_and_select_derives_selection_config_from_request() -> None:
         date(2026, 8, 7),
         api_limit=4,
         final_top_n=1,
-        allowed_genres=("Puzzle",),
+        allowed_genres=("Puzzle", "Tabletop"),
         exclude_china_revenue_market=False,
         scope_name="derived_scope",
     )
@@ -274,7 +274,7 @@ def test_explicit_selection_config_must_match_request(
         date(2026, 8, 7),
         api_limit=4,
         final_top_n=1,
-        allowed_genres=("Puzzle",),
+        allowed_genres=("Puzzle", "Tabletop"),
         exclude_china_revenue_market=True,
         scope_name="request_scope",
     )

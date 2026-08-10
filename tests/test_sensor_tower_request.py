@@ -78,7 +78,7 @@ def test_category_country_and_data_model_are_configurable() -> None:
     assert query["end_date"] == "2026-08-02"
 
 
-def test_request_boundary_configuration_drives_the_outbound_filter() -> None:
+def test_approved_request_scope_drives_the_outbound_filter() -> None:
     request = build_market_request(
         date(2026, 8, 7),
         endpoint_path="/v1/configured-market",
@@ -88,32 +88,55 @@ def test_request_boundary_configuration_drives_the_outbound_filter() -> None:
         custom_tags_mode="include_unified_apps",
         data_model="DM_TEST",
         filter_field_name="Game Genre",
-        filter_global=False,
-        filter_exclude=True,
-        allowed_genres=("Puzzle",),
+        filter_global=True,
+        filter_exclude=False,
+        allowed_genres=("Puzzle", "Tabletop"),
     )
 
     assert request.endpoint_path == "/v1/configured-market"
+    assert request.selection_config().allowed_genres == ("Puzzle", "Tabletop")
     assert json.loads(request.custom_fields_filter_id()) == {
         "custom_fields": [
             {
-                "exclude": True,
-                "global": False,
+                "exclude": False,
+                "global": True,
                 "name": "Game Genre",
-                "values": ["Puzzle"],
+                "values": ["Puzzle", "Tabletop"],
             }
         ]
     }
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        (
+            "filter_field_name",
+            "Game Theme",
+            "filter_field_name='Game Genre' only",
+        ),
+        ("filter_global", False, "filter_global=true only"),
+        ("filter_exclude", True, "filter_exclude=false only"),
+        ("allowed_genres", ("Arcade",), "allowed_genres"),
+    ],
+)
+def test_unsupported_filter_scope_values_are_rejected(
+    field_name: str,
+    value: object,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        build_market_request(date(2026, 8, 7), **{field_name: value})
+
+
 def test_explicit_custom_filter_must_match_configured_genres() -> None:
-    inconsistent_filter = SensorTowerCustomFieldsFilter.for_allowed_genres(("Tabletop",))
+    inconsistent_filter = SensorTowerCustomFieldsFilter.for_allowed_genres(("Arcade",))
 
     with pytest.raises(ValidationError, match="custom_fields_filter must match"):
         SensorTowerMarketRequest(
             date=date(2026, 8, 7),
             end_date=date(2026, 8, 7),
-            allowed_genres=("Puzzle",),
+            allowed_genres=("Puzzle", "Tabletop"),
             custom_fields_filter=inconsistent_filter,
         )
 

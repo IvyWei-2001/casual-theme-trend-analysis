@@ -116,7 +116,7 @@ def test_sensor_tower_request_boundary_loads_from_yaml_and_environment(
     )
     monkeypatch.setenv("APP_SENSOR_TOWER_ENDPOINT_PATH", "/v1/from-env")
     monkeypatch.setenv("APP_SENSOR_TOWER_CATEGORY", "7002")
-    monkeypatch.setenv("APP_SENSOR_TOWER_FILTER_GLOBAL", "false")
+    monkeypatch.setenv("APP_SENSOR_TOWER_FILTER_GLOBAL", "true")
 
     config = load_config(config_file)
 
@@ -124,7 +124,7 @@ def test_sensor_tower_request_boundary_loads_from_yaml_and_environment(
     assert config.sensor_tower_category == 7002
     assert config.sensor_tower_country == "US"
     assert config.sensor_tower_data_model == "DM_YAML"
-    assert config.sensor_tower_filter_global is False
+    assert config.sensor_tower_filter_global is True
     assert config.sensor_tower_request_config.category == 7002
     assert config.sensor_tower_request_config.endpoint_path == "/v1/from-env"
 

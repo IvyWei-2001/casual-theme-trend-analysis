@@ -96,10 +96,14 @@ Sensor Tower remains the only approved market-data source. Business logic must c
   `auth_token`, and compact JSON in `custom_fields_filter_id`.
 - The custom-field filter is `Game Genre` with values `Puzzle` and `Tabletop`,
   `global: true`, and `exclude: false`.
-- These verified request-boundary values are configurable through `AppConfig`,
-  YAML, and the matching `APP_` environment variables. The defaults above are
-  retained, and the outbound custom-field filter is derived from the same
-  configured genres, field name, `global`, and `exclude` settings.
+- These verified request-boundary values are visible through `AppConfig`, YAML,
+  and the matching `APP_` environment variables. The current MVP supports only
+  `filter_field_name="Game Genre"`, `filter_global=true`,
+  `filter_exclude=false`, and allowed genres `Puzzle` and `Tabletop`;
+  unsupported filter-scope changes fail configuration validation rather than
+  producing a request whose semantics disagree with local selection.
+- The endpoint path is carried by both the request and client configuration;
+  mismatched paths fail with a typed configuration error before network access.
 - `limit=1200` is an over-fetch candidate limit. The local `final_top_n=1000`
   is applied only after eligibility filtering; it is never sent to the API.
 - Local eligibility preserves source order, performs case-insensitive Game
