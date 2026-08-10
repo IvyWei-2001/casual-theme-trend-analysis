@@ -29,6 +29,13 @@ _CONFIG_ENVIRONMENT_NAMES = (
     "APP_SENSOR_TOWER_EXCLUDE_CHINA_REVENUE_MARKET",
     "APP_SENSOR_TOWER_SCOPE_NAME",
     "APP_SENSOR_TOWER_TIMEOUT_SECONDS",
+    "APP_SENSOR_TOWER_METADATA_ENDPOINT_PATH",
+    "APP_SENSOR_TOWER_METADATA_BATCH_SIZE",
+    "APP_SENSOR_TOWER_METADATA_APP_ID_TYPE",
+    "APP_SENSOR_TOWER_METADATA_FIELDS",
+    "APP_SENSOR_TOWER_METADATA_MAX_RETRIES",
+    "APP_SENSOR_TOWER_METADATA_RETRY_DELAY_SECONDS",
+    "APP_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS",
     "APP_FEISHU_APP_ID",
     "APP_FEISHU_APP_SECRET",
 )
@@ -151,3 +158,38 @@ def test_local_dotenv_settings_are_loaded_without_exposing_the_token(
         raise AssertionError("dotenv token was not loaded into the typed configuration")
     if token in repr(config):
         raise AssertionError("typed configuration repr exposed the configured token")
+
+
+def test_metadata_settings_load_from_yaml_and_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_config_environment(monkeypatch)
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(
+        "sensor_tower_metadata_endpoint_path: /v1/yaml-metadata\n"
+        "sensor_tower_metadata_batch_size: 25\n"
+        "sensor_tower_metadata_app_id_type: unified\n"
+        "sensor_tower_metadata_fields:\n"
+        "  - name\n"
+        "  - unified_app_id\n"
+        "sensor_tower_metadata_max_retries: 4\n"
+        "sensor_tower_metadata_retry_delay_seconds: 2.0\n"
+        "sensor_tower_metadata_batch_delay_seconds: 0.5\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_SENSOR_TOWER_METADATA_ENDPOINT_PATH", "/v1/env-metadata")
+    monkeypatch.setenv("APP_SENSOR_TOWER_METADATA_BATCH_SIZE", "50")
+    monkeypatch.setenv(
+        "APP_SENSOR_TOWER_METADATA_FIELDS",
+        '["name","unified_app_id"]',
+    )
+
+    config = load_config(config_file)
+
+    assert config.sensor_tower_metadata_endpoint_path == "/v1/env-metadata"
+    assert config.sensor_tower_metadata_batch_size == 50
+    assert config.sensor_tower_metadata_fields == ("name", "unified_app_id")
+    assert config.sensor_tower_metadata_config.max_retries == 4
+    assert config.sensor_tower_metadata_config.retry_delay_seconds == 2.0
+    assert config.sensor_tower_metadata_config.batch_delay_seconds == 0.5

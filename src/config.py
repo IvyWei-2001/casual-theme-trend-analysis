@@ -7,15 +7,25 @@ import os
 from collections.abc import Mapping
 from datetime import date as Date
 from pathlib import Path
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 import yaml  # type: ignore[import-untyped]
 from dotenv import dotenv_values
-from pydantic import SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .sensor_tower.client import SensorTowerClientConfig
 from .sensor_tower.errors import SensorTowerConfigurationError
+from .sensor_tower.metadata_request import (
+    DEFAULT_SENSOR_TOWER_METADATA_APP_ID_TYPE,
+    DEFAULT_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS,
+    DEFAULT_SENSOR_TOWER_METADATA_BATCH_SIZE,
+    DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH,
+    DEFAULT_SENSOR_TOWER_METADATA_FIELDS,
+    DEFAULT_SENSOR_TOWER_METADATA_MAX_RETRIES,
+    DEFAULT_SENSOR_TOWER_METADATA_RETRY_DELAY_SECONDS,
+    SensorTowerMetadataRequestConfig,
+)
 from .sensor_tower.request import (
     DEFAULT_SENSOR_TOWER_ALLOWED_GENRES,
     DEFAULT_SENSOR_TOWER_API_LIMIT,
@@ -65,6 +75,17 @@ _ENVIRONMENT_VARIABLES: Final[dict[str, str]] = {
     ),
     "APP_SENSOR_TOWER_SCOPE_NAME": "sensor_tower_scope_name",
     "APP_SENSOR_TOWER_TIMEOUT_SECONDS": "sensor_tower_timeout_seconds",
+    "APP_SENSOR_TOWER_METADATA_ENDPOINT_PATH": "sensor_tower_metadata_endpoint_path",
+    "APP_SENSOR_TOWER_METADATA_BATCH_SIZE": "sensor_tower_metadata_batch_size",
+    "APP_SENSOR_TOWER_METADATA_APP_ID_TYPE": "sensor_tower_metadata_app_id_type",
+    "APP_SENSOR_TOWER_METADATA_FIELDS": "sensor_tower_metadata_fields",
+    "APP_SENSOR_TOWER_METADATA_MAX_RETRIES": "sensor_tower_metadata_max_retries",
+    "APP_SENSOR_TOWER_METADATA_RETRY_DELAY_SECONDS": (
+        "sensor_tower_metadata_retry_delay_seconds"
+    ),
+    "APP_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS": (
+        "sensor_tower_metadata_batch_delay_seconds"
+    ),
     "APP_FEISHU_APP_ID": "feishu_app_id",
     "APP_FEISHU_APP_SECRET": "feishu_app_secret",
 }
@@ -107,12 +128,26 @@ class AppConfig(BaseSettings):
     )
     sensor_tower_scope_name: str = DEFAULT_SENSOR_TOWER_SCOPE_NAME
     sensor_tower_timeout_seconds: float = DEFAULT_SENSOR_TOWER_TIMEOUT_SECONDS
+    sensor_tower_metadata_endpoint_path: str = DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH
+    sensor_tower_metadata_batch_size: int = DEFAULT_SENSOR_TOWER_METADATA_BATCH_SIZE
+    sensor_tower_metadata_app_id_type: str = DEFAULT_SENSOR_TOWER_METADATA_APP_ID_TYPE
+    sensor_tower_metadata_fields: Annotated[tuple[str, ...], NoDecode] = (
+        DEFAULT_SENSOR_TOWER_METADATA_FIELDS
+    )
+    sensor_tower_metadata_max_retries: int = DEFAULT_SENSOR_TOWER_METADATA_MAX_RETRIES
+    sensor_tower_metadata_retry_delay_seconds: float = (
+        DEFAULT_SENSOR_TOWER_METADATA_RETRY_DELAY_SECONDS
+    )
+    sensor_tower_metadata_batch_delay_seconds: float = (
+        DEFAULT_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS
+    )
     feishu_app_id: str | None = None
     feishu_app_secret: SecretStr | None = None
 
     @model_validator(mode="after")
     def _validate_sensor_tower_settings(self) -> AppConfig:
         _ = self.sensor_tower_request_config
+        _ = self.sensor_tower_metadata_config
         selection_config = self.sensor_tower_selection_config
         if selection_config.allowed_genres != DEFAULT_SENSOR_TOWER_ALLOWED_GENRES:
             raise ValueError(
@@ -123,6 +158,13 @@ class AppConfig(BaseSettings):
         if self.sensor_tower_timeout_seconds <= 0:
             raise ValueError("sensor_tower_timeout_seconds must be positive")
         return self
+
+    @field_validator("sensor_tower_metadata_fields", mode="before")
+    @classmethod
+    def _parse_metadata_fields(cls, value: object) -> object:
+        if isinstance(value, str):
+            return _parse_metadata_fields_environment_value(value)
+        return value
 
     @property
     def sensor_tower_request_config(self) -> SensorTowerRequestConfig:
@@ -153,6 +195,20 @@ class AppConfig(BaseSettings):
         )
 
     @property
+    def sensor_tower_metadata_config(self) -> SensorTowerMetadataRequestConfig:
+        """Return validated metadata endpoint, batching, retry, and pacing settings."""
+
+        return SensorTowerMetadataRequestConfig(
+            endpoint_path=self.sensor_tower_metadata_endpoint_path,
+            batch_size=self.sensor_tower_metadata_batch_size,
+            app_id_type=self.sensor_tower_metadata_app_id_type,
+            fields=self.sensor_tower_metadata_fields,
+            max_retries=self.sensor_tower_metadata_max_retries,
+            retry_delay_seconds=self.sensor_tower_metadata_retry_delay_seconds,
+            batch_delay_seconds=self.sensor_tower_metadata_batch_delay_seconds,
+        )
+
+    @property
     def sensor_tower_client_config(self) -> SensorTowerClientConfig:
         """Return the validated client settings, including the configured token."""
 
@@ -161,6 +217,7 @@ class AppConfig(BaseSettings):
         return SensorTowerClientConfig(
             base_url=self.sensor_tower_api_url or DEFAULT_SENSOR_TOWER_BASE_URL,
             endpoint_path=self.sensor_tower_endpoint_path,
+            metadata_endpoint_path=self.sensor_tower_metadata_endpoint_path,
             auth_token=self.sensor_tower_auth_token,
             timeout=self.sensor_tower_timeout_seconds,
         )
@@ -219,6 +276,8 @@ def _environment_values(environ: Mapping[str, str]) -> dict[str, Any]:
         value = environ[environment_name]
         if field_name == "sensor_tower_allowed_genres":
             values[field_name] = _parse_allowed_genres_environment_value(value)
+        elif field_name == "sensor_tower_metadata_fields":
+            values[field_name] = _parse_metadata_fields_environment_value(value)
         else:
             values[field_name] = value
     return values
@@ -245,6 +304,19 @@ def _parse_allowed_genres_environment_value(value: str) -> list[str]:
 
     if not isinstance(parsed, list):
         raise ValueError("APP_SENSOR_TOWER_ALLOWED_GENRES must be a JSON array or CSV list")
+    return [item for item in parsed if isinstance(item, str)]
+
+
+def _parse_metadata_fields_environment_value(value: str) -> list[str]:
+    """Normalize JSON or comma-separated metadata fields for Pydantic."""
+
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = [item.strip() for item in value.split(",")]
+
+    if not isinstance(parsed, list):
+        raise ValueError("APP_SENSOR_TOWER_METADATA_FIELDS must be a JSON array or CSV list")
     return [item for item in parsed if isinstance(item, str)]
 
 

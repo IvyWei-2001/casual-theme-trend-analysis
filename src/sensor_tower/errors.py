@@ -34,6 +34,51 @@ class SensorTowerMalformedResponseError(SensorTowerRequestError):
     """Raised when a response is not valid JSON or not the verified shape."""
 
 
+class SensorTowerMetadataError(SensorTowerError):
+    """Base class for expected metadata-enrichment failures."""
+
+
+class SensorTowerMetadataRequestError(SensorTowerMetadataError):
+    """Raised when one metadata batch request cannot be completed safely."""
+
+
+class SensorTowerMetadataHTTPError(SensorTowerMetadataRequestError):
+    """Raised for a non-successful metadata HTTP response."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(
+            f"Sensor Tower metadata request failed with HTTP status {status_code}"
+        )
+
+
+class SensorTowerMetadataTimeoutError(SensorTowerMetadataRequestError):
+    """Raised when one metadata request exceeds its configured timeout."""
+
+    def __init__(self) -> None:
+        super().__init__("Sensor Tower metadata request timed out")
+
+
+class SensorTowerMetadataMalformedResponseError(SensorTowerMetadataRequestError):
+    """Raised when metadata JSON or its response envelope is malformed."""
+
+
+class SensorTowerMetadataIntegrityError(SensorTowerMetadataError):
+    """Raised when metadata IDs violate the requested-response integrity rules."""
+
+
+class SensorTowerMetadataBatchError(SensorTowerMetadataRequestError):
+    """Raised after all sanitized attempts for one metadata batch fail."""
+
+    def __init__(self, batch_number: int, attempts: int) -> None:
+        self.batch_number = batch_number
+        self.attempts = attempts
+        super().__init__(
+            "Sensor Tower metadata batch "
+            f"{batch_number} failed after {attempts} attempts"
+        )
+
+
 class SensorTowerSelectionConfigurationError(SensorTowerError):
     """Raised when local candidate-selection settings are invalid."""
 

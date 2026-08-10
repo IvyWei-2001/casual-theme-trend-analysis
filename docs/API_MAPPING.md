@@ -27,6 +27,9 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 - The request appends `custom_fields_filter_id=<encoded JSON>` to the configured API URL.
 - The Apps Script fetches market data first, filters the result locally to 1000 rows, extracts `app_id` values, and fetches metadata separately.
 - The existing workflow therefore distinguishes market/ranking data from metadata enrichment.
+- The verified metadata enrichment request uses `GET /v1/unified/apps` at the
+  verified base URL and sends the unified app IDs selected after local market
+  filtering.
 - Real Sensor Tower response samples show the following top-level field names:
 
   ```text
@@ -122,13 +125,80 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 - Pagination behavior and the response fields used to determine additional pages.
 - A formal Sensor Tower sorting guarantee. ST-002 currently preserves source
   response order and does not re-sort records.
-- The metadata request URL, parameters, auth reuse, pagination, and response contract.
 - The exact association between observed response fields and the market or metadata response.
 - Whether `country` is an input scope, a returned dimension, or both.
 - Whether `date` is an observation date, period marker, or another date concept.
 
 The verified market endpoint above is limited to the ST-002 candidate boundary;
-historical and metadata endpoint semantics remain separate TODOs.
+historical endpoint semantics remain TODO. The metadata contract is recorded
+below and implemented as a separate ST-003 adapter.
+
+## Unified app metadata endpoint
+
+### Verified
+
+- The verified base URL is `https://api.sensortower.com` and the metadata
+  endpoint path is `/v1/unified/apps`.
+- The request method is `GET`. The verified query parameters are exactly
+  `app_id_type=unified`, `app_ids` as a comma-separated list of unified app
+  IDs, `fields` as a comma-separated list, and `auth_token`.
+- The verified requested fields, in order, are:
+
+  ```text
+  name
+  publisher
+  android_publisher_ids
+  itunes_publisher_ids
+  android_apps
+  itunes_apps
+  unified_app_id
+  ```
+
+- The verified response envelope is an object with an `apps` array. Each
+  metadata app requires `unified_app_id`; `name`, `publisher`, publisher-ID
+  arrays, and Android/iTunes app-reference arrays are optional. Unknown source
+  fields are tolerated and are not retained in normalized internal metadata.
+- `unified_app_id` accepts positive integer values and numeric strings that can
+  be safely normalized to a positive string ID. Invalid or empty IDs fail
+  validation. Android and iTunes reference `app_id` values are normalized to
+  optional strings.
+- Metadata is requested only after the market candidate request, local
+  eligibility filtering, and final `final_top_n` selection. Empty IDs are
+  removed, IDs are deduplicated while preserving first-seen order, and batches
+  contain at most 50 IDs. A final set of 1,000 unique selected records makes
+  exactly 20 metadata requests.
+- Metadata is attached in selected market-record order without mutating the
+  selected records. Duplicate selected records remain duplicated; missing
+  metadata produces `metadata=None` and does not remove a market record.
+- Publisher resolution follows the verified Apps Script precedence:
+  `android_publisher_ids[0]` with `+` replaced by a space, then `publisher.name`,
+  then the first `itunes_publisher_ids` value converted to text, otherwise
+  unavailable. The normalized model records the resolution source and keeps
+  missing values as `None`, never `"Unknown"` or `"N/A"`.
+- A failed batch is retried at most two times after the initial attempt, with a
+  1.5-second delay before retries. A 0.3-second delay occurs only between
+  batches, never after the final batch. Timeout, HTTP failure, non-2xx response,
+  malformed JSON, and malformed response envelopes are retryable. Exhaustion
+  raises a sanitized typed batch error that identifies only the batch number.
+- Duplicate response IDs and response IDs that were not requested fail
+  integrity validation. Missing requested IDs are recorded and logged only as
+  counts; the full ID list is not logged. An absent `apps` field is documented
+  and tested as an empty result, while a non-list `apps` value is malformed.
+- The existing Google Sheets cache contract is a maximum age of 14 days keyed
+  by `unified_app_id`, with cached `name`, `publisher`, `androidId`, `iosId`,
+  and `updatedAt`; only missing or expired IDs are fetched. ST-003 documents
+  this behavior but does not persist a local cache. Persistent metadata caching
+  is deferred to the DuckDB storage issue.
+- The response shape and requested fields are verified from the existing
+  working Apps Script contract. The automated metadata responses in this
+  repository are synthetic contract fixtures, not captured real Sensor Tower
+  exports.
+
+### Still TODO
+
+- Metadata pagination and any additional response fields not included in the
+  verified Apps Script contract are intentionally outside ST-003.
+- Persistent metadata caching is deferred to the DuckDB storage issue.
 
 ## Historical data
 
