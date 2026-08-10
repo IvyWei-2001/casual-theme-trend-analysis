@@ -10,7 +10,12 @@ from typing import Protocol
 import duckdb
 
 from .errors import ParquetExportError
-from .schema import APP_METADATA_COLUMNS, MARKET_SNAPSHOT_COLUMNS
+from .schema import (
+    APP_METADATA_COLUMNS,
+    MARKET_SNAPSHOT_COLUMNS,
+    MONTHLY_MARKET_TOTALS_COLUMNS,
+    THEME_MONTHLY_METRICS_COLUMNS,
+)
 
 
 class StorageRepositoryProtocol(Protocol):
@@ -47,6 +52,36 @@ def export_app_metadata_to_parquet(
         table_name="app_metadata",
         columns=APP_METADATA_COLUMNS,
         order_by=("unified_app_id",),
+    )
+
+
+def export_monthly_market_totals_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export derived monthly totals with stable columns and identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="monthly_market_totals",
+        columns=MONTHLY_MARKET_TOTALS_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end"),
+    )
+
+
+def export_theme_monthly_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export derived theme metrics with stable columns and identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_monthly_metrics",
+        columns=THEME_MONTHLY_METRICS_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "game_theme"),
     )
 
 

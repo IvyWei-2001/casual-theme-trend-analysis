@@ -30,7 +30,7 @@ class SchemaNotInitializedError(SchemaError):
 
 
 class SchemaInitializationError(SchemaError):
-    """Raised when an existing database cannot be safely used as schema version 1."""
+    """Raised when an existing database cannot be safely used by this schema."""
 
 
 class UnsupportedSchemaVersionError(SchemaError):

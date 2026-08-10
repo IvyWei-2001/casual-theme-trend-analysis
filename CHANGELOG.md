@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added AGG-001 deterministic monthly Game Theme aggregation over stored
+  DuckDB snapshots and normalized metadata. Schema version 2 now migrates
+  sequentially and adds `monthly_market_totals` plus `theme_monthly_metrics`,
+  with actual monthly population denominators, raw theme labels, explicit NULL
+  source coverage, previous-month membership, current-cache publisher metrics,
+  atomic derived replacement, and deterministic Parquet exports. The command
+  never calls Sensor Tower. Trend Score, weekly aggregation, lifecycle labels,
+  opportunity ranking, Feishu, scheduling, and AI summaries remain deferred.
 - Added HIST-001 resumable monthly historical backfill with inclusive UTC
   range validation, plan-only mode, existing-period skipping, refresh and
   fail-fast resume behavior, shared metadata-cache reuse, one final Parquet

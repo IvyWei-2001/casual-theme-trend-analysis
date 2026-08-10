@@ -172,6 +172,33 @@ class BackfillMonthsRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class AggregateThemesRequest:
+    """Validated inputs for a local monthly Game Theme aggregation."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class CollectMonthSummary:
     """Sanitized result of one plan or completed collection run."""
 
@@ -217,6 +244,29 @@ class BackfillMonthsSummary:
     database_path: Path
     market_parquet_path: Path | None
     metadata_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class AggregateThemesSummary:
+    """Sanitized result of a validated or completed theme aggregation."""
+
+    start_month: str
+    end_month: str
+    planned_month_count: int
+    planned_months: tuple[str, ...]
+    aggregated_month_count: int
+    monthly_totals_row_count: int
+    theme_metrics_row_count: int
+    source_snapshot_row_count: int
+    source_missing_theme_count: int
+    source_units_coverage_count: int
+    source_revenue_coverage_count: int
+    database_path: Path
+    monthly_totals_parquet_path: Path | None
+    theme_metrics_parquet_path: Path | None
     plan_only: bool
     started_at: datetime
     completed_at: datetime

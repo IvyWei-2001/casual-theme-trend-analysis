@@ -153,8 +153,8 @@ compression, and an atomic temporary-sibling-file replacement. Generated
 DB-001 does not call Sensor Tower, provide a live collection command, perform
 historical backfill, aggregate themes, calculate Trend Score, or synchronize
 Feishu. DB-002 adds the first live single-month collection command described
-below, and HIST-001 adds the manually executable monthly backfill described
-after it.
+below, HIST-001 adds the manually executable monthly backfill described after
+it, and AGG-001 adds the local monthly Game Theme aggregation described below.
 
 ## Live single-month collection (DB-002)
 
@@ -235,8 +235,61 @@ The final Parquet export runs once, after all requested months are collected or
 skipped. A failed collection does not run that final export, while an export
 failure leaves valid DuckDB data intact.
 
-The workflow is manual only: scheduling, weekly backfill, Feishu sync, theme
-aggregation, lifecycle classification, and Trend Score remain deferred.
+The workflow is manual only: scheduling, weekly backfill, Feishu sync,
+lifecycle classification, and Trend Score remain deferred.
+
+## Monthly Game Theme aggregation (AGG-001)
+
+AGG-001 aggregates only already stored DuckDB rows. It never constructs a
+Sensor Tower client or makes a network request:
+
+```powershell
+python -m src aggregate-themes --start 2025-08 --end 2026-07 --plan-only
+python -m src aggregate-themes --start 2025-08 --end 2026-07
+python -m src aggregate-themes --start 2025-08 --end 2026-07 --skip-export
+```
+
+The inclusive range must contain completed UTC calendar months, and every
+requested month must already contain a non-empty stored `market_snapshots`
+period. The actual stored `snapshot_count` is each month's product-share
+denominator; the aggregation never assumes 1,000 rows, pads ranks, or invents
+products. Raw `game_theme` strings are grouped exactly as stored: `Unknown`,
+`N/A`, empty strings, and other labels are not renamed, trimmed, merged, or
+inferred. NULL themes do not create a theme row and are counted separately in
+`monthly_market_totals.theme_missing_count`.
+
+Schema version 2 adds the DuckDB derived tables `monthly_market_totals` and
+`theme_monthly_metrics`. Monthly totals contain population, theme presence,
+current normalized-metadata coverage, and `units_absolute`/
+`revenue_absolute` source coverage and sums. Theme metrics contain product
+share, Top-100/Top-500 counts, arithmetic average rank, deterministic median
+rank, publisher coverage/concentration, and the equivalent source metric sums
+and shares. A source metric sum is NULL when its coverage is zero; observed
+zero remains zero. Source metric names and business semantics remain
+`units_absolute` and `revenue_absolute`; they are not renamed to downloads or
+revenue. Theme shares use month-wide denominators that include rows with a
+missing theme, so visible theme shares may sum below 1. A zero or unavailable
+denominator produces a NULL share.
+
+New entry means that a product entered the current stored monthly Top-N
+population and was absent from the immediately preceding stored calendar
+month, using `unified_app_id`. It does not mean app release, publication, or
+first-ever launch. If the immediately preceding stored month is unavailable,
+new-entry fields remain NULL. Publisher metrics use the current normalized
+`app_metadata` cache and are not historically versioned; publisher-name
+changes are therefore not interpreted as historical events.
+
+The aggregation replacement is one DuckDB transaction covering both derived
+tables. DuckDB is the source of truth. The two derived Parquet files are
+deterministic exports only:
+
+```text
+<export_directory>/monthly_market_totals.parquet
+<export_directory>/theme_monthly_metrics.parquet
+```
+
+Trend Score, weekly aggregation, lifecycle labels, opportunity ranking,
+Feishu, scheduling, and AI summaries are not part of AGG-001.
 
 Exit codes are `0` for success or plan validation, `2` for CLI/month/local
 configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`

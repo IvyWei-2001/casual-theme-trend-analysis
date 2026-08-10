@@ -1,5 +1,6 @@
 """Internal DuckDB storage package for market snapshots and metadata cache."""
 
+from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from .errors import (
     ParquetExportError,
     RepositoryError,
@@ -24,7 +25,12 @@ from .models import (
     normalize_positive_id,
     normalize_storage_opaque_id,
 )
-from .parquet import export_app_metadata_to_parquet, export_market_snapshots_to_parquet
+from .parquet import (
+    export_app_metadata_to_parquet,
+    export_market_snapshots_to_parquet,
+    export_monthly_market_totals_to_parquet,
+    export_theme_monthly_metrics_to_parquet,
+)
 from .repository import DuckDBRepository
 from .schema import CURRENT_SCHEMA_VERSION, initialize_schema
 
@@ -34,6 +40,7 @@ __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "DuckDBRepository",
     "MarketSnapshotRow",
+    "MonthlyMarketTotal",
     "MetadataCacheLookup",
     "ParquetExportError",
     "PublisherResolutionSource",
@@ -45,11 +52,14 @@ __all__ = [
     "SnapshotPeriodKey",
     "StorageError",
     "StorageValidationError",
+    "ThemeMonthlyMetric",
     "UnsupportedSchemaVersionError",
     "build_app_metadata_rows",
     "build_market_snapshot_rows",
     "export_app_metadata_to_parquet",
     "export_market_snapshots_to_parquet",
+    "export_monthly_market_totals_to_parquet",
+    "export_theme_monthly_metrics_to_parquet",
     "initialize_schema",
     "normalize_opaque_id_sequence",
     "normalize_id_sequence",

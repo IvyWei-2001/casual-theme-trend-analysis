@@ -167,6 +167,33 @@ A historical monthly slice can be loaded idempotently into DuckDB, resumed after
 
 Aggregate product snapshots into explicit monthly `ThemeMetric` records.
 
+### AGG-001 implemented boundary
+
+AGG-001 adds deterministic monthly Game Theme aggregation over the stored
+`market_snapshots` and current normalized `app_metadata` tables:
+
+1. Upgrade the supported DuckDB schema sequentially from version 1 to version
+   2, preserving all existing source rows and adding only
+   `monthly_market_totals` and `theme_monthly_metrics`.
+2. Validate an inclusive completed UTC month range without opening DuckDB in
+   `--plan-only` mode.
+3. Require every requested source month to be present and non-empty, using the
+   actual stored row count and raw source Game Theme strings.
+4. Calculate month-wide population and coverage totals, then per-theme counts,
+   shares, rank statistics, source-metric coverage/sums/shares, membership
+   entry fields, and publisher coverage/concentration.
+5. Use the immediately preceding natural calendar month as the membership
+   baseline when that stored period exists, including a baseline outside the
+   requested range. A missing or empty baseline leaves entry fields NULL.
+6. Replace both derived tables in one transaction and export deterministic
+   Parquet files only after the DuckDB commit.
+
+AGG-001 preserves `units_absolute` and `revenue_absolute` as source metric
+names, keeps missing values NULL, and does not implement Trend Score, weekly
+aggregation, lifecycle labels, opportunity ranking, Feishu, scheduling, or AI
+summaries. Publisher metrics use the current, non-versioned metadata cache and
+therefore do not claim historical publisher identity.
+
 ### Work items
 
 - Map the verified `Game Theme` custom-tag label into internal `Theme` records after its value structure is confirmed.
