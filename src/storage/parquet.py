@@ -15,6 +15,7 @@ from .schema import (
     MARKET_SNAPSHOT_COLUMNS,
     MONTHLY_MARKET_TOTALS_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
+    THEME_TREND_SCORES_COLUMNS,
 )
 
 
@@ -82,6 +83,21 @@ def export_theme_monthly_metrics_to_parquet(
         table_name="theme_monthly_metrics",
         columns=THEME_MONTHLY_METRICS_COLUMNS,
         order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_trend_scores_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export schema-v3 trend scores in stable ranking order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_trend_scores",
+        columns=THEME_TREND_SCORES_COLUMNS,
+        order_by=("scope_name", "period_start", "trend_rank NULLS LAST", "game_theme"),
     )
 
 

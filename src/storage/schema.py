@@ -8,13 +8,14 @@ import duckdb
 
 from .errors import SchemaInitializationError, UnsupportedSchemaVersionError
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 APP_METADATA_TABLE = "app_metadata"
 MARKET_SNAPSHOTS_TABLE = "market_snapshots"
 MONTHLY_MARKET_TOTALS_TABLE = "monthly_market_totals"
 THEME_MONTHLY_METRICS_TABLE = "theme_monthly_metrics"
+THEME_TREND_SCORES_TABLE = "theme_trend_scores"
 
 SCHEMA_MIGRATIONS_COLUMNS: tuple[str, ...] = ("version", "applied_at")
 APP_METADATA_COLUMNS: tuple[str, ...] = (
@@ -106,6 +107,49 @@ THEME_MONTHLY_METRICS_COLUMNS: tuple[str, ...] = (
     "publisher_coverage_count",
     "publisher_count",
     "top_publisher_product_share",
+    "calculated_at",
+)
+THEME_TREND_SCORES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "window_start",
+    "window_month_count",
+    "active_months_6m",
+    "latest_product_count",
+    "is_actionable",
+    "exclusion_reason",
+    "latest_product_share",
+    "latest_units_absolute_share",
+    "latest_revenue_absolute_share",
+    "latest_new_entry_share",
+    "latest_median_rank",
+    "latest_publisher_count",
+    "latest_top_publisher_product_share",
+    "product_share_gain_3m",
+    "units_absolute_share_gain_3m",
+    "revenue_absolute_share_gain_3m",
+    "product_share_acceleration",
+    "units_absolute_share_acceleration",
+    "revenue_absolute_share_acceleration",
+    "recent3_new_entry_share",
+    "median_rank_improvement",
+    "publisher_count_gain_3m",
+    "units_absolute_overindex",
+    "revenue_absolute_overindex",
+    "recent3_units_coverage_ratio",
+    "recent3_revenue_coverage_ratio",
+    "latest_publisher_coverage_ratio",
+    "growth_score",
+    "acceleration_score",
+    "new_product_score",
+    "concentration_penalty",
+    "base_trend_score",
+    "confidence_score",
+    "trend_score",
+    "trend_rank",
     "calculated_at",
 )
 
@@ -302,6 +346,120 @@ CREATE TABLE IF NOT EXISTS theme_monthly_metrics (
 )
 """
 
+_CREATE_THEME_TREND_SCORES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_trend_scores (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    window_start DATE NOT NULL,
+    window_month_count INTEGER NOT NULL CHECK (window_month_count = 6),
+    active_months_6m INTEGER NOT NULL CHECK (active_months_6m >= 0 AND active_months_6m <= 6),
+    latest_product_count INTEGER NOT NULL CHECK (latest_product_count >= 0),
+    is_actionable BOOLEAN NOT NULL,
+    exclusion_reason VARCHAR NULL,
+    latest_product_share DOUBLE NOT NULL CHECK (
+        latest_product_share >= 0 AND latest_product_share <= 1
+    ),
+    latest_units_absolute_share DOUBLE NULL CHECK (
+        latest_units_absolute_share IS NULL
+        OR (latest_units_absolute_share >= 0 AND latest_units_absolute_share <= 1)
+    ),
+    latest_revenue_absolute_share DOUBLE NULL CHECK (
+        latest_revenue_absolute_share IS NULL
+        OR (latest_revenue_absolute_share >= 0 AND latest_revenue_absolute_share <= 1)
+    ),
+    latest_new_entry_share DOUBLE NULL CHECK (
+        latest_new_entry_share IS NULL
+        OR (latest_new_entry_share >= 0 AND latest_new_entry_share <= 1)
+    ),
+    latest_median_rank DOUBLE NOT NULL,
+    latest_publisher_count INTEGER NOT NULL CHECK (latest_publisher_count >= 0),
+    latest_top_publisher_product_share DOUBLE NULL CHECK (
+        latest_top_publisher_product_share IS NULL
+        OR (
+            latest_top_publisher_product_share >= 0
+            AND latest_top_publisher_product_share <= 1
+        )
+    ),
+    product_share_gain_3m DOUBLE NOT NULL,
+    units_absolute_share_gain_3m DOUBLE NULL,
+    revenue_absolute_share_gain_3m DOUBLE NULL,
+    product_share_acceleration DOUBLE NOT NULL,
+    units_absolute_share_acceleration DOUBLE NULL,
+    revenue_absolute_share_acceleration DOUBLE NULL,
+    recent3_new_entry_share DOUBLE NULL CHECK (
+        recent3_new_entry_share IS NULL
+        OR (recent3_new_entry_share >= 0 AND recent3_new_entry_share <= 1)
+    ),
+    median_rank_improvement DOUBLE NULL,
+    publisher_count_gain_3m DOUBLE NULL,
+    units_absolute_overindex DOUBLE NULL,
+    revenue_absolute_overindex DOUBLE NULL,
+    recent3_units_coverage_ratio DOUBLE NOT NULL CHECK (
+        recent3_units_coverage_ratio >= 0 AND recent3_units_coverage_ratio <= 1
+    ),
+    recent3_revenue_coverage_ratio DOUBLE NOT NULL CHECK (
+        recent3_revenue_coverage_ratio >= 0 AND recent3_revenue_coverage_ratio <= 1
+    ),
+    latest_publisher_coverage_ratio DOUBLE NOT NULL CHECK (
+        latest_publisher_coverage_ratio >= 0 AND latest_publisher_coverage_ratio <= 1
+    ),
+    growth_score DOUBLE NULL CHECK (
+        growth_score IS NULL OR (growth_score >= 0 AND growth_score <= 100)
+    ),
+    acceleration_score DOUBLE NULL CHECK (
+        acceleration_score IS NULL OR (acceleration_score >= 0 AND acceleration_score <= 100)
+    ),
+    new_product_score DOUBLE NULL CHECK (
+        new_product_score IS NULL OR (new_product_score >= 0 AND new_product_score <= 100)
+    ),
+    concentration_penalty DOUBLE NULL CHECK (
+        concentration_penalty IS NULL
+        OR (concentration_penalty >= 0 AND concentration_penalty <= 100)
+    ),
+    base_trend_score DOUBLE NULL CHECK (
+        base_trend_score IS NULL OR (base_trend_score >= 0 AND base_trend_score <= 100)
+    ),
+    confidence_score DOUBLE NOT NULL CHECK (confidence_score >= 0 AND confidence_score <= 100),
+    trend_score DOUBLE NULL CHECK (
+        trend_score IS NULL OR (trend_score >= 0 AND trend_score <= 100)
+    ),
+    trend_rank INTEGER NULL CHECK (trend_rank IS NULL OR trend_rank >= 1),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),
+    CHECK (period_start <= period_end),
+    CHECK (window_start <= period_start),
+    CHECK (
+        is_actionable
+        OR (
+            growth_score IS NULL
+            AND acceleration_score IS NULL
+            AND new_product_score IS NULL
+            AND concentration_penalty IS NULL
+            AND base_trend_score IS NULL
+            AND trend_score IS NULL
+            AND trend_rank IS NULL
+        )
+    ),
+    CHECK (
+        NOT is_actionable
+        OR (
+            growth_score IS NOT NULL
+            AND acceleration_score IS NOT NULL
+            AND new_product_score IS NOT NULL
+            AND concentration_penalty IS NOT NULL
+            AND base_trend_score IS NOT NULL
+            AND trend_score IS NOT NULL
+            AND trend_rank IS NOT NULL
+        )
+    ),
+    CHECK (is_actionable OR exclusion_reason IS NOT NULL),
+    CHECK (NOT is_actionable OR exclusion_reason IS NULL)
+)
+"""
+
 _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (SCHEMA_MIGRATIONS_TABLE, _CREATE_SCHEMA_MIGRATIONS_SQL, SCHEMA_MIGRATIONS_COLUMNS),
     (APP_METADATA_TABLE, _CREATE_APP_METADATA_SQL, APP_METADATA_COLUMNS),
@@ -319,6 +477,15 @@ _V2_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 _TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     *_V1_TABLE_DEFINITIONS,
     *_V2_TABLE_DEFINITIONS,
+)
+_V3_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    THEME_TREND_SCORES_TABLE,
+    _CREATE_THEME_TREND_SCORES_SQL,
+    THEME_TREND_SCORES_COLUMNS,
+),
+_TABLE_DEFINITIONS = (
+    *_TABLE_DEFINITIONS,
+    *_V3_TABLE_DEFINITIONS,
 )
 
 
@@ -350,6 +517,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                 [2],
             )
 
+        _assert_table_definitions(connection, _V2_TABLE_DEFINITIONS)
+
+        if newest_version < 3:
+            _apply_version_three(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                [3],
+            )
+
         _assert_required_tables(connection)
 
         connection.execute("COMMIT")
@@ -378,6 +554,10 @@ def _apply_version_one(connection: duckdb.DuckDBPyConnection) -> None:
 def _apply_version_two(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(_CREATE_MONTHLY_MARKET_TOTALS_SQL)
     connection.execute(_CREATE_THEME_MONTHLY_METRICS_SQL)
+
+
+def _apply_version_three(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(_CREATE_THEME_TREND_SCORES_SQL)
 
 
 def _assert_required_tables(connection: duckdb.DuckDBPyConnection) -> None:

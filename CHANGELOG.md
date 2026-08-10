@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added TREND-001 explainable monthly Game Theme trend scoring. Schema version
+  3 adds `theme_trend_scores`; the score uses a six-month rolling grid,
+  absent-theme zero filling, share-point gains and acceleration,
+  actionable-only average-rank percentiles, explicit MVP component and
+  confidence weights, deterministic latest-month ranking, atomic DuckDB
+  replacement, and a stable ZSTD Parquet export. The workflow never calls
+  Sensor Tower and deliberately defers taxonomy merging, cycle detection,
+  forecasting, weekly scoring, Feishu, scheduling, and AI summaries.
 - Added AGG-001 deterministic monthly Game Theme aggregation over stored
   DuckDB snapshots and normalized metadata. Schema version 2 now migrates
   sequentially and adds `monthly_market_totals` plus `theme_monthly_metrics`,

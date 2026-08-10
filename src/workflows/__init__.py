@@ -25,7 +25,10 @@ from .models import (
     CollectMonthRequest,
     CollectMonthSummary,
     MonthlyPeriod,
+    ScoreThemesRequest,
+    ScoreThemesSummary,
 )
+from .score_themes import format_score_themes_summary, score_themes
 
 __all__ = [
     "CollectionClient",
@@ -41,6 +44,8 @@ __all__ = [
     "CollectMonthSummary",
     "InvalidMonthError",
     "MonthlyPeriod",
+    "ScoreThemesRequest",
+    "ScoreThemesSummary",
     "WorkflowError",
     "WorkflowMetadataIntegrityError",
     "app_metadata_row_to_sensor_tower_metadata",
@@ -50,4 +55,6 @@ __all__ = [
     "format_backfill_summary",
     "format_aggregate_themes_summary",
     "format_collection_summary",
+    "format_score_themes_summary",
+    "score_themes",
 ]

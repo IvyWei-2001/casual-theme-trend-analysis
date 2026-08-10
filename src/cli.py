@@ -21,6 +21,7 @@ from .workflows import (
     BackfillMonthsRequest,
     CollectMonthRequest,
     InvalidMonthError,
+    ScoreThemesRequest,
     WorkflowError,
     aggregate_themes,
     backfill_months,
@@ -28,6 +29,8 @@ from .workflows import (
     format_aggregate_themes_summary,
     format_backfill_summary,
     format_collection_summary,
+    format_score_themes_summary,
+    score_themes,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -112,6 +115,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-export",
         action="store_true",
         help="store derived DuckDB rows but skip both derived Parquet exports",
+    )
+    score_parser = subparsers.add_parser(
+        "score-themes",
+        help="calculate explainable monthly Game Theme trend scores without network access",
+    )
+    score_parser.add_argument(
+        "--start",
+        required=True,
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    score_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
+    )
+    score_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the score plan without database or file access",
+    )
+    score_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="store trend rows but skip the trend Parquet export",
+    )
+    score_parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="positive number of latest-month actionable themes to display (default: 20)",
     )
     return parser
 
@@ -255,6 +288,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_aggregate_themes_summary(aggregate_summary))
+        return 0
+
+    if args.command == "score-themes":
+        current_utc = datetime.now(UTC)
+        try:
+            score_request = ScoreThemesRequest(
+                start_month=args.start,
+                end_month=args.end,
+                database_path=config.database_path,
+                export_directory=config.export_directory,
+                plan_only=args.plan_only,
+                skip_export=args.skip_export,
+                top_n=args.top,
+            )
+            score_summary = score_themes(
+                score_request,
+                config,
+                current_utc=current_utc,
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except AggregationError as error:
+            _print_error(str(error))
+            return 3
+        except StorageError as error:
+            _print_error(str(error))
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local storage operation failed")
+            return 4
+        except Exception:
+            _print_error("theme trend scoring failed")
+            return 4
+
+        print(format_score_themes_summary(score_summary))
         return 0
 
     _print_error("unsupported command")

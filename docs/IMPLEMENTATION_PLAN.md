@@ -221,11 +221,35 @@ Rank themes with a transparent and reproducible calculation over internal `Theme
 - Lower confidence when required metrics are missing or observations are not comparable; do not fabricate a score from unavailable data.
 - Add unit tests for normal, missing-data, tied-rank, and boundary cases.
 
-The exact formula, weights, and use of downloads or revenue remain TODO until their source semantics are verified and the score specification is approved. No predictive model or LLM is required.
+### TREND-001 implemented boundary
+
+TREND-001 implements the first deterministic monthly score over stored
+schema-v2 aggregates:
+
+1. Require at least six consecutive natural calendar months and build a
+   target-month rolling grid with recent-three and prior-three windows.
+2. Zero-fill only absent raw theme months inside the grid; a missing
+   `monthly_market_totals` month fails scoring.
+3. Calculate share-point gains, three-point slopes, acceleration, new-entry
+   momentum, rank improvement, publisher breadth, and explanatory over-index
+   values from internal models only.
+4. Calculate actionable-only cross-theme average-rank percentiles, apply the
+   documented MVP component, concentration, confidence, and final-score
+   formulas, and assign deterministic target-month ranks.
+5. Migrate DuckDB schema version 2 to version 3 with a separate
+   `theme_trend_scores` table, atomically replace requested score rows, and
+   export deterministic `theme_trend_scores.parquet`.
+6. Provide `python -m src score-themes` with plan-only, skip-export, and latest
+   Top-N display modes. The command never constructs a Sensor Tower client.
+
+The score weights are project MVP defaults rather than Sensor Tower formulas.
+Taxonomy merging, weekly scoring, cycle detection, forecasting, machine
+learning, Feishu synchronization, scheduling, and AI summaries remain outside
+this issue. No predictive model or LLM is required.
 
 ### Exit criteria
 
-Identical internal inputs always produce the same score, and each score can be explained from its contributing theme metrics and confidence state.
+Identical internal inputs always produce the same score, and each score can be explained from its contributing theme metrics and confidence state. TREND-001 satisfies this exit criterion for the six-month monthly MVP.
 
 ## 7. Feishu sync
 
