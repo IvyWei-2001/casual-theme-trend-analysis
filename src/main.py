@@ -1,19 +1,13 @@
-"""Local bootstrap entrypoint with no external integration calls."""
+"""Application entrypoint for bootstrap and local collection commands."""
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Sequence
 
-from .config import load_config
-from .logging_config import configure_logging
-
-LOGGER = logging.getLogger(__name__)
+from .cli import main as cli_main
 
 
-def main() -> int:
-    """Load local configuration and emit a startup message."""
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI while preserving the no-command bootstrap behavior."""
 
-    config = load_config()
-    configure_logging(config.log_level)
-    LOGGER.info("bootstrap startup complete: %s", config.app_name)
-    return 0
+    return cli_main(() if argv is None else argv)

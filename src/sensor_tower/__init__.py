@@ -11,6 +11,7 @@ from .enrichment import (
     attach_metadata,
     extract_selected_unified_app_ids,
     fetch_metadata_for_market_records,
+    fetch_metadata_for_unified_app_ids,
     selected_record_unified_app_id,
 )
 from .errors import (
@@ -136,6 +137,7 @@ __all__ = [
     "parse_metadata_response",
     "EnrichedMarketRecord",
     "fetch_metadata_for_market_records",
+    "fetch_metadata_for_unified_app_ids",
     "attach_metadata",
     "extract_selected_unified_app_ids",
     "selected_record_unified_app_id",

@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from src.config import DEFAULT_DATABASE_PATH, load_config
+from src.config import DEFAULT_DATABASE_PATH, AppConfig, load_config
 
 _CONFIG_ENVIRONMENT_NAMES = (
     "APP_APP_NAME",
     "APP_ENVIRONMENT",
     "APP_DATABASE_PATH",
+    "APP_EXPORT_DIRECTORY",
+    "APP_METADATA_CACHE_MAX_AGE_DAYS",
     "APP_LOG_LEVEL",
     "APP_CONFIG_FILE",
     "APP_SENSOR_TOWER_API_URL",
@@ -57,6 +59,8 @@ def test_default_config_loads_without_credentials(
 
     assert config.environment == "development"
     assert config.database_path == DEFAULT_DATABASE_PATH
+    assert config.export_directory == Path("data/exports")
+    assert config.metadata_cache_max_age_days == 14.0
     assert config.sensor_tower_api_url is None
     assert config.sensor_tower_auth_token is None
     assert config.feishu_app_id is None
@@ -193,3 +197,40 @@ def test_metadata_settings_load_from_yaml_and_environment(
     assert config.sensor_tower_metadata_config.max_retries == 4
     assert config.sensor_tower_metadata_config.retry_delay_seconds == 2.0
     assert config.sensor_tower_metadata_config.batch_delay_seconds == 0.5
+
+
+def test_collection_storage_settings_load_from_yaml_and_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_config_environment(monkeypatch)
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(
+        "export_directory: data/from-yaml\nmetadata_cache_max_age_days: 7\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_EXPORT_DIRECTORY", "data/from-env")
+    monkeypatch.setenv("APP_METADATA_CACHE_MAX_AGE_DAYS", "14.5")
+
+    config = load_config(config_file)
+
+    assert config.export_directory == Path("data/from-env")
+    assert config.metadata_cache_max_age_days == 14.5
+
+
+@pytest.mark.parametrize(
+    "field_name,value",
+    [
+        ("export_directory", ""),
+        ("export_directory", "   "),
+        ("metadata_cache_max_age_days", -1),
+        ("metadata_cache_max_age_days", "nan"),
+        ("metadata_cache_max_age_days", "inf"),
+    ],
+)
+def test_collection_storage_settings_are_validated(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError):
+        AppConfig.model_validate({field_name: value})

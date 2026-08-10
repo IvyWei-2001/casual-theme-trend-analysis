@@ -57,8 +57,32 @@ def fetch_metadata_for_market_records(
     behavior deterministic in tests.
     """
 
-    config = SensorTowerMetadataRequestConfig() if metadata_config is None else metadata_config
     requested_ids = extract_selected_unified_app_ids(selected_market_records)
+    return fetch_metadata_for_unified_app_ids(
+        client,
+        requested_ids,
+        metadata_config,
+        sleep=sleep,
+    )
+
+
+def fetch_metadata_for_unified_app_ids(
+    client: MetadataBatchClient,
+    unified_app_ids: Sequence[object],
+    metadata_config: SensorTowerMetadataRequestConfig | None = None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> SensorTowerMetadataFetchResult:
+    """Fetch metadata for explicit IDs in first-seen order.
+
+    This is the cache-aware workflow boundary: callers provide only stale or
+    missing IDs, so fresh metadata can be reused without being requested again.
+    IDs are still normalized and deduplicated here to keep the external request
+    contract safe for direct callers.
+    """
+
+    config = SensorTowerMetadataRequestConfig() if metadata_config is None else metadata_config
+    requested_ids = _normalize_unified_app_ids(unified_app_ids)
     if not requested_ids:
         return _empty_metadata_result()
 
@@ -103,6 +127,21 @@ def fetch_metadata_for_market_records(
         requested_count=len(requested_ids),
         returned_count=len(metadata_by_id),
     )
+
+
+def _normalize_unified_app_ids(values: Sequence[object]) -> tuple[str, ...]:
+    """Normalize and deduplicate explicit unified IDs while preserving order."""
+
+    normalized_ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        app_id = normalize_required_unified_app_id(value)
+        if app_id not in seen:
+            normalized_ids.append(app_id)
+            seen.add(app_id)
+    return tuple(normalized_ids)
 
 
 def attach_metadata(

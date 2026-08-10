@@ -2,6 +2,8 @@
 app_name: casual-theme-trend-analysis
 environment: development
 database_path: data/casual_theme_trends.duckdb
+export_directory: data/exports
+metadata_cache_max_age_days: 14
 log_level: INFO
 
 # Sensor Tower market request and local selection settings. Credentials belong

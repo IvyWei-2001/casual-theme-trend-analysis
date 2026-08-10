@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added DB-002 live single-month collection: completed UTC calendar-month
+  validation, plan-only CLI mode, cache-aware metadata refresh, atomic monthly
+  DuckDB replacement, optional Parquet export, sanitized summaries, and
+  mock-only workflow coverage. Historical backfill, scheduling, Feishu, theme
+  aggregation, and Trend Score remain deferred.
 - Added DB-001 DuckDB snapshot and metadata storage: schema versioning,
   normalized metadata persistence, atomic complete-period replacement, a
   14-day metadata-cache lookup, and deterministic atomic ZSTD Parquet exports.
