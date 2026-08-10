@@ -27,6 +27,7 @@ EARLIEST_RELEASE_DATE_TAG: Final = "Earliest Release Date"
 RELEASE_DATE_WW_TAG: Final = "Release Date (WW)"
 PUBLISHER_COUNTRY_TAG: Final = "Publisher Country"
 IS_UNIFIED_TAG: Final = "Is Unified"
+MOST_POPULAR_COUNTRY_BY_REVENUE_TAG: Final = "Most Popular Country by Revenue"
 
 VERIFIED_CUSTOM_TAG_KEYS: Final[tuple[str, ...]] = (
     GAME_THEME_TAG,
@@ -39,6 +40,7 @@ VERIFIED_CUSTOM_TAG_KEYS: Final[tuple[str, ...]] = (
     RELEASE_DATE_WW_TAG,
     PUBLISHER_COUNTRY_TAG,
     IS_UNIFIED_TAG,
+    MOST_POPULAR_COUNTRY_BY_REVENUE_TAG,
 )
 
 _OPTIONAL_DATE_TAGS: Final[tuple[str, ...]] = (
@@ -144,6 +146,12 @@ class SensorTowerCustomTags(Mapping[str, object]):
         return self._string_value(PUBLISHER_COUNTRY_TAG)
 
     @property
+    def most_popular_country_by_revenue(self) -> str | None:
+        """Return the revenue-market tag without assigning publisher semantics."""
+
+        return self._string_value(MOST_POPULAR_COUNTRY_BY_REVENUE_TAG)
+
+    @property
     def is_unified(self) -> str | None:
         """Return the raw ``Is Unified`` value without coercing its semantics."""
 
@@ -223,3 +231,15 @@ class SensorTowerMarketRecord(BaseModel):
         """Return the optional raw Game Genre tag."""
 
         return self.custom_tags.game_genre
+
+    @property
+    def most_popular_country_by_revenue(self) -> str | None:
+        """Return the optional revenue-market tag from normalized custom tags."""
+
+        return self.custom_tags.most_popular_country_by_revenue
+
+
+def get_most_popular_country_by_revenue(record: SensorTowerMarketRecord) -> str | None:
+    """Return the revenue-market tag, never treating it as publisher country."""
+
+    return record.most_popular_country_by_revenue

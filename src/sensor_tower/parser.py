@@ -13,9 +13,11 @@ from .dto import SensorTowerMarketRecord
 def parse_market_response(payload: object) -> list[SensorTowerMarketRecord]:
     """Parse an already-decoded Sensor Tower market response.
 
-    The verified sample is a JSON array of row objects.  Pydantic validation is
-    intentionally allowed to propagate so invalid fields, especially the
-    top-level date, produce a structured validation error.
+    The verified sample is a JSON array of row objects.  The adapter supports
+    the two observed custom-tag locations: a top-level ``custom_tags`` mapping
+    and ``entities[0].custom_tags`` overlaid by ``aggregate_tags``.  Pydantic
+    validation is intentionally allowed to propagate so invalid fields,
+    especially the top-level date, produce a structured validation error.
     """
 
     if not isinstance(payload, list):
@@ -25,8 +27,43 @@ def parse_market_response(payload: object) -> list[SensorTowerMarketRecord]:
     for index, item in enumerate(payload):
         if not isinstance(item, Mapping):
             raise TypeError(f"Sensor Tower market record at index {index} must be a JSON object")
-        records.append(SensorTowerMarketRecord.model_validate(item))
+        records.append(SensorTowerMarketRecord.model_validate(_normalize_market_record(item)))
     return records
+
+
+def _normalize_market_record(item: Mapping[object, object]) -> dict[object, object]:
+    """Normalize only the verified custom-tag response shapes.
+
+    The original record is copied before replacing ``custom_tags`` so every
+    unknown source field remains available as a DTO extra field.  Unsupported
+    shapes are left untouched and fail normal DTO validation rather than being
+    guessed into a new source contract.
+    """
+
+    normalized = dict(item)
+    top_level_tags = item.get("custom_tags")
+    if isinstance(top_level_tags, Mapping):
+        normalized["custom_tags"] = dict(top_level_tags)
+        return normalized
+
+    entities = item.get("entities")
+    if not isinstance(entities, list) or not entities:
+        return normalized
+
+    first_entity = entities[0]
+    if not isinstance(first_entity, Mapping):
+        return normalized
+
+    entity_tags = first_entity.get("custom_tags")
+    if not isinstance(entity_tags, Mapping):
+        return normalized
+
+    normalized_tags = dict(entity_tags)
+    aggregate_tags = item.get("aggregate_tags")
+    if isinstance(aggregate_tags, Mapping):
+        normalized_tags.update(aggregate_tags)
+    normalized["custom_tags"] = normalized_tags
+    return normalized
 
 
 def load_market_response_file(path: str | Path) -> object:

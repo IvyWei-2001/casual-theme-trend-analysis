@@ -14,6 +14,21 @@ _CONFIG_ENVIRONMENT_NAMES = (
     "APP_CONFIG_FILE",
     "APP_SENSOR_TOWER_API_URL",
     "APP_SENSOR_TOWER_AUTH_TOKEN",
+    "APP_SENSOR_TOWER_ENDPOINT_PATH",
+    "APP_SENSOR_TOWER_CATEGORY",
+    "APP_SENSOR_TOWER_COUNTRY",
+    "APP_SENSOR_TOWER_DEVICE_TYPE",
+    "APP_SENSOR_TOWER_CUSTOM_TAGS_MODE",
+    "APP_SENSOR_TOWER_DATA_MODEL",
+    "APP_SENSOR_TOWER_FILTER_FIELD_NAME",
+    "APP_SENSOR_TOWER_FILTER_GLOBAL",
+    "APP_SENSOR_TOWER_FILTER_EXCLUDE",
+    "APP_SENSOR_TOWER_API_LIMIT",
+    "APP_SENSOR_TOWER_FINAL_TOP_N",
+    "APP_SENSOR_TOWER_ALLOWED_GENRES",
+    "APP_SENSOR_TOWER_EXCLUDE_CHINA_REVENUE_MARKET",
+    "APP_SENSOR_TOWER_SCOPE_NAME",
+    "APP_SENSOR_TOWER_TIMEOUT_SECONDS",
     "APP_FEISHU_APP_ID",
     "APP_FEISHU_APP_SECRET",
 )
@@ -78,3 +93,61 @@ def test_environment_variables_override_yaml(
 
     assert config.database_path == Path("data/from-env.duckdb")
     assert config.log_level == "DEBUG"
+
+
+def test_sensor_tower_request_boundary_loads_from_yaml_and_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(
+        "sensor_tower_endpoint_path: /v1/from-yaml\n"
+        "sensor_tower_category: 7001\n"
+        "sensor_tower_country: US\n"
+        "sensor_tower_device_type: total\n"
+        "sensor_tower_custom_tags_mode: include_unified_apps\n"
+        "sensor_tower_data_model: DM_YAML\n"
+        "sensor_tower_filter_field_name: Game Genre\n"
+        "sensor_tower_filter_global: true\n"
+        "sensor_tower_filter_exclude: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_SENSOR_TOWER_ENDPOINT_PATH", "/v1/from-env")
+    monkeypatch.setenv("APP_SENSOR_TOWER_CATEGORY", "7002")
+    monkeypatch.setenv("APP_SENSOR_TOWER_FILTER_GLOBAL", "true")
+
+    config = load_config(config_file)
+
+    assert config.sensor_tower_endpoint_path == "/v1/from-env"
+    assert config.sensor_tower_category == 7002
+    assert config.sensor_tower_country == "US"
+    assert config.sensor_tower_data_model == "DM_YAML"
+    assert config.sensor_tower_filter_global is True
+    assert config.sensor_tower_request_config.category == 7002
+    assert config.sensor_tower_request_config.endpoint_path == "/v1/from-env"
+
+
+def test_local_dotenv_settings_are_loaded_without_exposing_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    token = "local-dotenv-token"
+    (tmp_path / ".env").write_text(
+        "APP_SENSOR_TOWER_AUTH_TOKEN=local-dotenv-token\n"
+        "APP_SENSOR_TOWER_API_LIMIT=1200\n"
+        "APP_SENSOR_TOWER_FINAL_TOP_N=1000\n"
+        "APP_SENSOR_TOWER_ALLOWED_GENRES=[\"Puzzle\",\"Tabletop\"]\n",
+        encoding="utf-8",
+    )
+
+    config = load_config()
+
+    assert config.sensor_tower_auth_token is not None
+    if config.sensor_tower_auth_token.get_secret_value() != token:
+        raise AssertionError("dotenv token was not loaded into the typed configuration")
+    if token in repr(config):
+        raise AssertionError("typed configuration repr exposed the configured token")
