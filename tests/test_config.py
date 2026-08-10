@@ -70,6 +70,7 @@ def test_default_config_loads_without_credentials(
 
 def test_yaml_config_can_load(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "app.yaml"
     config_file.write_text(
         "app_name: yaml-test\n"
@@ -92,6 +93,7 @@ def test_environment_variables_override_yaml(
     tmp_path: Path,
 ) -> None:
     _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "app.yaml"
     config_file.write_text(
         "database_path: data/from-yaml.duckdb\nlog_level: WARNING\n",
@@ -169,6 +171,7 @@ def test_metadata_settings_load_from_yaml_and_environment(
     tmp_path: Path,
 ) -> None:
     _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "app.yaml"
     config_file.write_text(
         "sensor_tower_metadata_endpoint_path: /v1/yaml-metadata\n"
@@ -204,6 +207,7 @@ def test_collection_storage_settings_load_from_yaml_and_environment(
     tmp_path: Path,
 ) -> None:
     _clear_config_environment(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "app.yaml"
     config_file.write_text(
         "export_directory: data/from-yaml\nmetadata_cache_max_age_days: 7\n",

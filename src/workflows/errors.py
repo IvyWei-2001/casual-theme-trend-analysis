@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 
 class WorkflowError(Exception):
     """Base class for expected workflow failures."""
@@ -13,3 +15,26 @@ class InvalidMonthError(WorkflowError, ValueError):
 
 class WorkflowMetadataIntegrityError(WorkflowError):
     """Raised when cached and newly fetched metadata cannot be joined safely."""
+
+
+type BackfillFailureKind = Literal[
+    "configuration",
+    "sensor_tower",
+    "storage",
+    "workflow",
+]
+
+
+class BackfillMonthsError(WorkflowError):
+    """Sanitized fail-fast error identifying the month that could not complete."""
+
+    def __init__(
+        self,
+        failed_month: str,
+        *,
+        failure_kind: BackfillFailureKind,
+        reason: str,
+    ) -> None:
+        self.failed_month = failed_month
+        self.failure_kind = failure_kind
+        super().__init__(f"backfill failed for month {failed_month}: {reason}")

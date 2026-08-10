@@ -15,10 +15,14 @@ from .logging_config import configure_logging
 from .sensor_tower.errors import SensorTowerConfigurationError, SensorTowerError
 from .storage.errors import StorageError
 from .workflows import (
+    BackfillMonthsError,
+    BackfillMonthsRequest,
     CollectMonthRequest,
     InvalidMonthError,
     WorkflowError,
+    backfill_months,
     collect_month,
+    format_backfill_summary,
     format_collection_summary,
 )
 
@@ -51,6 +55,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-export",
         action="store_true",
         help="store DuckDB rows but skip both Parquet exports",
+    )
+    backfill_parser = subparsers.add_parser(
+        "backfill-months",
+        help="run an inclusive, resumable range of completed calendar months",
+    )
+    backfill_parser.add_argument(
+        "--start",
+        required=True,
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    backfill_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
+    )
+    backfill_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the month plan without network or database access",
+    )
+    backfill_parser.add_argument(
+        "--refresh-existing",
+        action="store_true",
+        help="recollect and atomically replace existing stored months",
+    )
+    backfill_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="store DuckDB rows but skip the final Parquet exports",
     )
     return parser
 
@@ -113,9 +146,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(format_collection_summary(summary))
         return 0
 
+    if args.command == "backfill-months":
+        current_utc = datetime.now(UTC)
+        backfill_request = BackfillMonthsRequest(
+            start_month=args.start,
+            end_month=args.end,
+            database_path=config.database_path,
+            export_directory=config.export_directory,
+            plan_only=args.plan_only,
+            refresh_existing=args.refresh_existing,
+            skip_export=args.skip_export,
+        )
+        try:
+            backfill_summary = backfill_months(
+                backfill_request,
+                config,
+                current_utc=current_utc,
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except BackfillMonthsError as error:
+            _print_error(str(error))
+            return _backfill_failure_exit_code(error.failure_kind)
+        except SensorTowerConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        except SensorTowerError as error:
+            _print_error(str(error))
+            return 3
+        except StorageError as error:
+            _print_error(str(error))
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 3
+        except OSError:
+            _print_error("local storage operation failed")
+            return 4
+        except Exception:
+            _print_error("backfill failed")
+            return 4
+
+        print(format_backfill_summary(backfill_summary))
+        return 0
+
     _print_error("unsupported command")
     return 2
 
 
 def _print_error(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
+
+
+def _backfill_failure_exit_code(failure_kind: str) -> int:
+    if failure_kind == "configuration":
+        return 2
+    if failure_kind == "storage":
+        return 4
+    return 3

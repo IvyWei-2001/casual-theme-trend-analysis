@@ -28,6 +28,7 @@ from ..storage import (
     DuckDBRepository,
     MarketSnapshotRow,
     MetadataCacheLookup,
+    SnapshotPeriodKey,
     StorageValidationError,
     build_app_metadata_rows,
     build_market_snapshot_rows,
@@ -66,6 +67,12 @@ class CollectionRepository(Protocol):
 
     def initialize_schema(self) -> None:
         """Create or verify the explicitly supported schema."""
+
+    def get_market_snapshot_period(
+        self,
+        key: SnapshotPeriodKey,
+    ) -> list[MarketSnapshotRow]:
+        """Read one complete market period in rank order."""
 
     def lookup_metadata_cache(
         self,
@@ -108,6 +115,7 @@ def collect_month(
     client_factory: ClientFactory | None = None,
     repository: CollectionRepository | None = None,
     repository_factory: RepositoryFactory | None = None,
+    repository_initialized: bool = False,
     metadata_sleep: MetadataSleep = time_module.sleep,
     market_exporter: ExportFunction | None = None,
     metadata_exporter: ExportFunction | None = None,
@@ -124,6 +132,8 @@ def collect_month(
         raise WorkflowError("provide either client or client_factory, not both")
     if repository is not None and repository_factory is not None:
         raise WorkflowError("provide either repository or repository_factory, not both")
+    if not isinstance(repository_initialized, bool):
+        raise WorkflowError("repository_initialized must be a boolean")
 
     if current_utc is None:
         if utc_clock is None:
@@ -190,8 +200,9 @@ def collect_month(
             active_repository = factory(request.database_path)
             owns_repository = True
 
-        active_repository.open()
-        active_repository.initialize_schema()
+        if not repository_initialized:
+            active_repository.open()
+            active_repository.initialize_schema()
         cache_lookup = active_repository.lookup_metadata_cache(
             selected_ids,
             as_of=started_at,
