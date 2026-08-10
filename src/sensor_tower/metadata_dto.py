@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from ..identifiers import normalize_required_opaque_id
 
 type PublisherResolutionSource = Literal[
     "android_publisher_ids",
@@ -15,30 +16,14 @@ type PublisherResolutionSource = Literal[
 ]
 type MetadataPublisherIdValue = str | int | float
 
-_POSITIVE_INTEGER_PATTERN = re.compile(r"^[0-9]+$")
-
-
 def normalize_required_unified_app_id(value: object) -> str:
-    """Normalize one required positive unified app ID to a string."""
+    """Compatibility wrapper for the neutral opaque-ID normalizer.
 
-    if isinstance(value, bool):
-        raise ValueError("unified_app_id must be a positive integer or numeric string")
+    Older callers imported this metadata-specific helper, so it remains part
+    of the public adapter surface while internal code uses the neutral helper.
+    """
 
-    if isinstance(value, int):
-        if value <= 0:
-            raise ValueError("unified_app_id must be positive")
-        return str(value)
-
-    if isinstance(value, str):
-        cleaned = value.strip()
-        if not cleaned or not _POSITIVE_INTEGER_PATTERN.fullmatch(cleaned):
-            raise ValueError("unified_app_id must be a positive integer or numeric string")
-        normalized = str(int(cleaned, 10))
-        if normalized == "0":
-            raise ValueError("unified_app_id must be positive")
-        return normalized
-
-    raise ValueError("unified_app_id must be a positive integer or numeric string")
+    return normalize_required_opaque_id(value, field_name="unified_app_id")
 
 
 def normalize_optional_app_id(value: object) -> str | None:
@@ -75,7 +60,7 @@ class SensorTowerMetadataPublisher(BaseModel):
 class SensorTowerMetadataAppReference(BaseModel):
     """Android or iTunes app reference from the verified metadata shape."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     app_id: str | None = None
 
@@ -93,7 +78,7 @@ class SensorTowerMetadataApp(BaseModel):
     an internal model.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     unified_app_id: str
     name: str | None = None
@@ -106,7 +91,7 @@ class SensorTowerMetadataApp(BaseModel):
     @field_validator("unified_app_id", mode="before")
     @classmethod
     def _normalize_unified_app_id(cls, value: object) -> str:
-        return normalize_required_unified_app_id(value)
+        return normalize_required_opaque_id(value, field_name="unified_app_id")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -149,7 +134,7 @@ class SensorTowerMetadataApp(BaseModel):
 class SensorTowerNormalizedMetadata(BaseModel):
     """Internal metadata model with verified publisher fallback provenance."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     unified_app_id: str
     name: str | None = None
@@ -157,6 +142,11 @@ class SensorTowerNormalizedMetadata(BaseModel):
     publisher_resolution_source: PublisherResolutionSource
     android_app_id: str | None = None
     ios_app_id: str | None = None
+
+    @field_validator("unified_app_id", mode="before")
+    @classmethod
+    def _normalize_unified_app_id(cls, value: object) -> str:
+        return normalize_required_opaque_id(value, field_name="unified_app_id")
 
 
 def normalize_metadata_app(app: SensorTowerMetadataApp) -> SensorTowerNormalizedMetadata:

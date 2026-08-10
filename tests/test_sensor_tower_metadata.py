@@ -28,7 +28,7 @@ from src.sensor_tower.dto import SensorTowerMarketRecord
 TEST_TOKEN = "metadata-unit-test-token-do-not-log"
 
 
-def _market_record(app_id: int, *, genre: str = "Puzzle") -> SensorTowerMarketRecord:
+def _market_record(app_id: int | str, *, genre: str = "Puzzle") -> SensorTowerMarketRecord:
     return SensorTowerMarketRecord.model_validate(
         {
             "app_id": app_id,
@@ -55,12 +55,13 @@ def _market_record(app_id: int, *, genre: str = "Puzzle") -> SensorTowerMarketRe
 def _synthetic_metadata_app(app_id: str) -> dict[str, Any]:
     """Synthetic contract fixture; this is not a captured Sensor Tower export."""
 
+    ios_app_id: str | int = int(app_id) if app_id.isdigit() else f"ios-{app_id}"
     return {
         "unified_app_id": app_id,
         "name": f"App {app_id}",
         "publisher": {"name": f"Publisher {app_id}"},
         "android_apps": [{"app_id": f"com.example.{app_id}"}],
-        "itunes_apps": [{"app_id": int(app_id)}],
+        "itunes_apps": [{"app_id": ios_app_id}],
     }
 
 
@@ -188,6 +189,34 @@ def test_duplicate_selected_ids_are_requested_once_and_filtered_records_are_not_
     assert result.requested_unified_app_ids == ("20", "10")
 
 
+def test_opaque_ids_are_trimmed_deduplicated_and_sent_unchanged() -> None:
+    request = build_metadata_request(
+        [
+            " synthetic-unified-app-002 ",
+            "synthetic-unified-app-001",
+            "synthetic-unified-app-002",
+        ]
+    )
+
+    assert request.app_ids == (
+        "synthetic-unified-app-002",
+        "synthetic-unified-app-001",
+    )
+    assert request.to_query_params(TEST_TOKEN)["app_ids"] == (
+        "synthetic-unified-app-002,synthetic-unified-app-001"
+    )
+
+
+def test_opaque_metadata_response_id_matches_requested_id() -> None:
+    result = parse_metadata_response(
+        {"apps": [_synthetic_metadata_app("synthetic-unified-app-001")]},
+        ["synthetic-unified-app-001"],
+    )
+
+    assert tuple(result.metadata_by_unified_app_id) == ("synthetic-unified-app-001",)
+    assert result.missing_unified_app_ids == ()
+
+
 def test_metadata_fields_are_mapped_with_verified_publisher_precedence() -> None:
     payload = {
         "apps": [
@@ -268,6 +297,21 @@ def test_duplicate_and_unrequested_response_ids_fail_integrity_validation() -> N
 
     with pytest.raises(SensorTowerMetadataIntegrityError, match="unrequested"):
         parse_metadata_response({"apps": [_synthetic_metadata_app("2")]}, [1])
+
+    opaque_duplicate = {
+        "apps": [
+            _synthetic_metadata_app("synthetic-unified-app-001"),
+            _synthetic_metadata_app("synthetic-unified-app-001"),
+        ]
+    }
+    with pytest.raises(SensorTowerMetadataIntegrityError, match="duplicate"):
+        parse_metadata_response(opaque_duplicate, ["synthetic-unified-app-001"])
+
+    with pytest.raises(SensorTowerMetadataIntegrityError, match="unrequested"):
+        parse_metadata_response(
+            {"apps": [_synthetic_metadata_app("synthetic-unified-app-002")]},
+            ["synthetic-unified-app-001"],
+        )
 
 
 @pytest.mark.parametrize("apps_value", ["not-an-array", {"id": 1}])
@@ -360,7 +404,7 @@ def test_attach_metadata_preserves_order_duplicates_and_missing_records() -> Non
     enriched = attach_metadata(selected, result)
 
     assert isinstance(enriched[0], EnrichedMarketRecord)
-    assert [item.market_record.app_id for item in enriched] == [2, 1, 2, 3]
+    assert [item.market_record.app_id for item in enriched] == ["2", "1", "2", "3"]
     assert [item.metadata is None for item in enriched] == [False, False, False, True]
     assert enriched[0].metadata == enriched[2].metadata
     assert [record.model_dump() for record in selected] == before

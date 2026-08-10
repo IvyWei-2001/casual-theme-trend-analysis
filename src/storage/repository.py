@@ -22,7 +22,7 @@ from .models import (
     MarketSnapshotRow,
     MetadataCacheLookup,
     SnapshotPeriodKey,
-    normalize_id_sequence,
+    normalize_opaque_id_sequence,
     require_timezone_aware,
 )
 from .schema import (
@@ -173,7 +173,7 @@ class DuckDBRepository:
         """Read available metadata rows for normalized, deduplicated IDs."""
 
         connection = self._require_initialized_connection()
-        normalized_ids = normalize_id_sequence(unified_app_ids)
+        normalized_ids = normalize_opaque_id_sequence(unified_app_ids)
         if not normalized_ids:
             return {}
 
@@ -202,7 +202,7 @@ class DuckDBRepository:
     ) -> MetadataCacheLookup:
         """Classify cached metadata as fresh, stale, or missing locally."""
 
-        normalized_ids = normalize_id_sequence(unified_app_ids)
+        normalized_ids = normalize_opaque_id_sequence(unified_app_ids)
         as_of_value = require_timezone_aware(as_of, field_name="as_of")
         if (
             isinstance(max_age_days, bool)

@@ -1,4 +1,4 @@
-"""Parsing helpers for a verified Sensor Tower market response sample."""
+"""Parsing helpers for the verified Sensor Tower market-response variants."""
 
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from .dto import SensorTowerMarketRecord
 def parse_market_response(payload: object) -> list[SensorTowerMarketRecord]:
     """Parse an already-decoded Sensor Tower market response.
 
-    The verified sample is a JSON array of row objects.  The adapter supports
+    The verified responses are JSON arrays of row objects. The adapter supports
     the two observed custom-tag locations: a top-level ``custom_tags`` mapping
-    and ``entities[0].custom_tags`` overlaid by ``aggregate_tags``.  Pydantic
-    validation is intentionally allowed to propagate so invalid fields,
-    especially the top-level date, produce a structured validation error.
+    and ``entities[0].custom_tags`` overlaid by ``aggregate_tags``. Pydantic
+    validation is intentionally allowed to propagate so invalid required
+    fields, especially the top-level date and app ID, produce structured
+    validation errors.
     """
 
     if not isinstance(payload, list):

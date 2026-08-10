@@ -27,7 +27,7 @@ AS_OF = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 
 
 def _market_record(
-    app_id: int,
+    app_id: int | str,
     *,
     include_tags: bool = True,
     current_units_value: int = 10,
@@ -71,7 +71,7 @@ def _market_record(
 
 
 def _enriched(
-    app_id: int,
+    app_id: int | str,
     *,
     metadata: SensorTowerNormalizedMetadata | None = None,
     include_tags: bool = True,
@@ -219,6 +219,111 @@ def test_market_mapper_preserves_order_prefers_metadata_id_and_maps_source_field
     assert rows[0].release_date_ww == date(2024, 2, 3)
     assert rows[1].game_theme is None
     assert [record.market_record.model_dump() for record in records] == before
+
+
+def test_opaque_ids_and_missing_metrics_round_trip_through_duckdb_and_parquet(
+    tmp_path: Path,
+) -> None:
+    market_record = SensorTowerMarketRecord.model_validate(
+        {
+            "app_id": "synthetic-source-app-001",
+            "date": "2026-08-07T00:00:00Z",
+            "units_absolute": 9,
+            "units_delta": 1,
+            "units_transformed_delta": None,
+            "revenue_absolute": 19,
+            "revenue_delta": 2,
+            "revenue_transformed_delta": None,
+            "custom_tags": {"Game Theme": "Decoration", "Game Genre": "Puzzle"},
+        }
+    )
+    metadata = SensorTowerNormalizedMetadata(
+        unified_app_id="synthetic-unified-app-001",
+        name="Synthetic App",
+        publisher_display_name=None,
+        publisher_resolution_source="unavailable",
+        android_app_id=None,
+        ios_app_id=None,
+    )
+    rows = build_market_snapshot_rows(
+        [EnrichedMarketRecord(market_record=market_record, metadata=metadata)],
+        scope_name="global",
+        cadence="monthly",
+        period_start=date(2026, 8, 1),
+        period_end=date(2026, 8, 31),
+        scope_country="WW",
+        device_type="total",
+        category=7012,
+        data_model="DM_2025_Q2",
+        collected_at=AS_OF,
+    )
+
+    repository = _initialized_repository(tmp_path)
+    repository.replace_market_snapshot_period(rows)
+    repository.upsert_app_metadata(
+        [
+            AppMetadataRow(
+                unified_app_id="synthetic-unified-app-001",
+                name=None,
+                publisher_display_name=None,
+                publisher_resolution_source="unavailable",
+                android_app_id=None,
+                ios_app_id=None,
+                fetched_at=AS_OF,
+            )
+        ]
+    )
+
+    stored = repository.get_market_snapshot_period(rows[0].period_key)
+    assert stored[0].source_app_id == "synthetic-source-app-001"
+    assert stored[0].unified_app_id == "synthetic-unified-app-001"
+    assert stored[0].current_units_value is None
+    assert stored[0].current_revenue_value is None
+    assert repository.open().execute(
+        "SELECT current_units_value, current_revenue_value "
+        "FROM market_snapshots WHERE unified_app_id = ?",
+        ["synthetic-unified-app-001"],
+    ).fetchone() == (None, None)
+    assert repository.get_app_metadata(["synthetic-unified-app-001"])[
+        "synthetic-unified-app-001"
+    ].name is None
+
+    cache = repository.lookup_metadata_cache(
+        [" synthetic-unified-app-001 ", "synthetic-missing-app"],
+        as_of=AS_OF,
+    )
+    assert tuple(cache.fresh_metadata_by_id) == ("synthetic-unified-app-001",)
+    assert cache.missing_ids == ("synthetic-missing-app",)
+
+    market_path = tmp_path / "exports" / "market.parquet"
+    metadata_path = tmp_path / "exports" / "metadata.parquet"
+    repository.export_market_snapshots_to_parquet(market_path)
+    repository.export_app_metadata_to_parquet(metadata_path)
+    assert repository.open().execute(
+        "SELECT source_app_id, unified_app_id, current_units_value "
+        "FROM read_parquet(?)",
+        [str(market_path)],
+    ).fetchone() == (
+        "synthetic-source-app-001",
+        "synthetic-unified-app-001",
+        None,
+    )
+    assert repository.open().execute(
+        "SELECT unified_app_id FROM read_parquet(?)",
+        [str(metadata_path)],
+    ).fetchone() == ("synthetic-unified-app-001",)
+    repository.close()
+
+
+def test_duplicate_opaque_snapshot_ids_are_rejected_before_write(tmp_path: Path) -> None:
+    repository = _initialized_repository(tmp_path)
+    rows = _snapshot_rows((101, 102))
+    duplicate_rows = [rows[0], replace(rows[1], unified_app_id=rows[0].unified_app_id)]
+
+    with pytest.raises(StorageValidationError, match="unified_app_id"):
+        repository.replace_market_snapshot_period(duplicate_rows)
+
+    repository.close()
 
 
 def test_metadata_mapper_stores_only_returned_metadata() -> None:

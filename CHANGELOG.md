@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added ST-004 compatibility for the sanitized live Sensor Tower market
+  response: opaque string IDs now flow through market parsing, metadata
+  enrichment, DuckDB, Parquet, and DB-002; verified optional source metrics
+  remain nullable; both the earlier sample and live `entities`/
+  `aggregate_tags` custom-tag variants are supported. No metric business
+  semantics were inferred, and no schema migration or live test was added.
 - Added DB-002 live single-month collection: completed UTC calendar-month
   validation, plan-only CLI mode, cache-aware metadata refresh, atomic monthly
   DuckDB replacement, optional Parquet export, sanitized summaries, and

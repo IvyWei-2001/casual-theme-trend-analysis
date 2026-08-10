@@ -10,6 +10,9 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
 - The two inputs are joined through source identity before creating a complete internal observation.
 - `app_id` is a project-owned internal identifier, but it is not the only identity used for reconciliation.
 - `source_app_id` is retained for the source product identity. `unified_app_id` is retained when the source makes it available.
+- Source and unified identifiers are normalized strings. They may be numeric
+  strings for older fixtures or opaque non-numeric strings from the live
+  unified endpoint; internal code must not assume an integer ID space.
 - Missing or unavailable data remains explicit. It must not be converted to zero.
 - Weekly and monthly observations share one `Snapshot` model and are distinguished by `cadence`.
 - `ThemeMetric` is derived data and never replaces the underlying snapshots.
@@ -26,6 +29,9 @@ implements two business tables plus the `schema_migrations` control table:
   It retains the verified source metric and tag names, including
   `current_units_value` and `current_revenue_value`; their business semantics
   remain source-contract TODOs and are not renamed to `downloads` or `revenue`.
+  Every verified source metric is nullable because the live market response
+  may omit the current/comparison and generic fields. Omitted values are
+  stored as SQL `NULL`, not zero or a substitute from another source field.
 
 The composite market-period identity is:
 
@@ -76,8 +82,8 @@ market/ranking response + metadata response
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `app_id` | Internal identifier | Project-owned canonical key used for internal joins. |
-| `source_app_id` | Source identifier | Source product identifier mapped from the observed `app_id` field. It is required for source-derived records. |
-| `unified_app_id` | Optional source identifier | Unified product identifier when the source provides one. It may be unavailable. |
+| `source_app_id` | Opaque source identifier text | Source product identifier mapped from the observed `app_id` field. It is required for source-derived records and is never parsed as an integer. |
+| `unified_app_id` | Optional opaque source identifier text | Unified product identifier when the source provides one. It is retained as normalized text and may be unavailable. |
 | `name` | Text | Normalized display name used in internal reports. |
 | `publisher_name` | Optional text | Normalized publisher name when verified source data provides it. |
 | `release_date` | Optional date | Chosen release-date concept after the release-date tags are verified. |
@@ -109,7 +115,7 @@ The source currently verifies the existence of a `Game Theme` custom-tag label, 
 | --- | --- | --- |
 | `snapshot_id` | Internal identifier | Unique internal observation identifier. |
 | `app_id` | Internal identifier | Canonical internal app reference. |
-| `source_app_id` | Source identifier | Source app identifier used to join the market/ranking row with metadata enrichment. |
+| `source_app_id` | Opaque source identifier text | Source app identifier used to join the market/ranking row with metadata enrichment. |
 | `period_start` | Date/time | Start of the normalized observation period. |
 | `period_end` | Date/time | End of the normalized observation period. |
 | `source_date` | Optional date/time | Source date mapped from the observed top-level `date` field after its meaning is verified. |
@@ -194,3 +200,27 @@ records with fresh or newly fetched normalized metadata before calling the
 storage mappers. It does not make the Sensor Tower DTOs, DuckDB rows, or
 Parquet files part of CLI parsing, and it does not infer missing metadata or
 unverified metric semantics.
+
+## ST-004 live market-contract compatibility
+
+The adapter supports both verified market-response variants: the earlier
+sample with numeric IDs, top-level `custom_tags`, and a larger metric field
+set; and the current live shape with opaque string IDs,
+`entities[0].custom_tags` overlaid by `aggregate_tags`, and only the observed
+`units_*`/`revenue_*` absolute and delta fields. These are source-contract
+variants, not separate business models.
+
+The neutral identifier boundary accepts positive integers and legacy numeric
+strings for compatibility, while preserving any non-empty opaque string after
+trimming. It is used consistently by market DTOs, metadata requests and
+integrity checks, cache keys, storage rows, Parquet exports, and DB-002 joins.
+Identifier values are not hashed, converted to integers, or exposed in public
+errors and summaries. Existing DuckDB identifier columns remain `VARCHAR`;
+ST-004 does not change the schema version.
+
+All verified source metric fields remain under their actual source names.
+Missing optional fields become unavailable/SQL `NULL`; `units_absolute` is
+not copied into `current_units_value`, and `revenue_absolute` is not copied
+into `current_revenue_value`. The source metric semantics remain TODO and are
+not inferred by the storage or workflow layers. A missing verified custom-tag
+shape still fails validation rather than silently creating an empty mapping.

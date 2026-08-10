@@ -9,7 +9,7 @@ from src.sensor_tower.enrichment import EnrichedMarketRecord, selected_record_un
 from src.sensor_tower.metadata_parser import SensorTowerMetadataFetchResult
 
 from .errors import StorageValidationError
-from .models import AppMetadataRow, MarketSnapshotRow, SnapshotPeriodKey, normalize_positive_id
+from .models import AppMetadataRow, MarketSnapshotRow, SnapshotPeriodKey
 
 
 def build_market_snapshot_rows(
@@ -41,10 +41,6 @@ def build_market_snapshot_rows(
     rows: list[MarketSnapshotRow] = []
     for rank_position, enriched_record in enumerate(enriched_records, start=1):
         market_record = enriched_record.market_record
-        source_app_id = normalize_positive_id(
-            market_record.app_id,
-            field_name="market record app_id",
-        )
         unified_app_id = _resolve_unified_app_id(enriched_record)
 
         rows.append(
@@ -54,7 +50,7 @@ def build_market_snapshot_rows(
                 period_start=period_key.period_start,
                 period_end=period_key.period_end,
                 rank_position=rank_position,
-                source_app_id=source_app_id,
+                source_app_id=market_record.app_id,
                 unified_app_id=unified_app_id,
                 scope_country=scope_country,
                 device_type=device_type,
@@ -127,14 +123,11 @@ def build_app_metadata_rows(
 
 def _resolve_unified_app_id(enriched_record: EnrichedMarketRecord) -> str:
     if enriched_record.metadata is not None:
-        return normalize_positive_id(
-            enriched_record.metadata.unified_app_id,
-            field_name="metadata unified_app_id",
-        )
+        return enriched_record.metadata.unified_app_id
 
     resolved_id = selected_record_unified_app_id(enriched_record.market_record)
     if resolved_id is None:
         raise StorageValidationError(
             "selected market record has no valid unified_app_id fallback"
         )
-    return normalize_positive_id(resolved_id, field_name="market record unified_app_id")
+    return resolved_id

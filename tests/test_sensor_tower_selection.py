@@ -57,7 +57,7 @@ def _candidate_records(
     total_count: int = 1200,
 ) -> list[SensorTowerMarketRecord]:
     return [
-        _record(index, genre="Puzzle" if index < eligible_count else "Arcade")
+        _record(index + 1, genre="Puzzle" if index < eligible_count else "Arcade")
         for index in range(total_count)
     ]
 
@@ -73,7 +73,9 @@ def test_1200_candidates_with_1105_eligible_return_exactly_1000() -> None:
     )
 
     assert len(selected) == 1000
-    assert [record.app_id for record in selected] == list(range(1000))
+    assert [record.app_id for record in selected] == [
+        str(index) for index in range(1, 1001)
+    ]
 
 
 def test_1200_candidates_with_998_eligible_return_all_998_and_warn(
@@ -110,7 +112,7 @@ def test_filtering_happens_before_truncation_and_preserves_source_order() -> Non
         exclude_china_revenue_market=True,
     )
 
-    assert [record.app_id for record in selected] == [20, 30, 50]
+    assert [record.app_id for record in selected] == ["20", "30", "50"]
 
 
 def test_missing_and_non_allowed_genres_are_excluded() -> None:
@@ -123,7 +125,7 @@ def test_missing_and_non_allowed_genres_are_excluded() -> None:
         exclude_china_revenue_market=True,
     )
 
-    assert [record.app_id for record in selected] == [3]
+    assert [record.app_id for record in selected] == ["3"]
 
 
 def test_genre_matching_is_case_insensitive() -> None:
@@ -136,7 +138,7 @@ def test_genre_matching_is_case_insensitive() -> None:
         exclude_china_revenue_market=True,
     )
 
-    assert [record.app_id for record in selected] == [1, 2]
+    assert [record.app_id for record in selected] == ["1", "2"]
 
 
 def test_china_revenue_market_is_configurable() -> None:
@@ -155,8 +157,8 @@ def test_china_revenue_market_is_configurable() -> None:
         exclude_china_revenue_market=False,
     )
 
-    assert [record.app_id for record in excluded] == [2]
-    assert [record.app_id for record in retained] == [1, 2]
+    assert [record.app_id for record in excluded] == ["2"]
+    assert [record.app_id for record in retained] == ["1", "2"]
 
 
 def test_zero_eligible_records_raise_typed_error() -> None:
@@ -253,7 +255,7 @@ def test_fetch_and_select_derives_selection_config_from_request() -> None:
         request,
     )
 
-    assert [record.app_id for record in selected] == [1]
+    assert [record.app_id for record in selected] == ["1"]
 
 
 @pytest.mark.parametrize(
