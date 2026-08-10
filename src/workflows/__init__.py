@@ -1,5 +1,6 @@
 """Application workflows for manually executable collection jobs."""
 
+from .backfill_months import backfill_months, format_backfill_summary
 from .collect_month import (
     CollectionClient,
     CollectionRepository,
@@ -7,12 +8,30 @@ from .collect_month import (
     collect_month,
     format_collection_summary,
 )
-from .errors import InvalidMonthError, WorkflowError, WorkflowMetadataIntegrityError
-from .models import CollectMonthRequest, CollectMonthSummary, MonthlyPeriod
+from .errors import (
+    BackfillMonthsError,
+    InvalidMonthError,
+    WorkflowError,
+    WorkflowMetadataIntegrityError,
+)
+from .models import (
+    BackfillMonthRange,
+    BackfillMonthsRange,
+    BackfillMonthsRequest,
+    BackfillMonthsSummary,
+    CollectMonthRequest,
+    CollectMonthSummary,
+    MonthlyPeriod,
+)
 
 __all__ = [
     "CollectionClient",
     "CollectionRepository",
+    "BackfillMonthRange",
+    "BackfillMonthsError",
+    "BackfillMonthsRange",
+    "BackfillMonthsRequest",
+    "BackfillMonthsSummary",
     "CollectMonthRequest",
     "CollectMonthSummary",
     "InvalidMonthError",
@@ -20,6 +39,8 @@ __all__ = [
     "WorkflowError",
     "WorkflowMetadataIntegrityError",
     "app_metadata_row_to_sensor_tower_metadata",
+    "backfill_months",
     "collect_month",
+    "format_backfill_summary",
     "format_collection_summary",
 ]

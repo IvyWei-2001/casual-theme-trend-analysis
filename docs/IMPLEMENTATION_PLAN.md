@@ -104,9 +104,31 @@ DB-002 provides the first manually executable live workflow:
 `python -m src collect-month --month YYYY-MM --plan-only` validates the month
 and request configuration without requiring a token or opening a database.
 The live command is intentionally single-month and manually invoked. It does
-not implement historical backfill, pagination, scheduling, Feishu, theme
-aggregation, Trend Score, or raw response persistence. DuckDB remains the
-source of truth when a Parquet export fails.
+not implement pagination, scheduling, Feishu, theme aggregation, Trend Score,
+or raw response persistence. DuckDB remains the source of truth when a
+Parquet export fails.
+
+### HIST-001 implemented boundary
+
+HIST-001 adds a manually executable, resumable inclusive monthly backfill:
+
+1. Validate exact `YYYY-MM` start and end boundaries against one injected UTC
+   clock, rejecting malformed, impossible, current, future, and reversed ranges.
+2. In plan-only mode, print the chronological month sequence without creating
+   a client, opening DuckDB, or creating output files.
+3. Open and initialize one DuckDB repository, skip non-empty complete periods
+   by default, and recollect them only with `--refresh-existing`.
+4. Lazily create one Sensor Tower client only when a month needs collection;
+   delegate each month to DB-002 with Parquet export disabled.
+5. Stop on the first failure, preserve earlier committed periods, and resume
+   later through atomic period replacement rather than a checkpoint file.
+6. Export `market_snapshots.parquet` and `app_metadata.parquet` exactly once
+   after all requested months succeed unless `--skip-export` is supplied.
+
+The workflow is sequential and manual. It does not add scheduling, weekly
+backfill, new Sensor Tower endpoints or filters, raw-response persistence,
+Feishu synchronization, theme aggregation, lifecycle classification, or Trend
+Score. DuckDB remains the source of truth.
 
 ### Work items
 
@@ -130,7 +152,8 @@ Load the historical monthly observations needed for the first dashboard after th
 
 - Use the verified historical request contract when it becomes available; do not assume the weekly endpoint or parameters apply.
 - Store monthly observations with `cadence: monthly` and retain the verified source date when its semantics are known.
-- Add checkpoint, resume, retry, and validation behavior.
+- Add resumable period validation and failure behavior through atomic monthly
+  replacement; no separate checkpoint file is required for HIST-001.
 - Start with a small verified period, then expand toward the roadmap's 36-month target only after data-quality checks pass.
 - Keep missing observations explicit and never convert unavailable units or revenue to zero.
 

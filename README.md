@@ -153,7 +153,8 @@ compression, and an atomic temporary-sibling-file replacement. Generated
 DB-001 does not call Sensor Tower, provide a live collection command, perform
 historical backfill, aggregate themes, calculate Trend Score, or synchronize
 Feishu. DB-002 adds the first live single-month collection command described
-below; historical loading remains a later issue.
+below, and HIST-001 adds the manually executable monthly backfill described
+after it.
 
 ## Live single-month collection (DB-002)
 
@@ -194,8 +195,48 @@ alter the approved Top-1000 filtering rules.
 
 DuckDB is the source of truth and Parquet is an export. Rerunning a month
 replaces that complete stored month rather than appending duplicates. The
-workflow is intentionally manual and monthly-first: no historical multi-month
-backfill, scheduling, Feishu sync, or theme trend calculation exists yet.
+single-month workflow remains manual and monthly-first; it does not schedule
+jobs, synchronize Feishu, or calculate theme trends.
+
+## Historical monthly backfill (HIST-001)
+
+Backfill uses an inclusive `YYYY-MM` range and processes months oldest to
+newest. Plan the range without a token, database, network request, or output
+files:
+
+```powershell
+python -m src backfill-months --start 2025-08 --end 2026-07 --plan-only
+```
+
+Backfill missing months and export both business tables once after all months
+complete:
+
+```powershell
+python -m src backfill-months --start 2025-08 --end 2026-07
+```
+
+Recollect and atomically replace every requested month:
+
+```powershell
+python -m src backfill-months --start 2025-08 --end 2026-07 --refresh-existing
+```
+
+Backfill DuckDB without Parquet export:
+
+```powershell
+python -m src backfill-months --start 2025-08 --end 2026-07 --skip-export
+```
+
+Existing non-empty monthly periods are skipped by default. Rerunning after a
+failure therefore resumes at the first missing month while preserving earlier
+committed periods. One shared metadata cache, client, and DuckDB repository
+are reused across the run; requests are sequential and never parallelized.
+The final Parquet export runs once, after all requested months are collected or
+skipped. A failed collection does not run that final export, while an export
+failure leaves valid DuckDB data intact.
+
+The workflow is manual only: scheduling, weekly backfill, Feishu sync, theme
+aggregation, lifecycle classification, and Trend Score remain deferred.
 
 Exit codes are `0` for success or plan validation, `2` for CLI/month/local
 configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`

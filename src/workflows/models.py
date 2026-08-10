@@ -94,6 +94,84 @@ class CollectMonthRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class BackfillMonthRange:
+    """Validated inclusive sequence of completed natural calendar months."""
+
+    start_month: str
+    end_month: str
+    periods: tuple[MonthlyPeriod, ...]
+
+    @classmethod
+    def parse(
+        cls,
+        start_month: str,
+        end_month: str,
+        *,
+        current_utc: datetime | date,
+    ) -> BackfillMonthRange:
+        """Validate both boundaries and build the chronological month sequence."""
+
+        start_period = MonthlyPeriod.parse(start_month, current_utc=current_utc)
+        end_period = MonthlyPeriod.parse(end_month, current_utc=current_utc)
+        if start_period.period_start > end_period.period_start:
+            raise InvalidMonthError("start month must be on or before end month")
+
+        periods: list[MonthlyPeriod] = []
+        period = start_period
+        while period.period_start <= end_period.period_start:
+            periods.append(period)
+            if period.period_start == end_period.period_start:
+                break
+            next_month = _next_month(period.period_start.year, period.period_start.month)
+            period = MonthlyPeriod.parse(next_month, current_utc=current_utc)
+
+        return cls(
+            start_month=start_period.month,
+            end_month=end_period.month,
+            periods=tuple(periods),
+        )
+
+    @property
+    def months(self) -> tuple[str, ...]:
+        """Return the inclusive month names in oldest-to-newest order."""
+
+        return tuple(period.month for period in self.periods)
+
+
+# Keep the plural spelling available for callers that name the operation rather
+# than the boundary represented by the type.
+BackfillMonthsRange = BackfillMonthRange
+
+
+@dataclass(frozen=True, slots=True)
+class BackfillMonthsRequest:
+    """Validated inputs for a resumable inclusive monthly backfill."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    refresh_existing: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "refresh_existing", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class CollectMonthSummary:
     """Sanitized result of one plan or completed collection run."""
 
@@ -116,6 +194,38 @@ class CollectMonthSummary:
     plan_only: bool
     started_at: datetime
     completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BackfillMonthsSummary:
+    """Sanitized result of a validated or completed monthly backfill."""
+
+    start_month: str
+    end_month: str
+    planned_month_count: int
+    planned_months: tuple[str, ...]
+    collected_month_count: int
+    skipped_existing_month_count: int
+    failed_month: str | None
+    total_candidate_count: int
+    total_selected_count: int
+    total_metadata_cache_fresh_count: int
+    total_metadata_requested_count: int
+    total_metadata_returned_count: int
+    total_metadata_unresolved_count: int
+    total_snapshot_rows_written: int
+    database_path: Path
+    market_parquet_path: Path | None
+    metadata_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+
+
+def _next_month(year: int, month: int) -> str:
+    if month == 12:
+        return f"{year + 1:04d}-01"
+    return f"{year:04d}-{month + 1:02d}"
 
 
 def _utc_date(value: datetime | date) -> date:

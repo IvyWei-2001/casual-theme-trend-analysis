@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added HIST-001 resumable monthly historical backfill with inclusive UTC
+  range validation, plan-only mode, existing-period skipping, refresh and
+  fail-fast resume behavior, shared metadata-cache reuse, one final Parquet
+  export, and sanitized CLI errors. Scheduling, weekly backfill, Feishu,
+  theme aggregation, lifecycle classification, and Trend Score remain
+  deferred.
 - Added ST-005 storage validation that distinguishes normalized metadata from
   raw Sensor Tower source observations: generated `"Unknown"` and `"N/A"`
   fallbacks remain rejected for normalized metadata, while raw source tags
