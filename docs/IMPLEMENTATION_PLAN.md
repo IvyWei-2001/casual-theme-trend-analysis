@@ -82,8 +82,31 @@ local source of truth.
 
 DB-001 has no live collection command and does not implement historical
 backfill, theme aggregation, Trend Score, Feishu synchronization, credentials,
-or authenticated URL storage. Live single-period collection is deferred to
-DB-002.
+or authenticated URL storage. DB-002 adds the first live single-period
+collection boundary.
+
+### DB-002 implemented boundary
+
+DB-002 provides the first manually executable live workflow:
+
+1. Validate one completed natural `YYYY-MM` month using UTC boundaries.
+2. Build the verified market request with `date` and `end_date`.
+3. Fetch and parse up to the configured candidate limit, then apply the
+   existing local eligibility selection in source order.
+4. Initialize DuckDB, classify selected unified IDs through the 14-day cache,
+   fetch only stale or missing IDs, and merge fresh plus newly returned
+   metadata without using stale refresh results as fallback.
+5. Map the final ordered records to internal storage rows, upsert only newly
+   returned metadata, and atomically replace the complete monthly period.
+6. Export both business tables through the existing repository Parquet
+   boundary unless export is explicitly skipped.
+
+`python -m src collect-month --month YYYY-MM --plan-only` validates the month
+and request configuration without requiring a token or opening a database.
+The live command is intentionally single-month and manually invoked. It does
+not implement historical backfill, pagination, scheduling, Feishu, theme
+aggregation, Trend Score, or raw response persistence. DuckDB remains the
+source of truth when a Parquet export fails.
 
 ### Work items
 

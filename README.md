@@ -121,5 +121,46 @@ compression, and an atomic temporary-sibling-file replacement. Generated
 
 DB-001 does not call Sensor Tower, provide a live collection command, perform
 historical backfill, aggregate themes, calculate Trend Score, or synchronize
-Feishu. Live single-period collection is deferred to DB-002; historical loading
-remains a later issue.
+Feishu. DB-002 adds the first live single-month collection command described
+below; historical loading remains a later issue.
+
+## Live single-month collection (DB-002)
+
+Copy `.env.example` to `.env` and set `APP_SENSOR_TOWER_AUTH_TOKEN` for a live
+collection. Do not put credentials in `configs/app.example.yaml`.
+
+Validate a completed month without network, database, or output-file access:
+
+```powershell
+python -m src collect-month --month 2026-07 --plan-only
+```
+
+Collect one completed natural calendar month:
+
+```powershell
+python -m src collect-month --month 2026-07
+```
+
+Collect and store in DuckDB without exporting Parquet:
+
+```powershell
+python -m src collect-month --month 2026-07 --skip-export
+```
+
+The command accepts only completed `YYYY-MM` calendar months, uses UTC to
+reject the current incomplete month and future months, and sends the month's
+real first and last dates as `date` and `end_date`. A live run fetches market
+candidates, applies local eligibility filtering, refreshes only stale or
+missing metadata IDs, stores the complete period, and optionally exports
+`market_snapshots.parquet` and `app_metadata.parquet` under
+`APP_EXPORT_DIRECTORY` (default `data/exports`). The metadata cache maximum age
+is 14 days; exactly 14 days remains fresh.
+
+DuckDB is the source of truth and Parquet is an export. Rerunning a month
+replaces that complete stored month rather than appending duplicates. The
+workflow is intentionally manual and monthly-first: no historical multi-month
+backfill, scheduling, Feishu sync, or theme trend calculation exists yet.
+
+Exit codes are `0` for success or plan validation, `2` for CLI/month/local
+configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`
+for DuckDB or Parquet failures.

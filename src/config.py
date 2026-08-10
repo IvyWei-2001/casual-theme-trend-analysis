@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from datetime import date as Date
@@ -50,11 +51,15 @@ from .sensor_tower.request import (
 
 DEFAULT_CONFIG_PATH: Final[Path] = Path("configs/app.yaml")
 DEFAULT_DATABASE_PATH: Final[Path] = Path("data/casual_theme_trends.duckdb")
+DEFAULT_EXPORT_DIRECTORY: Final[Path] = Path("data/exports")
+DEFAULT_METADATA_CACHE_MAX_AGE_DAYS: Final[float] = 14.0
 
 _ENVIRONMENT_VARIABLES: Final[dict[str, str]] = {
     "APP_APP_NAME": "app_name",
     "APP_ENVIRONMENT": "environment",
     "APP_DATABASE_PATH": "database_path",
+    "APP_EXPORT_DIRECTORY": "export_directory",
+    "APP_METADATA_CACHE_MAX_AGE_DAYS": "metadata_cache_max_age_days",
     "APP_LOG_LEVEL": "log_level",
     "APP_SENSOR_TOWER_API_URL": "sensor_tower_api_url",
     "APP_SENSOR_TOWER_AUTH_TOKEN": "sensor_tower_auth_token",
@@ -108,6 +113,8 @@ class AppConfig(BaseSettings):
     app_name: str = "casual-theme-trend-analysis"
     environment: str = "development"
     database_path: Path = DEFAULT_DATABASE_PATH
+    export_directory: Path = DEFAULT_EXPORT_DIRECTORY
+    metadata_cache_max_age_days: float = DEFAULT_METADATA_CACHE_MAX_AGE_DAYS
     log_level: str = "INFO"
     sensor_tower_api_url: str | None = None
     sensor_tower_auth_token: SecretStr | None = None
@@ -143,6 +150,43 @@ class AppConfig(BaseSettings):
     )
     feishu_app_id: str | None = None
     feishu_app_secret: SecretStr | None = None
+
+    @field_validator("export_directory", mode="before")
+    @classmethod
+    def _validate_export_directory(cls, value: object) -> object:
+        if isinstance(value, Path):
+            if not str(value).strip():
+                raise ValueError("export_directory must be a non-empty path")
+            return value
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("export_directory must be a non-empty path")
+        return value.strip()
+
+    @field_validator("metadata_cache_max_age_days", mode="before")
+    @classmethod
+    def _validate_metadata_cache_max_age_days(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError(
+                "metadata_cache_max_age_days must be a non-negative finite number"
+            )
+        if isinstance(value, str):
+            try:
+                numeric_value = float(value.strip())
+            except ValueError as error:
+                raise ValueError(
+                    "metadata_cache_max_age_days must be a non-negative finite number"
+                ) from error
+        elif isinstance(value, (int, float)):
+            numeric_value = float(value)
+        else:
+            raise ValueError(
+                "metadata_cache_max_age_days must be a non-negative finite number"
+            )
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            raise ValueError(
+                "metadata_cache_max_age_days must be a non-negative finite number"
+            )
+        return numeric_value
 
     @model_validator(mode="after")
     def _validate_sensor_tower_settings(self) -> AppConfig:

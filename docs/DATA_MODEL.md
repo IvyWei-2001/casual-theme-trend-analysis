@@ -183,3 +183,14 @@ Feishu output mapping
 ```
 
 The external response DTOs and their field names are integration details. Aggregation functions must not accept them directly. Any unresolved identity, theme, metric, or date mapping must be represented as an explicit validation issue or unavailable value.
+
+## DB-002 single-month workflow boundary
+
+The manual `collect-month` workflow introduces a validated `MonthlyPeriod`
+boundary before any external request. A `YYYY-MM` value becomes one natural
+period with `period_start`, `period_end`, and `cadence: monthly`; current and
+future UTC months are rejected. The workflow then joins the selected market
+records with fresh or newly fetched normalized metadata before calling the
+storage mappers. It does not make the Sensor Tower DTOs, DuckDB rows, or
+Parquet files part of CLI parsing, and it does not infer missing metadata or
+unverified metric semantics.
