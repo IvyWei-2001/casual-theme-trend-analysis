@@ -31,7 +31,7 @@ from ..storage import (
     StorageValidationError,
     build_app_metadata_rows,
     build_market_snapshot_rows,
-    normalize_positive_id,
+    normalize_storage_opaque_id,
 )
 from .errors import WorkflowError, WorkflowMetadataIntegrityError
 from .models import CollectMonthRequest, CollectMonthSummary, MonthlyPeriod
@@ -355,7 +355,10 @@ def _combine_metadata(
     combined: dict[str, SensorTowerNormalizedMetadata] = {}
     for cache_key, cache_row in cache_lookup.fresh_metadata_by_id.items():
         try:
-            normalized_key = normalize_positive_id(cache_key, field_name="metadata cache ID")
+            normalized_key = normalize_storage_opaque_id(
+                cache_key,
+                field_name="metadata cache ID",
+            )
         except StorageValidationError as error:
             raise WorkflowMetadataIntegrityError(
                 "metadata cache contained an invalid ID"
@@ -385,11 +388,11 @@ def _combine_metadata(
                 "metadata refresh contained an invalid normalized row"
             )
         try:
-            normalized_key = normalize_positive_id(
+            normalized_key = normalize_storage_opaque_id(
                 response_key,
                 field_name="metadata response ID",
             )
-            normalized_metadata_id = normalize_positive_id(
+            normalized_metadata_id = normalize_storage_opaque_id(
                 metadata.unified_app_id,
                 field_name="metadata response ID",
             )

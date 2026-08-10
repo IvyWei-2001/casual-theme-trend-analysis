@@ -71,6 +71,54 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 - These examples are sample observations only; no taxonomy rule, hierarchy, or completeness is inferred from them.
 - Field existence is verified for every top-level field and custom-tag label listed above. Existence alone does not establish business semantics.
 
+### ST-004 live market-response compatibility
+
+The earlier sample and the current live endpoint are both verified input
+variants. The adapter supports their union without renaming or synthesizing
+source fields.
+
+The sanitized live diagnostic verified an HTTP 200 JSON array whose row
+objects contain these top-level keys:
+
+```text
+aggregate_tags
+app_id
+country
+date
+entities
+units_absolute
+units_delta
+units_transformed_delta
+revenue_absolute
+revenue_delta
+revenue_transformed_delta
+```
+
+The live diagnostic did not contain
+`current_units_value`, `comparison_units_value`, `current_revenue_value`,
+`comparison_revenue_value`, `absolute`, `delta`, or `transformed_delta`.
+These fields remain supported for the earlier sample, but are optional in the
+normalized market DTO. When omitted, they remain unavailable and are stored as
+SQL `NULL`; no zero or cross-field substitution is applied. In particular,
+`units_absolute` is not copied into `current_units_value`, and
+`revenue_absolute` is not copied into `current_revenue_value`.
+
+The live `app_id` is a non-numeric opaque string identifier. It is normalized
+only by trimming surrounding whitespace; it is never parsed as an integer,
+hashed, or replaced with a project-generated ID. Positive integer fixtures and
+numeric strings remain supported for compatibility and are represented as
+decimal strings after normalization. The same opaque-ID boundary is used for
+metadata requests, response integrity checks, cache keys, DuckDB rows, and
+DB-002 joins.
+
+The live custom-tag shape is also verified: `entities[0].custom_tags` is
+copied and `aggregate_tags` is overlaid, with aggregate values winning on
+duplicate keys. A top-level `custom_tags` mapping remains supported for the
+earlier sample. If neither verified shape is present, parsing fails instead of
+creating an empty mapping. The repository fixture for the live structure is
+synthetic and is based only on this sanitized field structure; it is not a
+captured response.
+
 ### Still TODO
 
 - Before ST-002, the actual endpoint URL, method, and auth transport were
@@ -158,10 +206,11 @@ below and implemented as a separate ST-003 adapter.
   metadata app requires `unified_app_id`; `name`, `publisher`, publisher-ID
   arrays, and Android/iTunes app-reference arrays are optional. Unknown source
   fields are tolerated and are not retained in normalized internal metadata.
-- `unified_app_id` accepts positive integer values and numeric strings that can
-  be safely normalized to a positive string ID. Invalid or empty IDs fail
-  validation. Android and iTunes reference `app_id` values are normalized to
-  optional strings.
+- `unified_app_id` accepts positive integer values, numeric strings that can
+  be safely normalized to decimal strings, and non-empty opaque strings that
+  are preserved after trimming. Invalid, boolean, null, zero, negative, and
+  empty required IDs fail validation. Android and iTunes reference `app_id`
+  values are normalized to optional strings.
 - Metadata is requested only after the market candidate request, local
   eligibility filtering, and final `final_top_n` selection. Empty IDs are
   removed, IDs are deduplicated while preserving first-seen order, and batches
@@ -262,6 +311,11 @@ No theme may be inferred from the `Game Genre` filter, app name, icon, store cop
   ```
 
 - The Apps Script obtains market rows before local filtering to 1000 rows.
+- The verified live market response may omit the current/comparison unit
+  fields and expose only `units_absolute`, `units_delta`, and
+  `units_transformed_delta`. The earlier sample contains the larger field set.
+- The adapter preserves each observed source metric under its source name and
+  stores omitted optional metrics as unavailable/SQL `NULL`.
 
 ### Still TODO
 
@@ -290,6 +344,10 @@ The system must not describe `current_units_value` as downloads or use it in a s
   ```
 
 - The field existence is verified; the business meaning is not.
+- The verified live market response may omit the current/comparison revenue
+  fields and expose only `revenue_absolute`, `revenue_delta`, and
+  `revenue_transformed_delta`. The earlier sample contains the larger field
+  set. No field is silently renamed or copied into another source field.
 
 ### Still TODO
 

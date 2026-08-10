@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from ..identifiers import normalize_required_opaque_id
 from .errors import (
     SensorTowerMetadataIntegrityError,
     SensorTowerMetadataMalformedResponseError,
@@ -16,7 +17,6 @@ from .metadata_dto import (
     SensorTowerMetadataApp,
     SensorTowerNormalizedMetadata,
     normalize_metadata_app,
-    normalize_required_unified_app_id,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def _normalize_requested_ids(values: Sequence[object]) -> tuple[str, ...]:
     for value in values:
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
-        app_id = normalize_required_unified_app_id(value)
+        app_id = normalize_required_opaque_id(value, field_name="unified_app_id")
         if app_id not in seen:
             normalized.append(app_id)
             seen.add(app_id)

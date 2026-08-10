@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from ..identifiers import normalize_required_opaque_id
 from .dto import SensorTowerMarketRecord
 from .errors import (
     SensorTowerMetadataBatchError,
@@ -16,7 +17,6 @@ from .errors import (
 )
 from .metadata_dto import (
     SensorTowerNormalizedMetadata,
-    normalize_required_unified_app_id,
 )
 from .metadata_parser import SensorTowerMetadataFetchResult
 from .metadata_request import SensorTowerMetadataRequest, SensorTowerMetadataRequestConfig
@@ -137,7 +137,7 @@ def _normalize_unified_app_ids(values: Sequence[object]) -> tuple[str, ...]:
     for value in values:
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
-        app_id = normalize_required_unified_app_id(value)
+        app_id = normalize_required_opaque_id(value, field_name="unified_app_id")
         if app_id not in seen:
             normalized_ids.append(app_id)
             seen.add(app_id)
@@ -199,7 +199,7 @@ def selected_record_unified_app_id(record: SensorTowerMarketRecord) -> str | Non
     if explicit_id is None or (isinstance(explicit_id, str) and not explicit_id.strip()):
         return None
     try:
-        return normalize_required_unified_app_id(explicit_id)
+        return normalize_required_opaque_id(explicit_id, field_name="unified_app_id")
     except ValueError:
         return None
 

@@ -28,10 +28,25 @@ mypy src
 
 ## Sensor Tower source contract parser
 
-The initial Sensor Tower parser handles a verified response sample for local
-testing. It does not make network calls, and the semantics of
-`current_units_value` and `current_revenue_value` remain pending API-contract
-confirmation.
+The Sensor Tower parser supports both verified market-response variants for
+local testing. The earlier sample uses numeric IDs, top-level `custom_tags`,
+and a larger metric field set. The current live shape uses opaque string IDs,
+`entities[0].custom_tags` overlaid by `aggregate_tags`, and may omit the
+current/comparison and generic metric fields. The parser does not make network
+calls, and metric semantics remain pending API-contract confirmation.
+
+Live-contract compatibility is deliberately source-preserving: omitted
+optional metrics remain `None` and later become SQL `NULL`; `units_absolute`
+is not copied into `current_units_value`, and `revenue_absolute` is not copied
+into `current_revenue_value`. A missing verified custom-tag shape fails
+validation rather than becoming an empty mapping. The live fixture is
+synthetic and contains no captured response or real app ID.
+
+All required source and unified identifiers pass through one neutral boundary.
+Positive integer fixtures and numeric strings remain compatible, while
+non-empty opaque strings are preserved after trimming. Opaque identifiers are
+never parsed as integers, hashed, replaced, or exposed in public errors,
+logs, or collection summaries.
 
 ## Sensor Tower market candidates
 
@@ -81,6 +96,11 @@ metadata requests. Selected market-record order is preserved when metadata is
 attached, and a missing metadata response keeps its market record with
 `metadata=None`.
 
+Metadata request IDs support the same opaque string boundary end to end:
+comma-separated batches preserve first-seen order, duplicate IDs are removed,
+and response integrity checks compare normalized opaque strings. The previous
+numeric synthetic IDs remain supported.
+
 Publisher display names follow the verified Apps Script precedence:
 `android_publisher_ids[0]` with `+` changed to a space, then `publisher.name`,
 then `itunes_publisher_ids[0]` converted to text, otherwise unavailable.
@@ -103,6 +123,10 @@ synthetic contract fixtures rather than captured private exports.
 ## Local analytical storage (DB-001)
 
 DuckDB is the local source of truth for the first persistent analytical layer.
+The existing `VARCHAR` identifier columns remain unchanged; opaque source and
+unified IDs round-trip through metadata cache rows, market snapshots, period
+replacement, and Parquet exports. Missing optional market metrics are stored
+as SQL `NULL`.
 Schema initialization is explicit and creates the versioned `schema_migrations`,
 `app_metadata`, and `market_snapshots` tables. A market period is identified by
 `scope_name`, `cadence`, `period_start`, and `period_end`; replacing a period
@@ -155,6 +179,11 @@ missing metadata IDs, stores the complete period, and optionally exports
 `market_snapshots.parquet` and `app_metadata.parquet` under
 `APP_EXPORT_DIRECTORY` (default `data/exports`). The metadata cache maximum age
 is 14 days; exactly 14 days remains fresh.
+
+DB-002 supports both the earlier sample and the verified live market contract.
+It requests metadata only for final selected rows, keeps selected order as
+rank order, does not use stale metadata as a refresh fallback, and does not
+alter the approved Top-1000 filtering rules.
 
 DuckDB is the source of truth and Parquet is an export. Rerunning a month
 replaces that complete stored month rather than appending duplicates. The

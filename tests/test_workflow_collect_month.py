@@ -35,7 +35,7 @@ NOW = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 
 
 def _market_record(
-    app_id: int,
+    app_id: int | str,
     *,
     genre: str = "Puzzle",
     revenue_country: str | None = None,
@@ -63,6 +63,24 @@ def _market_record(
             "delta": 6,
             "transformed_delta": 5,
             "custom_tags": tags,
+        }
+    )
+
+
+def _live_market_record(app_id: str, *, genre: str = "Puzzle") -> SensorTowerMarketRecord:
+    """Synthetic live-shape row with only the currently observed metrics."""
+
+    return SensorTowerMarketRecord.model_validate(
+        {
+            "app_id": app_id,
+            "date": "2026-07-15T00:00:00Z",
+            "units_absolute": 9,
+            "units_delta": 1,
+            "units_transformed_delta": None,
+            "revenue_absolute": 19,
+            "revenue_delta": 2,
+            "revenue_transformed_delta": None,
+            "custom_tags": {"Game Genre": genre, "Game Theme": "Decoration"},
         }
     )
 
@@ -259,6 +277,47 @@ def test_workflow_filters_before_metadata_and_exports_rows_in_selected_order(
     assert [(row.rank_position, row.unified_app_id) for row in rows] == [(1, "2"), (2, "3")]
     metadata = repository.get_app_metadata(["2", "3"])
     assert list(metadata) == ["2", "3"]
+    repository.close()
+
+
+def test_live_shape_opaque_ids_flow_through_metadata_cache_and_snapshot_order(
+    tmp_path: Path,
+) -> None:
+    client = FakeCollectionClient(
+        [
+            _live_market_record("synthetic-unified-app-002"),
+            _live_market_record("synthetic-unified-app-001"),
+        ]
+    )
+
+    summary = collect_month(
+        _request(tmp_path, skip_export=True),
+        _config(),
+        current_utc=NOW,
+        utc_clock=lambda: NOW,
+        client=client,
+        metadata_sleep=lambda _: None,
+    )
+
+    assert summary.metadata_requested_count == 2
+    assert client.metadata_requests == [
+        ("synthetic-unified-app-002", "synthetic-unified-app-001")
+    ]
+    repository = _initialize_repository(summary.database_path)
+    rows = repository.get_market_snapshot_period(
+        SnapshotPeriodKey(
+            scope_name="casual_puzzle_tabletop",
+            cadence="monthly",
+            period_start=date(2026, 7, 1),
+            period_end=date(2026, 7, 31),
+        )
+    )
+    assert [(row.rank_position, row.source_app_id, row.unified_app_id) for row in rows] == [
+        (1, "synthetic-unified-app-002", "synthetic-unified-app-002"),
+        (2, "synthetic-unified-app-001", "synthetic-unified-app-001"),
+    ]
+    assert all(row.current_units_value is None for row in rows)
+    assert all(row.current_revenue_value is None for row in rows)
     repository.close()
 
 

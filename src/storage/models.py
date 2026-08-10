@@ -7,7 +7,6 @@ the repository only accepts these normalized rows.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,6 +14,7 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Literal
 
+from ..identifiers import normalize_required_opaque_id
 from .errors import StorageValidationError
 
 type Cadence = Literal["monthly", "weekly"]
@@ -25,7 +25,6 @@ type PublisherResolutionSource = Literal[
     "unavailable",
 ]
 
-_POSITIVE_INTEGER_PATTERN = re.compile(r"^[0-9]+$")
 _VALID_CADENCES = frozenset({"monthly", "weekly"})
 _VALID_PUBLISHER_RESOLUTION_SOURCES = frozenset(
     {
@@ -38,40 +37,46 @@ _VALID_PUBLISHER_RESOLUTION_SOURCES = frozenset(
 _PLACEHOLDER_TEXT = frozenset({"Unknown", "N/A"})
 
 
+def normalize_storage_opaque_id(
+    value: object,
+    *,
+    field_name: str = "unified_app_id",
+) -> str:
+    """Normalize an opaque identifier and translate errors to storage errors."""
+
+    try:
+        return normalize_required_opaque_id(value, field_name=field_name)
+    except ValueError as error:
+        raise StorageValidationError(str(error)) from None
+
+
 def normalize_positive_id(value: object, *, field_name: str = "unified_app_id") -> str:
-    """Normalize a positive integer-like application ID to a decimal string."""
+    """Backward-compatible wrapper for :func:`normalize_storage_opaque_id`."""
 
-    if isinstance(value, bool):
-        raise StorageValidationError(f"{field_name} must be a positive integer ID")
-
-    if isinstance(value, int):
-        if value <= 0:
-            raise StorageValidationError(f"{field_name} must be a positive integer ID")
-        return str(value)
-
-    if isinstance(value, str):
-        cleaned = value.strip()
-        if not _POSITIVE_INTEGER_PATTERN.fullmatch(cleaned):
-            raise StorageValidationError(f"{field_name} must be a positive integer ID")
-        normalized = str(int(cleaned, 10))
-        if normalized == "0":
-            raise StorageValidationError(f"{field_name} must be a positive integer ID")
-        return normalized
-
-    raise StorageValidationError(f"{field_name} must be a positive integer ID")
+    return normalize_storage_opaque_id(value, field_name=field_name)
 
 
-def normalize_id_sequence(values: Sequence[object]) -> tuple[str, ...]:
-    """Normalize and deduplicate IDs while preserving first-seen order."""
+def normalize_opaque_id_sequence(
+    values: Sequence[object],
+    *,
+    field_name: str = "unified_app_id",
+) -> tuple[str, ...]:
+    """Normalize and deduplicate opaque IDs while preserving first-seen order."""
 
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values:
-        app_id = normalize_positive_id(value)
+        app_id = normalize_storage_opaque_id(value, field_name=field_name)
         if app_id not in seen:
             normalized.append(app_id)
             seen.add(app_id)
     return tuple(normalized)
+
+
+def normalize_id_sequence(values: Sequence[object]) -> tuple[str, ...]:
+    """Backward-compatible wrapper for opaque-ID sequence normalization."""
+
+    return normalize_opaque_id_sequence(values)
 
 
 def require_timezone_aware(value: object, *, field_name: str) -> datetime:
@@ -156,7 +161,7 @@ class AppMetadataRow:
         object.__setattr__(
             self,
             "unified_app_id",
-            normalize_positive_id(self.unified_app_id, field_name="unified_app_id"),
+            normalize_storage_opaque_id(self.unified_app_id, field_name="unified_app_id"),
         )
         object.__setattr__(
             self,
@@ -254,12 +259,12 @@ class MarketSnapshotRow:
         object.__setattr__(
             self,
             "source_app_id",
-            normalize_positive_id(self.source_app_id, field_name="source_app_id"),
+            normalize_storage_opaque_id(self.source_app_id, field_name="source_app_id"),
         )
         object.__setattr__(
             self,
             "unified_app_id",
-            normalize_positive_id(self.unified_app_id, field_name="unified_app_id"),
+            normalize_storage_opaque_id(self.unified_app_id, field_name="unified_app_id"),
         )
         object.__setattr__(
             self,

@@ -7,7 +7,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-from .metadata_dto import normalize_required_unified_app_id
+from ..identifiers import normalize_required_opaque_id
 from .request import resolve_auth_token
 
 DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH: Final = "/v1/unified/apps"
@@ -82,7 +82,7 @@ class SensorTowerMetadataRequestConfig(BaseModel):
 class SensorTowerMetadataRequest(BaseModel):
     """One batched GET request to ``/v1/unified/apps``."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     endpoint_path: str = DEFAULT_SENSOR_TOWER_METADATA_ENDPOINT_PATH
     app_id_type: str = DEFAULT_SENSOR_TOWER_METADATA_APP_ID_TYPE
@@ -109,7 +109,7 @@ class SensorTowerMetadataRequest(BaseModel):
         for item in value:
             if item is None or (isinstance(item, str) and not item.strip()):
                 continue
-            app_id = normalize_required_unified_app_id(item)
+            app_id = normalize_required_opaque_id(item, field_name="unified_app_id")
             if app_id not in seen:
                 normalized.append(app_id)
                 seen.add(app_id)
@@ -131,7 +131,8 @@ class SensorTowerMetadataRequest(BaseModel):
         """Build one request from a validated batch and metadata settings."""
 
         normalized_app_ids = tuple(
-            normalize_required_unified_app_id(app_id) for app_id in unified_app_ids
+            normalize_required_opaque_id(app_id, field_name="unified_app_id")
+            for app_id in unified_app_ids
         )
         return cls(
             endpoint_path=config.endpoint_path,

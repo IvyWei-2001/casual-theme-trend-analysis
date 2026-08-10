@@ -298,7 +298,7 @@ def test_app_config_builds_client_request_and_selection_from_one_boundary() -> N
     ) as client:
         selected = fetch_and_select_market_records(client, request)
 
-    assert [record.app_id for record in selected] == [1]
+    assert [record.app_id for record in selected] == ["1"]
     assert captured[0].url.path == config.sensor_tower_endpoint_path
     assert captured[0].url.params["category"] == str(config.sensor_tower_category)
     assert captured[0].url.params["country"] == config.sensor_tower_country
@@ -330,4 +330,4 @@ def test_fetch_and_select_orchestrates_mock_http_then_local_filtering() -> None:
     with _client(httpx.MockTransport(handler)) as client:
         selected = fetch_and_select_market_records(client, request, selection_config)
 
-    assert [record.app_id for record in selected] == [2]
+    assert [record.app_id for record in selected] == ["2"]

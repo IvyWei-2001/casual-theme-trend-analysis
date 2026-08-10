@@ -1,4 +1,4 @@
-"""Typed DTOs for the verified Sensor Tower market response sample.
+"""Typed DTOs for the verified Sensor Tower market-response variants.
 
 The DTO deliberately preserves Sensor Tower's source field names.  The meaning
 of the unit and revenue values is not resolved here; later adapters must map
@@ -14,6 +14,8 @@ from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from ..identifiers import normalize_required_opaque_id
 
 type NumericValue = int | float | None
 
@@ -172,31 +174,41 @@ class SensorTowerCustomTags(Mapping[str, object]):
 class SensorTowerMarketRecord(BaseModel):
     """One verified Sensor Tower market response row.
 
-    Additional top-level fields are accepted and retained by Pydantic so adding
-    a new source field does not break parsing.  No internal ``downloads`` or
-    ``revenue`` fields are defined because the source metric semantics remain
-    unverified.
+    Additional top-level fields are accepted and retained by Pydantic so the
+    earlier sample and current live response can share one DTO. Optional
+    source metrics remain unavailable when a response variant omits them. No
+    internal ``downloads`` or ``revenue`` fields are defined because the source
+    metric semantics remain unverified.
     """
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+        hide_input_in_errors=True,
+    )
 
-    app_id: int
-    country: str | None
+    app_id: str
+    country: str | None = None
     date: datetime
-    current_units_value: NumericValue
-    units_absolute: NumericValue
-    comparison_units_value: NumericValue
-    units_delta: NumericValue
-    units_transformed_delta: NumericValue
-    current_revenue_value: NumericValue
-    revenue_absolute: NumericValue
-    comparison_revenue_value: NumericValue
-    revenue_delta: NumericValue
-    revenue_transformed_delta: NumericValue
-    absolute: NumericValue
-    delta: NumericValue
-    transformed_delta: NumericValue
+    current_units_value: NumericValue = None
+    units_absolute: NumericValue = None
+    comparison_units_value: NumericValue = None
+    units_delta: NumericValue = None
+    units_transformed_delta: NumericValue = None
+    current_revenue_value: NumericValue = None
+    revenue_absolute: NumericValue = None
+    comparison_revenue_value: NumericValue = None
+    revenue_delta: NumericValue = None
+    revenue_transformed_delta: NumericValue = None
+    absolute: NumericValue = None
+    delta: NumericValue = None
+    transformed_delta: NumericValue = None
     custom_tags: SensorTowerCustomTags
+
+    @field_validator("app_id", mode="before")
+    @classmethod
+    def _normalize_app_id(cls, value: object) -> str:
+        return normalize_required_opaque_id(value, field_name="app_id")
 
     @field_validator("custom_tags", mode="before")
     @classmethod

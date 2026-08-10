@@ -20,7 +20,9 @@ from .models import (
     PublisherResolutionSource,
     SnapshotPeriodKey,
     normalize_id_sequence,
+    normalize_opaque_id_sequence,
     normalize_positive_id,
+    normalize_storage_opaque_id,
 )
 from .parquet import export_app_metadata_to_parquet, export_market_snapshots_to_parquet
 from .repository import DuckDBRepository
@@ -49,6 +51,8 @@ __all__ = [
     "export_app_metadata_to_parquet",
     "export_market_snapshots_to_parquet",
     "initialize_schema",
+    "normalize_opaque_id_sequence",
     "normalize_id_sequence",
     "normalize_positive_id",
+    "normalize_storage_opaque_id",
 ]

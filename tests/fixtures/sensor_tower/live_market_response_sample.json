@@ -1,0 +1,76 @@
+[
+  {
+    "app_id": "synthetic-unified-app-001",
+    "country": null,
+    "date": "2026-07-01T00:00:00Z",
+    "entities": [
+      {
+        "custom_tags": {
+          "Game Genre": "Puzzle",
+          "Game Theme": "Entity Decoration",
+          "Entity Only Tag": "entity-001"
+        }
+      }
+    ],
+    "aggregate_tags": {
+      "Game Genre": "Puzzle",
+      "Game Theme": "Decoration",
+      "Aggregate Only Tag": "aggregate-001"
+    },
+    "units_absolute": 1200,
+    "units_delta": 100,
+    "units_transformed_delta": 0.5,
+    "revenue_absolute": 2400,
+    "revenue_delta": 200,
+    "revenue_transformed_delta": 0.25,
+    "live_extra_field": {
+      "synthetic": true
+    }
+  },
+  {
+    "app_id": "synthetic-unified-app-002",
+    "country": "WW",
+    "date": "2026-07-02T00:00:00+00:00",
+    "entities": [
+      {
+        "custom_tags": {
+          "Game Genre": "Tabletop",
+          "Game Theme": "Animals"
+        }
+      }
+    ],
+    "aggregate_tags": {
+      "Game Genre": "Tabletop",
+      "Game Theme": "Animals"
+    },
+    "units_absolute": 900,
+    "units_delta": -50,
+    "units_transformed_delta": null,
+    "revenue_absolute": 1800,
+    "revenue_delta": -100,
+    "revenue_transformed_delta": 0.0
+  },
+  {
+    "app_id": "synthetic-unified-app-003",
+    "country": null,
+    "date": "2026-07-03T00:00:00Z",
+    "entities": [
+      {
+        "custom_tags": {
+          "Game Genre": "Puzzle",
+          "Game Theme": "Garden"
+        }
+      }
+    ],
+    "aggregate_tags": {
+      "Game Genre": "Puzzle",
+      "Game Theme": "Garden"
+    },
+    "units_absolute": 700,
+    "units_delta": 0,
+    "units_transformed_delta": 0.0,
+    "revenue_absolute": 1400,
+    "revenue_delta": 0,
+    "revenue_transformed_delta": null
+  }
+]
