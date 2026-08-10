@@ -291,6 +291,49 @@ deterministic exports only:
 Trend Score, weekly aggregation, lifecycle labels, opportunity ranking,
 Feishu, scheduling, and AI summaries are not part of AGG-001.
 
+## Explainable monthly Game Theme trend score (TREND-001)
+
+TREND-001 reads only the stored `monthly_market_totals` and
+`theme_monthly_metrics` tables. It never constructs a Sensor Tower client or
+makes a network request:
+
+```powershell
+python -m src score-themes --start 2025-08 --end 2026-07 --plan-only
+python -m src score-themes --start 2025-08 --end 2026-07
+python -m src score-themes --start 2025-08 --end 2026-07 --skip-export
+python -m src score-themes --start 2025-08 --end 2026-07 --top 20
+```
+
+The range must contain at least six consecutive completed UTC calendar months.
+Each target uses a six-month rolling window split into recent three and prior
+three months. With 2025-08 through 2026-07, target scores are created for
+2026-01 through 2026-07. A missing source month is not zero-filled and fails
+the run. A raw theme absent from a present month is zero-filled only inside the
+trend grid; it does not create or modify `theme_monthly_metrics` rows.
+
+The score combines cross-theme percentiles for share-point growth,
+acceleration, and recent new entries, subtracts a product/publisher
+concentration penalty, and applies history, product-size, `units_absolute`,
+`revenue_absolute`, and publisher coverage confidence. Its weights are named
+project MVP defaults and are not Sensor Tower formulas. Source fields retain
+their exact names and unresolved semantics; they are not labeled as downloads
+or revenue.
+
+Schema version 3 adds `theme_trend_scores`. DuckDB remains the source of truth;
+recalculation atomically replaces only requested target-month score rows. By
+default the deterministic export is:
+
+```text
+<export_directory>/theme_trend_scores.parquet
+```
+
+`--skip-export` stores DuckDB rows without creating this file. `--top N`
+changes only the latest-month console display; all calculated rows remain
+stored. The console shows component scores and explanatory fields without
+product IDs, credentials, or authenticated URLs. See
+[`docs/TREND_SCORE.md`](docs/TREND_SCORE.md) for the formulas, eligibility,
+percentile method, confidence calculation, and interpretation limits.
+
 Exit codes are `0` for success or plan validation, `2` for CLI/month/local
 configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`
 for DuckDB or Parquet failures.

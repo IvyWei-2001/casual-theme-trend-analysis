@@ -13,6 +13,7 @@ from typing import Any, Self, cast
 import duckdb
 
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
+from ..analysis.trend_models import ThemeTrendScore
 from .connection import open_duckdb_connection
 from .errors import (
     RepositoryNotOpenError,
@@ -36,6 +37,8 @@ from .schema import (
     MONTHLY_MARKET_TOTALS_TABLE,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_TABLE,
+    THEME_TREND_SCORES_COLUMNS,
+    THEME_TREND_SCORES_TABLE,
     initialize_schema,
 )
 
@@ -50,6 +53,10 @@ _MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL = ", ".join(
 _THEME_MONTHLY_METRICS_COLUMNS_SQL = ", ".join(THEME_MONTHLY_METRICS_COLUMNS)
 _THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join(
     "?" for _ in THEME_MONTHLY_METRICS_COLUMNS
+)
+_THEME_TREND_SCORES_COLUMNS_SQL = ", ".join(THEME_TREND_SCORES_COLUMNS)
+_THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_TREND_SCORES_COLUMNS
 )
 
 _DELETE_MARKET_PERIOD_SQL = """
@@ -101,6 +108,19 @@ _INSERT_MONTHLY_MARKET_TOTAL_SQL = (
 _INSERT_THEME_MONTHLY_METRIC_SQL = (
     f"INSERT INTO {THEME_MONTHLY_METRICS_TABLE} ({_THEME_MONTHLY_METRICS_COLUMNS_SQL}) "
     f"VALUES ({_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL})"
+)
+
+_DELETE_THEME_TREND_SCORES_SQL = """
+DELETE FROM theme_trend_scores
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_INSERT_THEME_TREND_SCORE_SQL = (
+    f"INSERT INTO {THEME_TREND_SCORES_TABLE} ({_THEME_TREND_SCORES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_TREND_SCORES_PLACEHOLDERS_SQL})"
 )
 
 
@@ -234,6 +254,33 @@ class DuckDBRepository:
         ).fetchall()
         return [_theme_monthly_metric_from_database_row(row) for row in rows]
 
+    def get_theme_trend_scores(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeTrendScore]:
+        """Read schema-v3 trend scores in deterministic ranking order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_TREND_SCORES_COLUMNS_SQL} "
+            f"FROM {THEME_TREND_SCORES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, trend_rank NULLS LAST, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_trend_score_from_database_row(row) for row in rows]
+
     def replace_theme_monthly_range(
         self,
         monthly_totals: Sequence[MonthlyMarketTotal],
@@ -266,6 +313,49 @@ class DuckDBRepository:
                 connection.executemany(
                     _INSERT_THEME_MONTHLY_METRIC_SQL,
                     [_theme_monthly_metric_parameters(row) for row in metrics_tuple],
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            _rollback(connection)
+            raise
+
+    def replace_theme_trend_score_range(
+        self,
+        rows: Sequence[ThemeTrendScore],
+        *,
+        target_periods: Sequence[SnapshotPeriodKey] | None = None,
+    ) -> None:
+        """Atomically replace score rows for the requested target months.
+
+        ``target_periods`` allows a valid empty theme result to clear stale rows
+        for a scorable target month while leaving every source and schema-v2 row
+        untouched.
+        """
+
+        scores_tuple, period_keys = _validate_theme_trend_score_range(
+            rows,
+            target_periods=target_periods,
+        )
+        if not period_keys:
+            return
+        connection = self._require_initialized_connection()
+
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for key in period_keys:
+                connection.execute(
+                    _DELETE_THEME_TREND_SCORES_SQL,
+                    [
+                        key.scope_name,
+                        key.cadence,
+                        key.period_start,
+                        key.period_end,
+                    ],
+                )
+            if scores_tuple:
+                connection.executemany(
+                    _INSERT_THEME_TREND_SCORE_SQL,
+                    [_theme_trend_score_parameters(row) for row in scores_tuple],
                 )
             connection.execute("COMMIT")
         except Exception:
@@ -397,6 +487,13 @@ class DuckDBRepository:
         from .parquet import export_theme_monthly_metrics_to_parquet
 
         export_theme_monthly_metrics_to_parquet(self, path)
+
+    def export_theme_trend_scores_to_parquet(self, path: str | Path) -> None:
+        """Atomically export trend scores to deterministic Parquet."""
+
+        from .parquet import export_theme_trend_scores_to_parquet
+
+        export_theme_trend_scores_to_parquet(self, path)
 
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
@@ -564,6 +661,52 @@ def _theme_monthly_metric_parameters(row: ThemeMonthlyMetric) -> tuple[object, .
     )
 
 
+def _theme_trend_score_parameters(row: ThemeTrendScore) -> tuple[object, ...]:
+    return (
+        row.scope_name,
+        row.cadence,
+        row.period_start,
+        row.period_end,
+        row.game_theme,
+        row.window_start,
+        row.window_month_count,
+        row.active_months_6m,
+        row.latest_product_count,
+        row.is_actionable,
+        row.exclusion_reason,
+        row.latest_product_share,
+        row.latest_units_absolute_share,
+        row.latest_revenue_absolute_share,
+        row.latest_new_entry_share,
+        row.latest_median_rank,
+        row.latest_publisher_count,
+        row.latest_top_publisher_product_share,
+        row.product_share_gain_3m,
+        row.units_absolute_share_gain_3m,
+        row.revenue_absolute_share_gain_3m,
+        row.product_share_acceleration,
+        row.units_absolute_share_acceleration,
+        row.revenue_absolute_share_acceleration,
+        row.recent3_new_entry_share,
+        row.median_rank_improvement,
+        row.publisher_count_gain_3m,
+        row.units_absolute_overindex,
+        row.revenue_absolute_overindex,
+        row.recent3_units_coverage_ratio,
+        row.recent3_revenue_coverage_ratio,
+        row.latest_publisher_coverage_ratio,
+        row.growth_score,
+        row.acceleration_score,
+        row.new_product_score,
+        row.concentration_penalty,
+        row.base_trend_score,
+        row.confidence_score,
+        row.trend_score,
+        row.trend_rank,
+        row.calculated_at,
+    )
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -582,6 +725,11 @@ def _monthly_market_total_from_database_row(row: Sequence[object]) -> MonthlyMar
 def _theme_monthly_metric_from_database_row(row: Sequence[object]) -> ThemeMonthlyMetric:
     values = dict(zip(THEME_MONTHLY_METRICS_COLUMNS, row, strict=True))
     return ThemeMonthlyMetric(**cast(Any, values))
+
+
+def _theme_trend_score_from_database_row(row: Sequence[object]) -> ThemeTrendScore:
+    values = dict(zip(THEME_TREND_SCORES_COLUMNS, row, strict=True))
+    return ThemeTrendScore(**cast(Any, values))
 
 
 def _validate_theme_monthly_range(
@@ -635,6 +783,56 @@ def _validate_theme_monthly_range(
     if any(key not in period_key_set for key in metric_keys):
         raise StorageValidationError("theme metrics must belong to the replacement periods")
     return totals_tuple, metrics_tuple, period_keys
+
+
+def _validate_theme_trend_score_range(
+    rows: Sequence[ThemeTrendScore],
+    *,
+    target_periods: Sequence[SnapshotPeriodKey] | None,
+) -> tuple[tuple[ThemeTrendScore, ...], tuple[SnapshotPeriodKey, ...]]:
+    scores_tuple = tuple(rows)
+    if any(not isinstance(row, ThemeTrendScore) for row in scores_tuple):
+        raise StorageValidationError("trend scores must be ThemeTrendScore values")
+    try:
+        scores_tuple = tuple(replace(row) for row in scores_tuple)
+    except Exception as error:
+        raise StorageValidationError("trend scores failed validation") from error
+
+    row_period_keys = tuple(
+        SnapshotPeriodKey(
+            scope_name=row.scope_name,
+            cadence=row.cadence,  # type: ignore[arg-type]
+            period_start=row.period_start,
+            period_end=row.period_end,
+        )
+        for row in scores_tuple
+    )
+    target_keys = _validate_target_periods(target_periods)
+    if target_keys:
+        target_key_set = set(target_keys)
+        if any(key not in target_key_set for key in row_period_keys):
+            raise StorageValidationError("trend scores must belong to target periods")
+    period_keys = tuple(dict.fromkeys((*target_keys, *row_period_keys)))
+    score_identities = {
+        (key, row.game_theme)
+        for key, row in zip(row_period_keys, scores_tuple, strict=True)
+    }
+    if len(score_identities) != len(scores_tuple):
+        raise StorageValidationError("trend scores must have unique identities")
+    return scores_tuple, period_keys
+
+
+def _validate_target_periods(
+    target_periods: Sequence[SnapshotPeriodKey] | None,
+) -> tuple[SnapshotPeriodKey, ...]:
+    if target_periods is None:
+        return ()
+    values = tuple(target_periods)
+    if any(not isinstance(key, SnapshotPeriodKey) or key.cadence != "monthly" for key in values):
+        raise StorageValidationError("target periods must be monthly SnapshotPeriodKey values")
+    if len(set(values)) != len(values):
+        raise StorageValidationError("target periods must have unique identities")
+    return values
 
 
 def _derived_filter_sql(

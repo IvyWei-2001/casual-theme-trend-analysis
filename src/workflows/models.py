@@ -7,9 +7,12 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .errors import InvalidMonthError, WorkflowError
+
+if TYPE_CHECKING:
+    from ..analysis.trend_models import ThemeTrendScore
 
 _MONTH_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}$")
 type MonthlyCadence = Literal["monthly"]
@@ -199,6 +202,36 @@ class AggregateThemesRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ScoreThemesRequest:
+    """Validated inputs for the local monthly theme trend score workflow."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+    top_n: int = 20
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+        if isinstance(self.top_n, bool) or not isinstance(self.top_n, int) or self.top_n <= 0:
+            raise WorkflowError("top_n must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
 class CollectMonthSummary:
     """Sanitized result of one plan or completed collection run."""
 
@@ -270,6 +303,28 @@ class AggregateThemesSummary:
     plan_only: bool
     started_at: datetime
     completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreThemesSummary:
+    """Sanitized result of a validated or completed theme trend score run."""
+
+    start_month: str
+    end_month: str
+    history_month_count: int
+    scorable_target_month_count: int
+    trend_row_count: int
+    actionable_row_count: int
+    non_actionable_row_count: int
+    latest_target_month: str | None
+    latest_actionable_theme_count: int
+    database_path: Path
+    trend_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+    top_n: int
+    latest_scores: tuple[ThemeTrendScore, ...]
 
 
 def _next_month(year: int, month: int) -> str:

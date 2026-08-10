@@ -25,8 +25,9 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 2 contains four business tables plus the `schema_migrations` control
-table:
+version 3 contains five business tables plus the `schema_migrations` control
+table. Version 3 adds `theme_trend_scores` without changing the source tables
+or the schema-v2 monthly aggregation rows:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -64,7 +65,8 @@ source of truth, and generated database/WAL/Parquet files are not committed.
 DB-001 does not implement live collection, historical backfill, theme
 aggregation, Trend Score, or Feishu synchronization. Live single-period
 collection is deferred to DB-002. AGG-001 adds the two derived tables described
-below without changing the source-table columns.
+below without changing the source-table columns. TREND-001 adds the separate
+schema-v3 score table described after the aggregation contract.
 
 ## AGG-001 schema-v2 derived storage contract
 
@@ -130,6 +132,35 @@ result and all source rows unchanged. DuckDB remains the source of truth;
 `monthly_market_totals.parquet` and `theme_monthly_metrics.parquet` are
 deterministic exports. AGG-001 does not implement Trend Score.
 
+## TREND-001 schema-v3 trend score storage contract
+
+`theme_trend_scores` stores one row for every raw Game Theme present in each
+scorable target month, including non-actionable labels and insufficient-history
+rows. Its identity is `(scope_name, cadence, period_start, period_end,
+game_theme)`, and `cadence` is always `monthly`. The row retains the six-month
+window boundaries, latest observed fields, rolling share-point features,
+coverage inputs, component scores, confidence, final score, deterministic rank,
+and a sanitized `calculated_at` timestamp.
+
+The analysis layer creates this row from `MonthlyMarketTotal` and
+`ThemeMonthlyMetric` only. It zero-fills absent theme months inside the rolling
+grid according to [`docs/TREND_SCORE.md`](TREND_SCORE.md), but it never writes a
+synthetic schema-v2 metric. Six consecutive month-wide totals are required;
+missing source months are not treated as zero.
+
+Actionable rows have non-NULL component scores, `trend_score`, and
+`trend_rank`, with a NULL `exclusion_reason`. Non-actionable rows retain the
+raw label and explanatory raw features but have NULL component scores, final
+score, and rank plus a deterministic exclusion reason. The score and
+confidence formulas are project MVP defaults, not Sensor Tower formulas.
+
+Score replacement validates every row before one transaction, deletes only the
+requested target-month keys from `theme_trend_scores`, and inserts the complete
+replacement. Source tables and both schema-v2 aggregation tables are not
+modified. `theme_trend_scores.parquet` is a deterministic archive export with
+explicit columns, stable rank ordering, ZSTD compression, and atomic sibling
+replacement.
+
 ## Model overview
 
 ```text
@@ -143,8 +174,8 @@ market/ranking response + metadata response
                     |
                     v
               ThemeMetric
-                    |
-                    v
+                     |
+                     v
           Trend Score and Feishu
 ```
 

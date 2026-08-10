@@ -159,10 +159,11 @@ def test_schema_initialization_is_idempotent_and_has_no_credential_columns(
         "market_snapshots",
         "monthly_market_totals",
         "theme_monthly_metrics",
+        "theme_trend_scores",
     }
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,)]
+    ).fetchall() == [(1,), (2,), (3,)]
 
     forbidden_fragments = ("credential", "token", "password", "secret", "url")
     for table_name in tables:
@@ -656,6 +657,7 @@ def test_duckdb_schema_does_not_include_credential_columns(tmp_path: Path) -> No
         "market_snapshots",
         "monthly_market_totals",
         "theme_monthly_metrics",
+        "theme_trend_scores",
     ):
         columns = connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
         assert not any(
