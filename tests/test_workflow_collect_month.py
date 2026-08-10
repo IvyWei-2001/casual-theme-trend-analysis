@@ -40,10 +40,13 @@ def _market_record(
     genre: str = "Puzzle",
     revenue_country: str | None = None,
     current_units_value: float = 10,
+    game_setting: object | None = None,
 ) -> SensorTowerMarketRecord:
-    tags: dict[str, str] = {"Game Genre": genre}
+    tags: dict[str, object] = {"Game Genre": genre}
     if revenue_country is not None:
         tags["Most Popular Country by Revenue"] = revenue_country
+    if game_setting is not None:
+        tags["Game Setting"] = game_setting
     return SensorTowerMarketRecord.model_validate(
         {
             "app_id": app_id,
@@ -280,6 +283,55 @@ def test_workflow_filters_before_metadata_and_exports_rows_in_selected_order(
     repository.close()
 
 
+@pytest.mark.parametrize("game_setting", ["N/A", "Unknown"])
+def test_complete_month_preserves_raw_source_literal_through_storage_and_parquet(
+    tmp_path: Path,
+    game_setting: str,
+) -> None:
+    client = FakeCollectionClient([_market_record("synthetic-app-001", game_setting=game_setting)])
+
+    summary = collect_month(
+        _request(tmp_path),
+        _config(),
+        current_utc=NOW,
+        utc_clock=lambda: NOW,
+        client=client,
+        metadata_sleep=lambda _: None,
+    )
+
+    assert summary.snapshot_rows_written == 1
+    assert summary.metadata_returned_count == 1
+    assert summary.market_parquet_path is not None
+    assert summary.metadata_parquet_path is not None
+    assert summary.market_parquet_path.exists()
+    assert summary.metadata_parquet_path.exists()
+
+    rendered_summary = format_collection_summary(summary)
+    assert game_setting not in rendered_summary
+    assert "synthetic-app-001" not in rendered_summary
+    assert "auth_token" not in rendered_summary
+    assert "https://api.sensortower.com" not in rendered_summary
+
+    repository = _initialize_repository(summary.database_path)
+    key = SnapshotPeriodKey(
+        scope_name="casual_puzzle_tabletop",
+        cadence="monthly",
+        period_start=date(2026, 7, 1),
+        period_end=date(2026, 7, 31),
+    )
+    rows = repository.get_market_snapshot_period(key)
+    assert len(rows) == 1
+    assert rows[0].game_setting == game_setting
+    assert list(repository.get_app_metadata(["synthetic-app-001"])) == [
+        "synthetic-app-001"
+    ]
+    assert repository.open().execute(
+        "SELECT game_setting FROM read_parquet(?)",
+        [str(summary.market_parquet_path)],
+    ).fetchone() == (game_setting,)
+    repository.close()
+
+
 def test_live_shape_opaque_ids_flow_through_metadata_cache_and_snapshot_order(
     tmp_path: Path,
 ) -> None:
@@ -504,6 +556,27 @@ def test_mapping_failure_happens_before_metadata_or_snapshot_write(tmp_path: Pat
     request = _request(tmp_path, skip_export=True)
 
     with pytest.raises(StorageValidationError):
+        collect_month(
+            request,
+            _config(),
+            current_utc=NOW,
+            utc_clock=lambda: NOW,
+            client=client,
+        )
+
+    repository = _initialize_repository(request.database_path)
+    assert repository.open().execute("SELECT count(*) FROM market_snapshots").fetchone() == (0,)
+    assert repository.open().execute("SELECT count(*) FROM app_metadata").fetchone() == (0,)
+    repository.close()
+
+
+def test_invalid_non_string_source_tag_fails_before_metadata_or_snapshot_write(
+    tmp_path: Path,
+) -> None:
+    client = FakeCollectionClient([_market_record(1, game_setting=123)])
+    request = _request(tmp_path, skip_export=True)
+
+    with pytest.raises(StorageValidationError, match="game_setting"):
         collect_month(
             request,
             _config(),

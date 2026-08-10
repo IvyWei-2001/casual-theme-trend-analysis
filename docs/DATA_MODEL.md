@@ -14,6 +14,11 @@ Sensor Tower field names must not leak into business logic. The adapter maps sou
   strings for older fixtures or opaque non-numeric strings from the live
   unified endpoint; internal code must not assume an integer ID space.
 - Missing or unavailable data remains explicit. It must not be converted to zero.
+- Normalized metadata fields reject generated `"Unknown"` and `"N/A"`
+  fallbacks, while raw Sensor Tower source observations preserve those
+  literals exactly. A missing source observation remains SQL `NULL`; the
+  storage boundary does not trim or interpret source text and still rejects
+  non-string source values.
 - Weekly and monthly observations share one `Snapshot` model and are distinguished by `cadence`.
 - `ThemeMetric` is derived data and never replaces the underlying snapshots.
 
@@ -29,6 +34,8 @@ implements two business tables plus the `schema_migrations` control table:
   It retains the verified source metric and tag names, including
   `current_units_value` and `current_revenue_value`; their business semantics
   remain source-contract TODOs and are not renamed to `downloads` or `revenue`.
+  Raw source-tag values are preserved literally, including `"Unknown"` and
+  `"N/A"`; those strings are not normalized display fallbacks.
   Every verified source metric is nullable because the live market response
   may omit the current/comparison and generic fields. Omitted values are
   stored as SQL `NULL`, not zero or a substitute from another source field.
