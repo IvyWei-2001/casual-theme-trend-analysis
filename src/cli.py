@@ -194,6 +194,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested local command and return a categorized exit code."""
 
     args = build_parser().parse_args(argv)
+    if args.command == "provision-feishu-schema" and args.plan_only:
+        try:
+            print(format_feishu_schema_plan_only())
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        return 0
+
     try:
         config = load_config()
         configure_logging(config.log_level)
@@ -231,13 +239,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "provision-feishu-schema":
-        if args.plan_only:
-            try:
-                print(format_feishu_schema_plan_only())
-            except FeishuConfigurationError as error:
-                _print_error(str(error))
-                return 2
-            return 0
         try:
             if args.apply:
                 provision_result = provision_feishu_schema(config)

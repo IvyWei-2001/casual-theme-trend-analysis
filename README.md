@@ -386,12 +386,16 @@ python -m src provision-feishu-schema
 python -m src provision-feishu-schema --apply
 ```
 
-`--plan-only` is credential-free and has no network, DuckDB, or file access.
-The default invocation is a live dry-run. Only `--apply` may create missing
+`--plan-only` is handled before configuration loading and logging, so it does
+not read YAML, `.env`, credentials, network, DuckDB, or local files. The
+default invocation is a live dry-run. Only `--apply` may create missing
 fields. Apply checks exact-name collisions and compatible verified Feishu
 types/properties before creating fields sequentially, then rereads and
-verifies the complete schema. Reruns are idempotent; no field is updated or
-deleted, and no Bitable record is created, updated, or deleted.
+verifies the complete schema. It waits 0.5 seconds only between successful
+field creates to reduce same-table Bitable write-conflict risk; it does not
+sleep after the final create and does not use concurrency. Reruns are
+idempotent; no field is updated or deleted, and no Bitable record is created,
+updated, or deleted.
 
 The schema preserves the source terms `units_absolute` and
 `revenue_absolute`. Percentage values are later written as decimal ratios,
@@ -403,4 +407,5 @@ and dashboard configuration remain deferred to FEISHU-003.
 The command uses exit code `0` for a successful inspection or plan, `2` for
 invalid configuration, `3` for Feishu authentication/API failures, and `4`
 for unexpected local failures. `--plan-only` needs no App Secret and performs
-no network, database, or file-write operation.
+no configuration-file, network, database, or file-write operation. An invalid
+local schema still returns configuration error code `2`.

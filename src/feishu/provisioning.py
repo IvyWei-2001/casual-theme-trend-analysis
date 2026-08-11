@@ -29,7 +29,7 @@ from .field_schema import (
 )
 from .models import FeishuBitableField
 
-DEFAULT_FEISHU_FIELD_CREATE_DELAY_SECONDS = 0.15
+DEFAULT_FEISHU_FIELD_CREATE_DELAY_SECONDS = 0.5
 
 
 def build_feishu_schema_plan(

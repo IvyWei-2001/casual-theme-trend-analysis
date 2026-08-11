@@ -10,8 +10,12 @@
   and an explicit no-record-write guarantee. The official date formatter
   contract does not support year-month-only display, so the month field uses
   the supported `yyyy/MM/dd` formatter and stores the first calendar day later.
-  Trend-record synchronization and dashboard configuration remain deferred to
-  FEISHU-003.
+  Plan-only is routed before configuration loading/logging, and therefore
+  remains credential-free with no YAML, `.env`, network, database, or file
+  access. Field creation uses a 0.5-second delay only between successful
+  creates to reduce same-table Bitable write-conflict risk; it does not sleep
+  after the final create or use concurrency. Trend-record synchronization and
+  dashboard configuration remain deferred to FEISHU-003.
 - Added FEISHU-001 read-only Feishu Bitable field inspection with sanitized
   tenant-token authentication, optional view scoping, paginated field metadata,
   mock-only coverage, credential-safe output, and an explicit no-write

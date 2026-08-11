@@ -1,4 +1,4 @@
-"""Sanitized errors raised by the read-only Feishu integration."""
+"""Sanitized errors for Feishu inspection and explicit field provisioning."""
 
 from __future__ import annotations
 

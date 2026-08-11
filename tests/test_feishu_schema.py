@@ -243,7 +243,12 @@ def test_plan_only_needs_no_credentials_network_database_or_files(
     def fail_client(*args: object, **kwargs: object) -> object:
         raise AssertionError("plan-only must not construct an HTTP client")
 
+    def fail_config(*args: object, **kwargs: object) -> object:
+        raise AssertionError("plan-only must not load configuration or logging")
+
     monkeypatch.setattr(httpx, "Client", fail_client)
+    monkeypatch.setattr("src.cli.load_config", fail_config)
+    monkeypatch.setattr("src.cli.configure_logging", fail_config)
     exit_code = main(["provision-feishu-schema", "--plan-only"])
     output = capsys.readouterr().out
 
@@ -308,7 +313,7 @@ def test_apply_creates_all_fields_in_order_and_sleeps_only_between_creates() -> 
     }
     assert payloads[2] == {"field_name": "是否最新月份", "type": 7}
     assert payloads[13]["property"] == {"formatter": "0.00%"}
-    assert sleeps == [0.15] * 20
+    assert sleeps == [0.5] * 20
     assert len(fields) == 22
     assert [request.method for request in requests] == (
         ["POST", "GET"] + ["POST"] * 21 + ["GET"]

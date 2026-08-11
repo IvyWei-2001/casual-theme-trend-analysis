@@ -44,6 +44,40 @@ unrelated fields are retained and ignored.
 are not relabeled as downloads or revenue. Percentage values are stored later
 as decimal ratios: a value such as `0.018` displays as `1.80%`.
 
+## Internal source mapping
+
+The future FEISHU-003 record synchronization maps each field to the following
+`ThemeTrendScore` property or deterministic derivation:
+
+| Feishu field | `ThemeTrendScore` property or derived rule |
+| --- | --- |
+| 月份 | `period_start` |
+| 题材 | `game_theme` |
+| 是否最新月份 | Derived by comparing `period_start` with the maximum `period_start` in the synchronization range |
+| 是否可行动 | `is_actionable` |
+| 排除原因 | `exclusion_reason` |
+| 趋势排名 | `trend_rank` |
+| 趋势分 | `trend_score` |
+| 置信度 | `confidence_score` |
+| 增长分 | `growth_score` |
+| 加速度分 | `acceleration_score` |
+| 新产品分 | `new_product_score` |
+| 集中度惩罚 | `concentration_penalty` |
+| 最新产品数 | `latest_product_count` |
+| 最新产品份额 | `latest_product_share` |
+| units_absolute份额 | `latest_units_absolute_share` |
+| revenue_absolute份额 | `latest_revenue_absolute_share` |
+| 近3月新进入占比 | `recent3_new_entry_share` |
+| 排名改善 | `median_rank_improvement` |
+| units_absolute超配倍数 | `units_absolute_overindex` |
+| revenue_absolute超配倍数 | `revenue_absolute_overindex` |
+| 计算时间 | `calculated_at` |
+
+All ratio fields are written in the future as decimal values from 0 through 1,
+not as already-scaled percentages. A Python/SQL `NULL` must become an empty
+Feishu cell, while a real numeric zero must be written as the number `0`.
+The record-level `NULL` versus zero mapping and its tests belong to FEISHU-003.
+
 ## Verified Feishu field contract
 
 The implementation uses the official Bitable field endpoint:
@@ -98,8 +132,9 @@ The command rejects `--plan-only --apply`.
   stops apply before any create.
 - Duplicate existing names among desired fields, missing primary fields, and
   multiple primary fields are integrity failures.
-- A named default delay is used only between successful create calls; tests
-  inject the sleeper.
+- A 0.5-second default delay is used only between successful create calls to
+  reduce same-table Bitable write-conflict risk; the final create is not
+  followed by a sleep, and tests inject the sleeper.
 - A later create failure does not roll back already-created fields. The next
   run rereads the live schema and creates only the remaining missing fields.
 - Results expose only sanitized metadata, including an app-token suffix; they
