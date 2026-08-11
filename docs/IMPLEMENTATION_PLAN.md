@@ -269,18 +269,25 @@ monthly theme metrics, while keeping DuckDB as the source of truth.
   timeout/status checks, or credential logging behavior.
 - `FEISHU-001` must not create or update fields, records, tables, views, or
   dashboards. It must not synchronize Trend Score rows.
-- `FEISHU-002`: Define the smallest output containing theme identity, period, explicit metrics, Trend Score, confidence, and data-quality status.
-- Map internal `ThemeMetric` values to Feishu fields without making Feishu field names part of analytics logic.
-- Add idempotent synchronization and a mock Feishu boundary for tests.
-- Publish a ranked monthly theme view; real-time dashboards and workflows remain out of scope.
+- `FEISHU-002`: Provision the verified, deterministic 21-field Trend Score
+  schema after preserving the existing primary Text field as the future
+  technical key. Create missing fields only after explicit `--apply`; do not
+  update or delete fields and do not write records.
+- Keep the Feishu field schema in its own typed integration boundary. The
+  schema preserves `units_absolute` and `revenue_absolute` and stores future
+  percentage values as decimal ratios.
+- `FEISHU-003`: Map internal Trend Score outputs to the provisioned fields,
+  add idempotent record synchronization, and publish the ranked monthly view.
+  Real-time dashboards and workflows remain out of scope.
 
 ### Exit criteria
 
 FEISHU-001 can authenticate through a mock boundary, inspect every configured
 field in response order, report duplicate names, and prove that no Bitable
-write method is called. A later FEISHU-002 synchronization can be repeated
-without duplicate output, and Feishu can distinguish unavailable data from
-zero.
+write method is called. FEISHU-002 can provision the complete schema through a
+mock boundary, rerun without duplicate field creation, and distinguish
+unavailable configuration from a live destination. Record synchronization
+remains deferred to FEISHU-003.
 
 ## MVP verification sequence
 
@@ -292,6 +299,7 @@ The first monthly dashboard is accepted in this order:
 4. Load and validate a small historical monthly slice.
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.
-7. Complete `FEISHU-001` read-only field inspection, then defer trend-row synchronization to `FEISHU-002`.
+7. Complete `FEISHU-001` read-only field inspection and FEISHU-002 schema
+   provisioning, then defer trend-row synchronization to `FEISHU-003`.
 
 Each external boundary needs a deterministic mock, unit tests, and an integration test. Real credentials must be provided through configuration and never committed.

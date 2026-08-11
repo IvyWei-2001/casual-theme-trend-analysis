@@ -2,13 +2,26 @@
 
 ## Unreleased
 
+- Added FEISHU-002 idempotent Feishu trend-score field-schema provisioning:
+  21 deterministic non-primary fields, preserved primary-field handling,
+  verified type/property compatibility checks, credential-free plan-only mode,
+  live dry-run mode, explicit `--apply`, sequential request pacing, final
+  schema reread/verification, sanitized results and failures, mock-only tests,
+  and an explicit no-record-write guarantee. The official date formatter
+  contract does not support year-month-only display, so the month field uses
+  the supported `yyyy/MM/dd` formatter and stores the first calendar day later.
+  Plan-only is routed before configuration loading/logging, and therefore
+  remains credential-free with no YAML, `.env`, network, database, or file
+  access. Field creation uses a 0.5-second delay only between successful
+  creates to reduce same-table Bitable write-conflict risk; it does not sleep
+  after the final create or use concurrency. Trend-record synchronization and
+  dashboard configuration remain deferred to FEISHU-003.
 - Added FEISHU-001 read-only Feishu Bitable field inspection with sanitized
   tenant-token authentication, optional view scoping, paginated field metadata,
   mock-only coverage, credential-safe output, and an explicit no-write
   guarantee. The attached `daily-newgames-fetcher-main.zip` is documented as
   the verified endpoint reference; its unsafe error-handling patterns were not
-  copied. Trend-row synchronization and field/record writes remain deferred to
-  FEISHU-002.
+  copied. Trend-row synchronization remains deferred to FEISHU-003.
 - Added TREND-001 explainable monthly Game Theme trend scoring. Schema version
   3 adds `theme_trend_scores`; the score uses a six-month rolling grid,
   absent-theme zero filling, share-point gains and acceleration,

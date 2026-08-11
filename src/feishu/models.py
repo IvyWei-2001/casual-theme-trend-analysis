@@ -157,6 +157,10 @@ class FeishuBitableField:
     is_primary: bool | None
     option_count: int
     option_names: tuple[str, ...]
+    formatter: str | None = None
+    date_formatter: str | None = None
+    date_auto_fill: bool | None = None
+    property_present: bool = False
 
 
 @dataclass(frozen=True, slots=True)

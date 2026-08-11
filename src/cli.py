@@ -12,11 +12,22 @@ from pydantic import ValidationError
 
 from .analysis.errors import AggregationError
 from .config import load_config
-from .feishu.errors import FeishuConfigurationError, FeishuError
+from .feishu.errors import (
+    FeishuConfigurationError,
+    FeishuError,
+    FeishuSchemaIntegrityError,
+)
 from .feishu.inspection import (
     format_feishu_inspection_plan,
     format_feishu_inspection_summary,
     inspect_feishu,
+)
+from .feishu.provisioning import (
+    format_feishu_schema_plan,
+    format_feishu_schema_plan_only,
+    format_feishu_schema_provision_result,
+    plan_feishu_schema,
+    provision_feishu_schema,
 )
 from .logging_config import configure_logging
 from .sensor_tower.errors import SensorTowerConfigurationError, SensorTowerError
@@ -161,6 +172,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate and print the read-only plan without network or local storage access",
     )
+    provision_parser = subparsers.add_parser(
+        "provision-feishu-schema",
+        help="plan or provision the configured Feishu Bitable trend-score fields",
+    )
+    provision_mode = provision_parser.add_mutually_exclusive_group()
+    provision_mode.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the desired schema without network or local storage access",
+    )
+    provision_mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="create missing fields after a complete live compatibility check",
+    )
     return parser
 
 
@@ -168,6 +194,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested local command and return a categorized exit code."""
 
     args = build_parser().parse_args(argv)
+    if args.command == "provision-feishu-schema" and args.plan_only:
+        try:
+            print(format_feishu_schema_plan_only())
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        return 0
+
     try:
         config = load_config()
         configure_logging(config.log_level)
@@ -202,6 +236,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_feishu_inspection_summary(inspection_result))
+        return 0
+
+    if args.command == "provision-feishu-schema":
+        try:
+            if args.apply:
+                provision_result = provision_feishu_schema(config)
+                print(format_feishu_schema_provision_result(provision_result))
+            else:
+                schema_plan = plan_feishu_schema(config)
+                print(format_feishu_schema_plan(schema_plan))
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        except FeishuSchemaIntegrityError as error:
+            _print_error(str(error))
+            return 4
+        except FeishuError as error:
+            _print_error(str(error))
+            return 3
+        except OSError:
+            _print_error("local Feishu schema operation failed")
+            return 4
+        except Exception:
+            _print_error("Feishu schema provisioning failed")
+            return 4
         return 0
 
     if args.command == "collect-month":

@@ -1,4 +1,4 @@
-"""Sanitized errors raised by the read-only Feishu integration."""
+"""Sanitized errors for Feishu inspection and explicit field provisioning."""
 
 from __future__ import annotations
 
@@ -57,3 +57,37 @@ class FeishuMalformedResponseError(FeishuRequestError):
 
 class FeishuFieldIntegrityError(FeishuError):
     """Raised when the field-list response violates integrity rules."""
+
+
+class FeishuSchemaValidationError(FeishuConfigurationError):
+    """Raised when the local desired Feishu schema is invalid."""
+
+
+class FeishuSchemaIntegrityError(FeishuFieldIntegrityError):
+    """Raised when the live table cannot safely be used for provisioning."""
+
+
+class FeishuSchemaCompatibilityError(FeishuSchemaIntegrityError):
+    """Raised when an existing desired-name field is incompatible."""
+
+    def __init__(self, field_names: tuple[str, ...], details: str = "") -> None:
+        self.field_names = field_names
+        names = ", ".join(field_names)
+        message = f"Feishu schema has incompatible desired fields: {names}"
+        if details:
+            message = f"{message}; {details}"
+        super().__init__(message)
+
+
+class FeishuSchemaVerificationError(FeishuSchemaIntegrityError):
+    """Raised when the post-creation live schema is not complete and compatible."""
+
+
+class FeishuPartialProvisioningError(FeishuRequestError):
+    """Raised when field creation stops after one or more successful creates."""
+
+    def __init__(self, created_field_names: tuple[str, ...]) -> None:
+        self.created_field_names = created_field_names
+        super().__init__(
+            "Feishu field provisioning stopped after partial creation; rerun safely"
+        )

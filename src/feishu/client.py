@@ -22,6 +22,7 @@ from .errors import (
     FeishuRequestError,
     FeishuTimeoutError,
 )
+from .field_schema import FeishuDesiredField
 from .models import (
     FEISHU_AUTHENTICATION_PATH,
     FEISHU_FIELD_PAGE_SIZE,
@@ -37,8 +38,8 @@ LOGGER = logging.getLogger(__name__)
 class FeishuClient:
     """Synchronous Feishu client with injectable mock transport.
 
-    The client deliberately implements only tenant-token authentication and the
-    Bitable field-list GET endpoint required by FEISHU-001.
+    The client deliberately implements tenant-token authentication, Bitable
+    field-list GET, and the verified create-field POST required by FEISHU-002.
     """
 
     def __init__(
@@ -188,6 +189,36 @@ class FeishuClient:
             )
         return fields
 
+    def create_field(
+        self,
+        *,
+        app_token: str,
+        table_id: str,
+        field: FeishuDesiredField,
+    ) -> FeishuBitableField:
+        """Create one desired Bitable field and retain only safe metadata."""
+
+        self._validate_target(app_token=app_token, table_id=table_id, view_id=None)
+        tenant_access_token = self._require_tenant_access_token()
+        field_path = self._fields_path(app_token=app_token, table_id=table_id)
+        response = self._post_field(
+            field_path,
+            tenant_access_token=tenant_access_token,
+            request_body=field.api_payload(),
+        )
+        payload = self._decode_json(response, operation="field creation")
+        code = self._response_code(payload, operation="field creation")
+        if code != 0:
+            raise FeishuAPIError("field creation", code)
+
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            raise FeishuMalformedResponseError("field creation")
+        field_item = data.get("field")
+        if not isinstance(field_item, Mapping):
+            raise FeishuMalformedResponseError("field creation")
+        return self._parse_field(field_item, operation="field creation")
+
     def _post_authentication(self, request_body: dict[str, str]) -> httpx.Response:
         """Send the one permitted POST request without logging its JSON body."""
 
@@ -248,6 +279,37 @@ class FeishuClient:
             raise FeishuHTTPError("field inspection", response.status_code)
         return response
 
+    def _post_field(
+        self,
+        field_path: str,
+        *,
+        tenant_access_token: str,
+        request_body: Mapping[str, object],
+    ) -> httpx.Response:
+        """Send one authenticated create-field request without logging its body."""
+
+        request_failure: str | None = None
+        try:
+            with _suppress_httpx_request_logging():
+                response = self._client.post(
+                    field_path,
+                    headers={"Authorization": f"Bearer {tenant_access_token}"},
+                    json=request_body,
+                )
+        except httpx.TimeoutException:
+            request_failure = "timeout"
+        except httpx.RequestError:
+            request_failure = "request"
+
+        if request_failure == "timeout":
+            raise FeishuTimeoutError("field creation") from None
+        if request_failure == "request":
+            raise FeishuRequestError("Feishu field creation request failed") from None
+
+        if not 200 <= response.status_code < 300:
+            raise FeishuHTTPError("field creation", response.status_code)
+        return response
+
     @staticmethod
     def _decode_json(
         response: httpx.Response,
@@ -296,29 +358,40 @@ class FeishuClient:
         return code
 
     @staticmethod
-    def _parse_field(item: object) -> FeishuBitableField:
+    def _parse_field(
+        item: object,
+        *,
+        operation: str = "field inspection",
+    ) -> FeishuBitableField:
         """Map only approved field metadata and discard the raw property object."""
 
         if not isinstance(item, Mapping):
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
         field_id = item.get("field_id")
         field_name = item.get("field_name")
         field_type = item.get("type")
         if not isinstance(field_id, str) or not field_id.strip():
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
         if not isinstance(field_name, str):
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
         if isinstance(field_type, bool) or not isinstance(field_type, int):
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
 
         ui_type = item.get("ui_type")
         if ui_type is not None and not isinstance(ui_type, str):
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
         is_primary = item.get("is_primary")
         if is_primary is not None and not isinstance(is_primary, bool):
-            raise FeishuMalformedResponseError("field inspection")
+            raise FeishuMalformedResponseError(operation)
 
-        option_count, option_names = _extract_options(item.get("property"))
+        (
+            option_count,
+            option_names,
+            formatter,
+            date_formatter,
+            date_auto_fill,
+            property_present,
+        ) = _extract_property_metadata(item.get("property"), operation=operation)
         return FeishuBitableField(
             field_id=field_id.strip(),
             field_name=field_name,
@@ -327,6 +400,10 @@ class FeishuClient:
             is_primary=is_primary,
             option_count=option_count,
             option_names=option_names,
+            formatter=formatter,
+            date_formatter=date_formatter,
+            date_auto_fill=date_auto_fill,
+            property_present=property_present,
         )
 
     @staticmethod
@@ -380,16 +457,40 @@ class FeishuClient:
         self.close()
 
 
-def _extract_options(property_value: object) -> tuple[int, tuple[str, ...]]:
-    """Extract option metadata without retaining a complete property object."""
+def _extract_property_metadata(
+    property_value: object,
+    *,
+    operation: str,
+) -> tuple[int, tuple[str, ...], str | None, str | None, bool | None, bool]:
+    """Extract safe property metadata without retaining the property object."""
 
+    if property_value is None:
+        return 0, (), None, None, None, False
     if not isinstance(property_value, Mapping):
-        return 0, ()
+        raise FeishuMalformedResponseError(operation)
+
+    formatter = property_value.get("formatter")
+    if formatter is not None and not isinstance(formatter, str):
+        raise FeishuMalformedResponseError(operation)
+    date_formatter = property_value.get("date_formatter")
+    if date_formatter is not None and not isinstance(date_formatter, str):
+        raise FeishuMalformedResponseError(operation)
+    date_auto_fill = property_value.get("auto_fill")
+    if date_auto_fill is not None and not isinstance(date_auto_fill, bool):
+        raise FeishuMalformedResponseError(operation)
+
     raw_options = property_value.get("options")
     if raw_options is None:
-        return 0, ()
+        return (
+            0,
+            (),
+            formatter,
+            date_formatter,
+            date_auto_fill,
+            True,
+        )
     if not isinstance(raw_options, list):
-        raise FeishuMalformedResponseError("field inspection")
+        raise FeishuMalformedResponseError(operation)
 
     names: list[str] = []
     for option in raw_options:
@@ -398,7 +499,14 @@ def _extract_options(property_value: object) -> tuple[int, tuple[str, ...]]:
         name = option.get("name")
         if isinstance(name, str):
             names.append(name)
-    return len(raw_options), tuple(names)
+    return (
+        len(raw_options),
+        tuple(names),
+        formatter,
+        date_formatter,
+        date_auto_fill,
+        True,
+    )
 
 
 def _duplicate_names(fields: list[FeishuBitableField]) -> tuple[str, ...]:
