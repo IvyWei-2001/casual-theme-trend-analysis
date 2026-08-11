@@ -46,7 +46,7 @@ as decimal ratios: a value such as `0.018` displays as `1.80%`.
 
 ## Internal source mapping
 
-The future FEISHU-003 record synchronization maps each field to the following
+The future FEISHU-003B record synchronization maps each field to the following
 `ThemeTrendScore` property or deterministic derivation:
 
 | Feishu field | `ThemeTrendScore` property or derived rule |
@@ -76,7 +76,7 @@ The future FEISHU-003 record synchronization maps each field to the following
 All ratio fields are written in the future as decimal values from 0 through 1,
 not as already-scaled percentages. A Python/SQL `NULL` must become an empty
 Feishu cell, while a real numeric zero must be written as the number `0`.
-The record-level `NULL` versus zero mapping and its tests belong to FEISHU-003.
+The record-level `NULL` versus zero mapping and its tests belong to FEISHU-003B.
 
 ## Verified Feishu field contract
 
@@ -139,10 +139,11 @@ The command rejects `--plan-only --apply`.
   run rereads the live schema and creates only the remaining missing fields.
 - Results expose only sanitized metadata, including an app-token suffix; they
   never expose secrets, authenticated URLs, request bodies, or raw responses.
-- Authentication uses POST, inspection uses GET, and apply's additional POSTs
-  target only the field collection. No record endpoint or PUT, PATCH, or
-  DELETE request is implemented.
+- FEISHU-002 authentication uses POST, field inspection uses GET, and apply's
+  additional POSTs target only the field collection. FEISHU-002 has no record
+  writes or PUT, PATCH, or DELETE request. FEISHU-003A's separate record
+  inspection uses only the table-level records GET.
 
 Trend-record synchronization, the future use of the preserved primary field
-as the idempotent record key, and dashboard configuration remain deferred to
-FEISHU-003.
+as the idempotent record key, `batch_create`, `batch_update`, and dashboard
+configuration remain deferred to FEISHU-003B.

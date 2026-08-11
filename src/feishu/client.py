@@ -19,6 +19,7 @@ from .errors import (
     FeishuFieldIntegrityError,
     FeishuHTTPError,
     FeishuMalformedResponseError,
+    FeishuRecordIntegrityError,
     FeishuRequestError,
     FeishuTimeoutError,
 )
@@ -27,9 +28,12 @@ from .models import (
     FEISHU_AUTHENTICATION_PATH,
     FEISHU_FIELD_PAGE_SIZE,
     FEISHU_FIELDS_PATH_PREFIX,
+    FEISHU_RECORD_PAGE_SIZE,
     FeishuAccessToken,
     FeishuBitableField,
+    FeishuBitableRecord,
     FeishuClientConfig,
+    FeishuRecordListResult,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -39,7 +43,9 @@ class FeishuClient:
     """Synchronous Feishu client with injectable mock transport.
 
     The client deliberately implements tenant-token authentication, Bitable
-    field-list GET, and the verified create-field POST required by FEISHU-002.
+    field-list GET, record-list GET, and the verified create-field POST required
+    by FEISHU-002. Record listing is deliberately table-scoped and never uses a
+    view filter.
     """
 
     def __init__(
@@ -219,6 +225,93 @@ class FeishuClient:
             raise FeishuMalformedResponseError("field creation")
         return self._parse_field(field_item, operation="field creation")
 
+    def list_records(
+        self,
+        *,
+        app_token: str,
+        table_id: str,
+        primary_field_name: str = "文本",
+    ) -> FeishuRecordListResult:
+        """List every table record with a GET-only, view-free page walk.
+
+        Only record IDs, field-name presence, and primary-field value presence
+        are retained. The raw ``fields`` mapping is never stored or logged.
+        """
+
+        self._validate_target(app_token=app_token, table_id=table_id, view_id=None)
+        if not isinstance(primary_field_name, str) or not primary_field_name.strip():
+            raise FeishuConfigurationError("Feishu primary field name is invalid")
+
+        tenant_access_token = self._require_tenant_access_token()
+        records_path = self._records_path(app_token=app_token, table_id=table_id)
+        records: list[FeishuBitableRecord] = []
+        record_ids: set[str] = set()
+        page_token: str | None = None
+        seen_page_tokens: set[str] = set()
+        page_count = 0
+
+        while True:
+            params: dict[str, str | int] = {"page_size": FEISHU_RECORD_PAGE_SIZE}
+            if page_token is not None:
+                params["page_token"] = page_token
+
+            response = self._get_records_page(
+                records_path,
+                tenant_access_token=tenant_access_token,
+                params=params,
+            )
+            page_count += 1
+            payload = self._decode_json(response, operation="record inspection")
+            code = self._response_code(payload, operation="record inspection")
+            if code != 0:
+                raise FeishuAPIError("record inspection", code)
+
+            data = payload.get("data")
+            if not isinstance(data, Mapping):
+                raise FeishuMalformedResponseError("record inspection")
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise FeishuMalformedResponseError("record inspection")
+
+            for item in items:
+                record = self._parse_record(
+                    item,
+                    primary_field_name=primary_field_name,
+                )
+                if record.record_id in record_ids:
+                    raise FeishuRecordIntegrityError(
+                        "Feishu Bitable record list contains duplicate record IDs"
+                    )
+                record_ids.add(record.record_id)
+                records.append(record)
+
+            raw_has_more = data.get("has_more")
+            if "has_more" in data and not isinstance(raw_has_more, bool):
+                raise FeishuMalformedResponseError("record inspection")
+            raw_next_page_token = data.get("page_token")
+            if "page_token" in data and not isinstance(raw_next_page_token, str):
+                raise FeishuMalformedResponseError("record inspection")
+
+            next_page_token = (
+                raw_next_page_token.strip()
+                if isinstance(raw_next_page_token, str)
+                else None
+            )
+            if raw_has_more is False or next_page_token is None:
+                if raw_has_more is True:
+                    raise FeishuRecordIntegrityError(
+                        "Feishu Bitable record pagination has_more=true without a page token"
+                    )
+                break
+            if next_page_token in seen_page_tokens:
+                raise FeishuRecordIntegrityError(
+                    "Feishu Bitable record pagination repeated a page token"
+                )
+            seen_page_tokens.add(next_page_token)
+            page_token = next_page_token
+
+        return FeishuRecordListResult(records=tuple(records), page_count=page_count)
+
     def _post_authentication(self, request_body: dict[str, str]) -> httpx.Response:
         """Send the one permitted POST request without logging its JSON body."""
 
@@ -277,6 +370,37 @@ class FeishuClient:
 
         if not 200 <= response.status_code < 300:
             raise FeishuHTTPError("field inspection", response.status_code)
+        return response
+
+    def _get_records_page(
+        self,
+        records_path: str,
+        *,
+        tenant_access_token: str,
+        params: dict[str, str | int],
+    ) -> httpx.Response:
+        """Send one authenticated table-record GET without exposing context."""
+
+        request_failure: str | None = None
+        try:
+            with _suppress_httpx_request_logging():
+                response = self._client.get(
+                    records_path,
+                    headers={"Authorization": f"Bearer {tenant_access_token}"},
+                    params=params,
+                )
+        except httpx.TimeoutException:
+            request_failure = "timeout"
+        except httpx.RequestError:
+            request_failure = "request"
+
+        if request_failure == "timeout":
+            raise FeishuTimeoutError("record inspection") from None
+        if request_failure == "request":
+            raise FeishuRequestError("Feishu record inspection request failed") from None
+
+        if not 200 <= response.status_code < 300:
+            raise FeishuHTTPError("record inspection", response.status_code)
         return response
 
     def _post_field(
@@ -416,6 +540,42 @@ class FeishuClient:
         )
 
     @staticmethod
+    def _records_path(*, app_token: str, table_id: str) -> str:
+        """Build the table-level records path without query parameters."""
+
+        return (
+            f"{FEISHU_FIELDS_PATH_PREFIX}/"
+            f"{quote(app_token, safe='')}/tables/{quote(table_id, safe='')}/records"
+        )
+
+    @staticmethod
+    def _parse_record(
+        item: object,
+        *,
+        primary_field_name: str,
+    ) -> FeishuBitableRecord:
+        """Retain only safe record metadata needed for integrity checks."""
+
+        if not isinstance(item, Mapping):
+            raise FeishuMalformedResponseError("record inspection")
+        raw_record_id = item.get("record_id")
+        if not isinstance(raw_record_id, str) or not raw_record_id.strip():
+            raise FeishuMalformedResponseError("record inspection")
+        fields = item.get("fields")
+        if not isinstance(fields, Mapping):
+            raise FeishuMalformedResponseError("record inspection")
+
+        record_id = raw_record_id.strip()
+        field_names = frozenset(key for key in fields if isinstance(key, str))
+        has_primary_value = primary_field_name in fields and _has_value(fields[primary_field_name])
+        return FeishuBitableRecord(
+            record_id=record_id,
+            fields_is_mapping=True,
+            field_names=field_names,
+            has_primary_value=has_primary_value,
+        )
+
+    @staticmethod
     def _validate_target(*, app_token: str, table_id: str, view_id: str | None) -> None:
         """Validate target identifiers before any network request."""
 
@@ -523,6 +683,16 @@ def _duplicate_names(fields: list[FeishuBitableField]) -> tuple[str, ...]:
             if field.field_name and counts.get(field.field_name, 0) > 1
         )
     )
+
+
+def _has_value(value: object) -> bool:
+    """Check presence without converting or retaining the cell value."""
+
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
 
 
 @contextmanager

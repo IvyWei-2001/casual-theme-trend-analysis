@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
@@ -15,6 +16,7 @@ DEFAULT_FEISHU_TIMEOUT_SECONDS: Final[float] = 20.0
 FEISHU_AUTHENTICATION_PATH: Final[str] = "/open-apis/auth/v3/tenant_access_token/internal"
 FEISHU_FIELDS_PATH_PREFIX: Final[str] = "/open-apis/bitable/v1/apps"
 FEISHU_FIELD_PAGE_SIZE: Final[int] = 100
+FEISHU_RECORD_PAGE_SIZE: Final[int] = 100
 
 
 def validate_feishu_api_base_url(value: str) -> str:
@@ -161,6 +163,123 @@ class FeishuBitableField:
     date_formatter: str | None = None
     date_auto_fill: bool | None = None
     property_present: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuBitableRecord:
+    """Safe in-memory metadata for one Bitable record.
+
+    The record identifier is retained only so the client can detect duplicate
+    records across pages. Cell values are deliberately discarded immediately;
+    only field-name presence and primary-field value presence remain.
+    """
+
+    record_id: str
+    fields_is_mapping: bool
+    field_names: frozenset[str]
+    has_primary_value: bool
+
+    @property
+    def fields_are_mapping(self) -> bool:
+        """Expose the same invariant using a grammatically natural name."""
+
+        return self.fields_is_mapping
+
+    def __repr__(self) -> str:
+        """Represent record metadata without exposing the record ID."""
+
+        return (
+            "FeishuBitableRecord(record_id=<redacted>, "
+            f"fields_is_mapping={self.fields_is_mapping!r}, "
+            f"field_name_count={len(self.field_names)!r}, "
+            f"has_primary_value={self.has_primary_value!r})"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuRecordListResult:
+    """Sanitized result of one complete paginated record-list request."""
+
+    records: tuple[FeishuBitableRecord, ...]
+    page_count: int
+
+    @property
+    def record_count(self) -> int:
+        """Return the number of records without exposing record identifiers."""
+
+        return len(self.records)
+
+    @property
+    def records_with_primary_value(self) -> int:
+        """Count records whose configured primary field has a value."""
+
+        return sum(record.has_primary_value for record in self.records)
+
+    @property
+    def observed_field_names(self) -> frozenset[str]:
+        """Return the union of observed field names without cell values."""
+
+        names: set[str] = set()
+        for record in self.records:
+            names.update(record.field_names)
+        return frozenset(names)
+
+    def __iter__(self) -> Iterator[FeishuBitableRecord]:
+        """Allow callers to iterate records without changing the safe model."""
+
+        return iter(self.records)
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> FeishuBitableRecord:
+        return self.records[index]
+
+    def __repr__(self) -> str:
+        """Represent only aggregate counts; record IDs remain private."""
+
+        return (
+            "FeishuRecordListResult("
+            f"record_count={self.record_count!r}, page_count={self.page_count!r}, "
+            f"records_with_primary_value={self.records_with_primary_value!r}, "
+            f"observed_field_name_count={len(self.observed_field_names)!r})"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuRecordInspectionResult:
+    """Sanitized schema-gated result of a read-only record inspection."""
+
+    schema_field_count: int
+    desired_non_primary_field_count: int
+    compatible_existing_count: int
+    missing_field_count: int
+    incompatible_field_count: int
+    existing_primary_field_name: str
+    record_page_count: int
+    record_count: int
+    records_with_primary_value: int
+    records_without_primary_value: int
+    observed_field_name_count: int
+    duplicate_record_id_count: int
+    inspected_at: datetime
+    app_token_suffix: str
+    table_id: str
+
+    def __repr__(self) -> str:
+        """Represent the inspection without raw record or cell data."""
+
+        return (
+            "FeishuRecordInspectionResult("
+            f"schema_field_count={self.schema_field_count!r}, "
+            f"record_page_count={self.record_page_count!r}, "
+            f"record_count={self.record_count!r}, "
+            f"records_with_primary_value={self.records_with_primary_value!r}, "
+            f"records_without_primary_value={self.records_without_primary_value!r}, "
+            f"observed_field_name_count={self.observed_field_name_count!r}, "
+            f"duplicate_record_id_count={self.duplicate_record_id_count!r}, "
+            f"app_token_suffix={self.app_token_suffix!r}, table_id={self.table_id!r})"
+        )
 
 
 @dataclass(frozen=True, slots=True)

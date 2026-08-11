@@ -10,6 +10,7 @@ from .errors import (
     FeishuHTTPError,
     FeishuMalformedResponseError,
     FeishuPartialProvisioningError,
+    FeishuRecordIntegrityError,
     FeishuRequestError,
     FeishuSchemaCompatibilityError,
     FeishuSchemaIntegrityError,
@@ -28,8 +29,11 @@ from .field_schema import (
 from .models import (
     FeishuAccessToken,
     FeishuBitableField,
+    FeishuBitableRecord,
     FeishuClientConfig,
     FeishuFieldInspectionResult,
+    FeishuRecordInspectionResult,
+    FeishuRecordListResult,
 )
 
 __all__ = [
@@ -48,6 +52,10 @@ __all__ = [
     "FeishuDesiredField",
     "FeishuIncompatibleField",
     "FeishuPartialProvisioningError",
+    "FeishuRecordIntegrityError",
+    "FeishuBitableRecord",
+    "FeishuRecordInspectionResult",
+    "FeishuRecordListResult",
     "FeishuRequestError",
     "FeishuSchemaCompatibilityError",
     "FeishuSchemaIntegrityError",
