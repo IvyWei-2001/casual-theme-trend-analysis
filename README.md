@@ -369,7 +369,36 @@ reference for Feishu authentication and Bitable endpoint structure. Its
 authentication path, Bearer-token use, and pagination shape were reused as
 contract evidence; its bare exception handling, missing timeouts/status
 checks, raw credential exposure, and unchecked responses were deliberately
-not copied. Real trend-score synchronization is deferred to FEISHU-002.
+not copied. FEISHU-002 provisions the trend-score field schema; real
+trend-record synchronization is deferred to FEISHU-003.
+
+## FEISHU-002 trend-score field schema provisioning
+
+FEISHU-002 provisions the configured Feishu Bitable schema without making
+Feishu the source of truth. The live destination begins with one preserved
+primary Text field named `文本`, identified from `is_primary = true`; its
+field ID is never hard-coded. The command creates exactly 21 non-primary
+fields in a deterministic order and retains unrelated fields.
+
+```powershell
+python -m src provision-feishu-schema --plan-only
+python -m src provision-feishu-schema
+python -m src provision-feishu-schema --apply
+```
+
+`--plan-only` is credential-free and has no network, DuckDB, or file access.
+The default invocation is a live dry-run. Only `--apply` may create missing
+fields. Apply checks exact-name collisions and compatible verified Feishu
+types/properties before creating fields sequentially, then rereads and
+verifies the complete schema. Reruns are idempotent; no field is updated or
+deleted, and no Bitable record is created, updated, or deleted.
+
+The schema preserves the source terms `units_absolute` and
+`revenue_absolute`. Percentage values are later written as decimal ratios,
+such as `0.018`, and displayed with two decimal places. The complete logical
+schema and the verified formatter choices are documented in
+[`docs/FEISHU_SCHEMA.md`](docs/FEISHU_SCHEMA.md). Trend-record synchronization
+and dashboard configuration remain deferred to FEISHU-003.
 
 The command uses exit code `0` for a successful inspection or plan, `2` for
 invalid configuration, `3` for Feishu authentication/API failures, and `4`
