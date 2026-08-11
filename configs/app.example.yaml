@@ -42,3 +42,13 @@ sensor_tower_metadata_fields:
 sensor_tower_metadata_max_retries: 2
 sensor_tower_metadata_retry_delay_seconds: 1.5
 sensor_tower_metadata_batch_delay_seconds: 0.3
+
+# FEISHU-001 read-only field inspection settings. Put real credentials and
+# target identifiers in the local .env file or GitHub Secrets, never here.
+feishu_api_base_url: https://open.feishu.cn
+feishu_timeout_seconds: 20
+# feishu_app_id: your-feishu-app-id
+# feishu_app_secret: your-feishu-app-secret
+# feishu_bitable_app_token: your-feishu-app-token
+# feishu_bitable_table_id: tbl_your_table_id
+# feishu_bitable_view_id: vew_your_view_id

@@ -337,3 +337,41 @@ percentile method, confidence calculation, and interpretation limits.
 Exit codes are `0` for success or plan validation, `2` for CLI/month/local
 configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`
 for DuckDB or Parquet failures.
+
+## FEISHU-001 read-only field inspection
+
+FEISHU-001 adds a manual, strictly read-only Feishu inspection command:
+
+```powershell
+python -m src inspect-feishu --plan-only
+python -m src inspect-feishu
+```
+
+The command obtains a tenant access token from the configured DataVine custom
+app, then reads field metadata from one configured Bitable table. It supports
+an optional `view_id` and follows the verified fields endpoint pagination with
+`page_size=100`. It never writes fields or records, creates tables or views,
+synchronizes trend rows, opens DuckDB, or creates local output files.
+
+Credentials are supplied through the local `.env` file or GitHub Secrets. The
+App ID, App Secret, Bitable `app_token`, `table_id`, and optional `view_id` are
+configuration values only; no real identifiers belong in source code,
+`configs/app.example.yaml`, `.env.example`, tests, or documentation examples.
+For a Bitable URL such as
+`https://feishu.cn/base/<APP_TOKEN>?table=<TABLE_ID>`, use the value after
+`base/` as `APP_FEISHU_BITABLE_APP_TOKEN`, the `table` value as
+`APP_FEISHU_BITABLE_TABLE_ID`, and supply a view identifier beginning with
+`vew` copied from the selected view in that `/base/` URL only when the
+inspection should be scoped to a view. The App Secret must never be committed.
+
+The attached `daily-newgames-fetcher-main.zip` was inspected as the verified
+reference for Feishu authentication and Bitable endpoint structure. Its
+authentication path, Bearer-token use, and pagination shape were reused as
+contract evidence; its bare exception handling, missing timeouts/status
+checks, raw credential exposure, and unchecked responses were deliberately
+not copied. Real trend-score synchronization is deferred to FEISHU-002.
+
+The command uses exit code `0` for a successful inspection or plan, `2` for
+invalid configuration, `3` for Feishu authentication/API failures, and `4`
+for unexpected local failures. `--plan-only` needs no App Secret and performs
+no network, database, or file-write operation.

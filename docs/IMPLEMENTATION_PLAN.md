@@ -28,14 +28,14 @@ Close the system-audit gap and establish the internal contracts needed by the re
 ### Work items
 
 - Keep the audited Google Sheets / Apps Script behavior documented: Config-sheet URL and token inputs, custom field filter, local 1000-row limit, source app ID extraction, and separate metadata enrichment.
-- Defer inspection of the Feishu implementation in `daily-newgames-fetcher` to step 7, `FS-001`; reuse the existing code when Feishu implementation begins.
+- Use `FEISHU-001` in step 7 to inspect the attached Feishu reference before any synchronization work begins.
 - Keep the Sensor Tower endpoint URL, request method, and unresolved field semantics as explicit TODOs until evidence is available.
 - Confirm the internal `App`, `Theme`, `Snapshot`, and `ThemeMetric` contracts, including source and unified product identity.
 - Establish configuration, logging, mock, and test conventions without implementing business logic in this phase.
 
 ### Exit criteria
 
-Phase 0 is complete enough to begin `INF-001` once the old Sensor Tower / Apps Script contract and internal data model are documented. Feishu inspection is not a prerequisite for Bootstrap, Sensor Tower, DuckDB, historical loading, or theme aggregation; it is performed in step 7.
+Phase 0 is complete enough to begin `INF-001` once the old Sensor Tower / Apps Script contract and internal data model are documented. Feishu inspection is not a prerequisite for Bootstrap, Sensor Tower, DuckDB, historical loading, or theme aggregation; `FEISHU-001` is performed in step 7.
 
 ## 2. Sensor Tower adapter
 
@@ -251,24 +251,36 @@ this issue. No predictive model or LLM is required.
 
 Identical internal inputs always produce the same score, and each score can be explained from its contributing theme metrics and confidence state. TREND-001 satisfies this exit criterion for the six-month monthly MVP.
 
-## 7. Feishu sync
+## 7. Feishu integration foundation and sync
 
 ### Purpose
 
-Publish validated monthly theme metrics to Feishu while keeping DuckDB as the source of truth.
+Inspect the configured Feishu destination safely before publishing validated
+monthly theme metrics, while keeping DuckDB as the source of truth.
 
 ### Work items
 
-- `FS-001`: Inspect the Feishu implementation in `daily-newgames-fetcher` and document the reusable authentication, destination, field-mapping, and sync contract.
-- Reuse the existing Feishu code and configuration patterns when implementing this phase.
-- Define the smallest output containing theme identity, period, explicit metrics, Trend Score, confidence, and data-quality status.
+- `FEISHU-001`: Inspect the attached `daily-newgames-fetcher-main.zip` as the
+  verified reference, then implement tenant-token authentication and a
+  read-only Bitable field-list command with optional view scoping and
+  pagination.
+- Keep the verified authentication path and Bitable endpoint structure from
+  the reference, but do not copy its unsafe exception handling, missing
+  timeout/status checks, or credential logging behavior.
+- `FEISHU-001` must not create or update fields, records, tables, views, or
+  dashboards. It must not synchronize Trend Score rows.
+- `FEISHU-002`: Define the smallest output containing theme identity, period, explicit metrics, Trend Score, confidence, and data-quality status.
 - Map internal `ThemeMetric` values to Feishu fields without making Feishu field names part of analytics logic.
 - Add idempotent synchronization and a mock Feishu boundary for tests.
 - Publish a ranked monthly theme view; real-time dashboards and workflows remain out of scope.
 
 ### Exit criteria
 
-A validated local result can be synchronized repeatedly without duplicate output, and Feishu distinguishes unavailable data from zero.
+FEISHU-001 can authenticate through a mock boundary, inspect every configured
+field in response order, report duplicate names, and prove that no Bitable
+write method is called. A later FEISHU-002 synchronization can be repeated
+without duplicate output, and Feishu can distinguish unavailable data from
+zero.
 
 ## MVP verification sequence
 
@@ -280,6 +292,6 @@ The first monthly dashboard is accepted in this order:
 4. Load and validate a small historical monthly slice.
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.
-7. Inspect and reuse the existing Feishu implementation through `FS-001`, then sync the results through the Feishu adapter.
+7. Complete `FEISHU-001` read-only field inspection, then defer trend-row synchronization to `FEISHU-002`.
 
 Each external boundary needs a deterministic mock, unit tests, and an integration test. Real credentials must be provided through configuration and never committed.
