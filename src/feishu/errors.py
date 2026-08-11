@@ -59,6 +59,10 @@ class FeishuFieldIntegrityError(FeishuError):
     """Raised when the field-list response violates integrity rules."""
 
 
+class FeishuRecordIntegrityError(FeishuFieldIntegrityError):
+    """Raised when the record-list response violates integrity rules."""
+
+
 class FeishuSchemaValidationError(FeishuConfigurationError):
     """Raised when the local desired Feishu schema is invalid."""
 

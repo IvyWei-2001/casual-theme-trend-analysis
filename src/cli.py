@@ -20,7 +20,10 @@ from .feishu.errors import (
 from .feishu.inspection import (
     format_feishu_inspection_plan,
     format_feishu_inspection_summary,
+    format_feishu_record_inspection_plan,
+    format_feishu_record_inspection_summary,
     inspect_feishu,
+    inspect_feishu_records,
 )
 from .feishu.provisioning import (
     format_feishu_schema_plan,
@@ -172,6 +175,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate and print the read-only plan without network or local storage access",
     )
+    inspect_records_parser = subparsers.add_parser(
+        "inspect-feishu-records",
+        help="inspect configured Feishu Bitable records without writes",
+    )
+    inspect_records_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="print the read-only record plan without configuration or network access",
+    )
     provision_parser = subparsers.add_parser(
         "provision-feishu-schema",
         help="plan or provision the configured Feishu Bitable trend-score fields",
@@ -200,6 +212,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         except FeishuConfigurationError as error:
             _print_error(str(error))
             return 2
+        return 0
+    if args.command == "inspect-feishu-records" and args.plan_only:
+        print(format_feishu_record_inspection_plan())
         return 0
 
     try:
@@ -236,6 +251,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_feishu_inspection_summary(inspection_result))
+        return 0
+
+    if args.command == "inspect-feishu-records":
+        try:
+            record_inspection_result = inspect_feishu_records(config)
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        except FeishuSchemaIntegrityError as error:
+            _print_error(str(error))
+            return 4
+        except FeishuError as error:
+            _print_error(str(error))
+            return 3
+        except OSError:
+            _print_error("local Feishu record inspection operation failed")
+            return 4
+        except Exception:
+            _print_error("Feishu record inspection failed")
+            return 4
+
+        print(format_feishu_record_inspection_summary(record_inspection_result))
         return 0
 
     if args.command == "provision-feishu-schema":

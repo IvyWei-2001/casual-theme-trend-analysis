@@ -369,8 +369,9 @@ reference for Feishu authentication and Bitable endpoint structure. Its
 authentication path, Bearer-token use, and pagination shape were reused as
 contract evidence; its bare exception handling, missing timeouts/status
 checks, raw credential exposure, and unchecked responses were deliberately
-not copied. FEISHU-002 provisions the trend-score field schema; real
-trend-record synchronization is deferred to FEISHU-003.
+not copied. FEISHU-002 provisions the trend-score field schema; FEISHU-003A
+only verifies the read-only record-list contract. Real trend-record
+synchronization is deferred to FEISHU-003B.
 
 ## FEISHU-002 trend-score field schema provisioning
 
@@ -402,10 +403,45 @@ The schema preserves the source terms `units_absolute` and
 such as `0.018`, and displayed with two decimal places. The complete logical
 schema and the verified formatter choices are documented in
 [`docs/FEISHU_SCHEMA.md`](docs/FEISHU_SCHEMA.md). Trend-record synchronization
-and dashboard configuration remain deferred to FEISHU-003.
+and dashboard configuration remain deferred to FEISHU-003B.
 
 The command uses exit code `0` for a successful inspection or plan, `2` for
 invalid configuration, `3` for Feishu authentication/API failures, and `4`
 for unexpected local failures. `--plan-only` needs no App Secret and performs
 no configuration-file, network, database, or file-write operation. An invalid
 local schema still returns configuration error code `2`.
+
+## FEISHU-003A read-only record inspection
+
+FEISHU-003A adds a manual, strictly read-only check of the configured Bitable
+records:
+
+```powershell
+python -m src inspect-feishu-records --plan-only
+python -m src inspect-feishu-records
+```
+
+The default command authenticates, rereads the complete FEISHU-002 schema, and
+stops before the records endpoint unless there is exactly one primary field,
+21 compatible non-primary fields, zero missing fields, and zero incompatible
+fields. It then uses the table-level records GET endpoint with `page_size=100`
+and follows response page tokens until every page has been checked.
+
+Record inspection deliberately does not send `view_id`, `filter`, `sort`, or
+`search`: an idempotent future synchronization must see records hidden by a
+view filter so it cannot mistake them for missing records. The command keeps
+only record-integrity metadata in memory and prints counts, field-name counts,
+the primary-field presence count, an app-token suffix, and the table ID. It
+never prints record IDs, cell values, raw responses, credentials, or
+authenticated URLs, and it never creates, updates, or deletes records.
+
+`--plan-only` is routed before configuration loading and logging. It does not
+read YAML, `.env`, credentials, DuckDB, or local files, and does not construct
+an HTTP client. FEISHU-003A does not read DuckDB, generate a primary-field
+technical key, map `ThemeTrendScore` values, convert `NULL`/`0`, or implement
+record payload writes; those choices and real synchronization remain deferred
+to FEISHU-003B; no `batch_create` or `batch_update` method is part of this
+task. If a real table is empty, the only record-level claim this
+workflow can make is that the empty-table response envelope, authentication,
+and permission path were accepted; it does not claim any non-empty cell-value
+shape was observed.

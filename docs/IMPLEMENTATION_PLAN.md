@@ -276,7 +276,17 @@ monthly theme metrics, while keeping DuckDB as the source of truth.
 - Keep the Feishu field schema in its own typed integration boundary. The
   schema preserves `units_absolute` and `revenue_absolute` and stores future
   percentage values as decimal ratios.
-- `FEISHU-003`: Map internal Trend Score outputs to the provisioned fields,
+- `FEISHU-003A`: Validate the complete FEISHU-002 schema, then inspect all
+  Bitable records through the table-level paginated records GET endpoint. The
+  record read must omit `view_id`, `filter`, `sort`, and `search`; it retains
+  only record-integrity metadata and reports sanitized counts.
+- `FEISHU-003A` must not read DuckDB, map `ThemeTrendScore` fields, generate a
+  primary-field technical key, convert `NULL`/`0`, or create, update, or delete
+  records. It does not add `batch_create` or `batch_update` methods. An empty
+  table proves only the empty response envelope,
+  authentication, and permission path; it does not prove a non-empty cell
+  value shape.
+- `FEISHU-003B`: Map internal Trend Score outputs to the provisioned fields,
   add idempotent record synchronization, and publish the ranked monthly view.
   Real-time dashboards and workflows remain out of scope.
 
@@ -286,8 +296,10 @@ FEISHU-001 can authenticate through a mock boundary, inspect every configured
 field in response order, report duplicate names, and prove that no Bitable
 write method is called. FEISHU-002 can provision the complete schema through a
 mock boundary, rerun without duplicate field creation, and distinguish
-unavailable configuration from a live destination. Record synchronization
-remains deferred to FEISHU-003.
+unavailable configuration from a live destination. FEISHU-003A can stop before
+records GET when the schema is incomplete, inspect all table-level record pages
+ without a view filter, and report only sanitized counts. Record
+ synchronization remains deferred to FEISHU-003B.
 
 ## MVP verification sequence
 
@@ -299,7 +311,8 @@ The first monthly dashboard is accepted in this order:
 4. Load and validate a small historical monthly slice.
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.
-7. Complete `FEISHU-001` read-only field inspection and FEISHU-002 schema
-   provisioning, then defer trend-row synchronization to `FEISHU-003`.
+7. Complete `FEISHU-001` read-only field inspection, FEISHU-002 schema
+   provisioning, and FEISHU-003A record-contract inspection, then defer
+   trend-row synchronization to `FEISHU-003B`.
 
 Each external boundary needs a deterministic mock, unit tests, and an integration test. Real credentials must be provided through configuration and never committed.
