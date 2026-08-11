@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from datetime import date as Date
 from pathlib import Path
 from typing import Annotated, Any, Final
-from urllib.parse import urlsplit
 
 import yaml  # type: ignore[import-untyped]
 from dotenv import dotenv_values
@@ -21,6 +20,7 @@ from .feishu.models import (
     DEFAULT_FEISHU_API_BASE_URL,
     DEFAULT_FEISHU_TIMEOUT_SECONDS,
     FeishuClientConfig,
+    validate_feishu_api_base_url,
 )
 from .sensor_tower.client import SensorTowerClientConfig
 from .sensor_tower.errors import SensorTowerConfigurationError
@@ -120,6 +120,7 @@ class AppConfig(BaseSettings):
         case_sensitive=False,
         env_prefix="APP_",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     app_name: str = "casual-theme-trend-analysis"
@@ -230,16 +231,7 @@ class AppConfig(BaseSettings):
     @field_validator("feishu_api_base_url")
     @classmethod
     def _validate_feishu_api_base_url(cls, value: str) -> str:
-        parsed = urlsplit(value.strip().rstrip("/"))
-        cleaned = value.strip().rstrip("/")
-        if (
-            parsed.scheme.lower() != "https"
-            or not parsed.netloc
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Feishu API base URL must be an https URL without a query")
-        return cleaned
+        return validate_feishu_api_base_url(value)
 
     @field_validator("feishu_app_id", "feishu_bitable_table_id", "feishu_bitable_view_id")
     @classmethod

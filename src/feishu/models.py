@@ -17,7 +17,7 @@ FEISHU_FIELDS_PATH_PREFIX: Final[str] = "/open-apis/bitable/v1/apps"
 FEISHU_FIELD_PAGE_SIZE: Final[int] = 100
 
 
-def _validate_https_base_url(value: str) -> str:
+def validate_feishu_api_base_url(value: str) -> str:
     """Normalize a Feishu base URL without accepting an authenticated URL."""
 
     cleaned = value.strip().rstrip("/")
@@ -25,10 +25,14 @@ def _validate_https_base_url(value: str) -> str:
     if (
         parsed.scheme.lower() != "https"
         or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
         or parsed.query
         or parsed.fragment
     ):
-        raise ValueError("Feishu API base URL must be an https URL without a query")
+        raise ValueError(
+            "Feishu API base URL must be an https URL without userinfo, query, or fragment"
+        )
     return cleaned
 
 
@@ -67,7 +71,7 @@ class FeishuClientConfig(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _normalize_base_url(cls, value: str) -> str:
-        return _validate_https_base_url(value)
+        return validate_feishu_api_base_url(value)
 
     @field_validator("app_id", "bitable_table_id")
     @classmethod

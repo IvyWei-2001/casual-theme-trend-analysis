@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from src.__main__ import main
 from src.config import AppConfig
@@ -29,6 +30,7 @@ from src.feishu.inspection import (
     format_feishu_inspection_summary,
     inspect_feishu,
 )
+from src.feishu.models import FeishuClientConfig
 
 APP_ID = "cli_test_app_id"
 APP_SECRET = "cli_test_app_secret_do_not_log"
@@ -107,6 +109,93 @@ def _assert_secrets_absent(value: str) -> None:
 
 def _formatted_error(error: BaseException) -> str:
     return "".join(traceback.format_exception(type(error), error, error.__traceback__))
+
+
+def _direct_feishu_client_config(*, base_url: str) -> FeishuClientConfig:
+    return FeishuClientConfig(
+        base_url=base_url,
+        app_id=APP_ID,
+        app_secret=APP_SECRET,
+        bitable_app_token=APP_TOKEN,
+        bitable_table_id=TABLE_ID,
+        bitable_view_id=VIEW_ID,
+    )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://synthetic-url-user:synthetic-url-password@open.feishu.cn",
+        "https://synthetic-url-user@open.feishu.cn",
+    ],
+)
+def test_authenticated_feishu_base_urls_are_rejected_by_both_configs(
+    base_url: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        AppConfig(feishu_api_base_url=base_url)
+    with pytest.raises(ValidationError):
+        _direct_feishu_client_config(base_url=base_url)
+
+
+def test_valid_feishu_base_url_is_accepted_by_both_configs() -> None:
+    base_url = "https://open.feishu.cn"
+
+    assert AppConfig(feishu_api_base_url=base_url).feishu_api_base_url == base_url
+    assert _direct_feishu_client_config(base_url=base_url).base_url == base_url
+
+
+def test_app_config_authenticated_url_errors_hide_url_userinfo(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    username = "synthetic-url-user"
+    password = "synthetic-url-password"
+    base_url = f"https://{username}:{password}@open.feishu.cn"
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(ValidationError) as error:
+            AppConfig(feishu_api_base_url=base_url)
+
+    rendered_errors = (
+        str(error.value),
+        repr(error.value),
+        _formatted_error(error.value),
+        caplog.text,
+    )
+    for rendered in rendered_errors:
+        assert username not in rendered
+        assert password not in rendered
+
+
+def test_feishu_client_config_authenticated_url_errors_hide_url_userinfo() -> None:
+    username = "synthetic-url-user"
+    password = "synthetic-url-password"
+    base_url = f"https://{username}:{password}@open.feishu.cn"
+
+    with pytest.raises(ValidationError) as error:
+        _direct_feishu_client_config(base_url=base_url)
+
+    rendered_errors = (
+        str(error.value),
+        repr(error.value),
+        _formatted_error(error.value),
+    )
+    for rendered in rendered_errors:
+        assert username not in rendered
+        assert password not in rendered
+
+
+def test_feishu_client_repr_remains_credential_safe_for_valid_base_url() -> None:
+    config = _direct_feishu_client_config(base_url="https://open.feishu.cn")
+
+    with FeishuClient.from_config(
+        config,
+        transport=httpx.MockTransport(lambda request: httpx.Response(500)),
+    ) as client:
+        rendered = repr(client)
+
+    assert "https://open.feishu.cn" in rendered
+    _assert_secrets_absent(rendered)
 
 
 def test_authentication_and_paginated_field_gets_use_verified_contract() -> None:
