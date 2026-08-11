@@ -318,13 +318,55 @@ def test_repeated_page_token_fails_without_exposing_the_token() -> None:
     assert "repeated-page-token" not in _formatted_error(error.value)
 
 
-def test_has_more_true_without_a_nonempty_page_token_fails() -> None:
-    transport, _requests = _server([_records_response([], has_more=True)])
+@pytest.mark.parametrize(
+    "page_token",
+    [
+        pytest.param("__missing__", id="missing"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace-only"),
+    ],
+)
+def test_has_more_true_without_a_nonempty_page_token_fails_locally(
+    page_token: str,
+) -> None:
+    response = _records_response(
+        [],
+        has_more=True,
+        **({} if page_token == "__missing__" else {"page_token": page_token}),
+    )
+    transport, requests = _server([response])
 
     with _client(transport) as client:
         client.get_tenant_access_token()
-        with pytest.raises(FeishuRecordIntegrityError):
+        with pytest.raises(FeishuRecordIntegrityError) as error:
             client.list_records(app_token=APP_TOKEN, table_id=TABLE_ID)
+
+    rendered = _formatted_error(error.value)
+    assert len(_records_request(requests)) == 1
+    assert f"page_token={page_token}" not in rendered
+    _assert_secrets_absent(rendered)
+    assert "https://open.feishu.cn" not in rendered
+
+
+def test_feishu_production_boundary_has_no_record_write_operations() -> None:
+    source_root = Path(__file__).parents[1] / "src" / "feishu"
+    forbidden = (
+        "batch_create",
+        "batch_update",
+        "create_record",
+        "update_record",
+        "delete_record",
+        "/records/search",
+    )
+
+    violations = [
+        f"{path.name}:{term}"
+        for path in sorted(source_root.glob("*.py"))
+        for term in forbidden
+        if term in path.read_text(encoding="utf-8")
+    ]
+
+    assert violations == []
 
 
 @pytest.mark.parametrize("failure", ["timeout", "connection", "http", "json"])

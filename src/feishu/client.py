@@ -1,4 +1,4 @@
-"""Strictly read-only HTTP client for Feishu authentication and field metadata."""
+"""Secret-safe Feishu client for schema operations and read-only record checks."""
 
 from __future__ import annotations
 
@@ -292,11 +292,12 @@ class FeishuClient:
             if "page_token" in data and not isinstance(raw_next_page_token, str):
                 raise FeishuMalformedResponseError("record inspection")
 
-            next_page_token = (
+            stripped_page_token = (
                 raw_next_page_token.strip()
                 if isinstance(raw_next_page_token, str)
                 else None
             )
+            next_page_token = stripped_page_token or None
             if raw_has_more is False or next_page_token is None:
                 if raw_has_more is True:
                     raise FeishuRecordIntegrityError(
