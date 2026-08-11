@@ -16,6 +16,7 @@ from .feishu.errors import (
     FeishuConfigurationError,
     FeishuError,
     FeishuSchemaIntegrityError,
+    FeishuSyncIntegrityError,
 )
 from .feishu.inspection import (
     format_feishu_inspection_plan,
@@ -42,6 +43,7 @@ from .workflows import (
     CollectMonthRequest,
     InvalidMonthError,
     ScoreThemesRequest,
+    SyncFeishuTrendsRequest,
     WorkflowError,
     aggregate_themes,
     backfill_months,
@@ -49,8 +51,11 @@ from .workflows import (
     format_aggregate_themes_summary,
     format_backfill_summary,
     format_collection_summary,
+    format_feishu_trend_sync_plan_only,
+    format_feishu_trend_sync_summary,
     format_score_themes_summary,
     score_themes,
+    sync_feishu_trends,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -199,6 +204,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="create missing fields after a complete live compatibility check",
     )
+    sync_parser = subparsers.add_parser(
+        "sync-feishu-trends",
+        help="plan or explicitly synchronize stored monthly trend scores to Feishu",
+    )
+    sync_mode = sync_parser.add_mutually_exclusive_group()
+    sync_mode.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="print the credential-free synchronization contract",
+    )
+    sync_mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply idempotent batch record synchronization and verify it",
+    )
     return parser
 
 
@@ -215,6 +235,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "inspect-feishu-records" and args.plan_only:
         print(format_feishu_record_inspection_plan())
+        return 0
+    if args.command == "sync-feishu-trends" and args.plan_only:
+        try:
+            print(format_feishu_trend_sync_plan_only())
+        except (FeishuConfigurationError, FeishuSyncIntegrityError) as error:
+            _print_error(str(error))
+            return 2
         return 0
 
     try:
@@ -298,6 +325,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception:
             _print_error("Feishu schema provisioning failed")
             return 4
+        return 0
+
+    if args.command == "sync-feishu-trends":
+        try:
+            sync_request = SyncFeishuTrendsRequest(
+                database_path=config.database_path,
+                plan_only=args.plan_only,
+                apply=args.apply,
+            )
+            sync_summary = sync_feishu_trends(sync_request, config)
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        except FeishuSchemaIntegrityError as error:
+            _print_error(str(error))
+            return 4
+        except FeishuSyncIntegrityError as error:
+            _print_error(str(error))
+            return 4
+        except FeishuError as error:
+            _print_error(str(error))
+            return 3
+        except StorageError as error:
+            _print_error(str(error))
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local Feishu trend synchronization operation failed")
+            return 4
+        except Exception:
+            _print_error("Feishu trend synchronization failed")
+            return 4
+
+        print(format_feishu_trend_sync_summary(sync_summary))
         return 0
 
     if args.command == "collect-month":

@@ -27,8 +27,15 @@ from .models import (
     MonthlyPeriod,
     ScoreThemesRequest,
     ScoreThemesSummary,
+    SyncFeishuTrendsRequest,
 )
 from .score_themes import format_score_themes_summary, score_themes
+from .sync_feishu_trends import (
+    FeishuTrendSyncSummary,
+    format_feishu_trend_sync_plan_only,
+    format_feishu_trend_sync_summary,
+    sync_feishu_trends,
+)
 
 __all__ = [
     "CollectionClient",
@@ -46,6 +53,8 @@ __all__ = [
     "MonthlyPeriod",
     "ScoreThemesRequest",
     "ScoreThemesSummary",
+    "SyncFeishuTrendsRequest",
+    "FeishuTrendSyncSummary",
     "WorkflowError",
     "WorkflowMetadataIntegrityError",
     "app_metadata_row_to_sensor_tower_metadata",
@@ -57,4 +66,7 @@ __all__ = [
     "format_collection_summary",
     "format_score_themes_summary",
     "score_themes",
+    "format_feishu_trend_sync_plan_only",
+    "format_feishu_trend_sync_summary",
+    "sync_feishu_trends",
 ]

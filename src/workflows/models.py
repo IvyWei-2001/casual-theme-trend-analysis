@@ -232,6 +232,25 @@ class ScoreThemesRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class SyncFeishuTrendsRequest:
+    """Validated inputs for complete DuckDB-to-Feishu trend synchronization."""
+
+    database_path: Path
+    plan_only: bool = False
+    apply: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.database_path, (Path, str)) or not str(self.database_path).strip():
+            raise WorkflowError("database_path must be a non-empty path")
+        object.__setattr__(self, "database_path", Path(self.database_path))
+        for field_name in ("plan_only", "apply"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+        if self.plan_only and self.apply:
+            raise WorkflowError("plan_only and apply are mutually exclusive")
+
+
+@dataclass(frozen=True, slots=True)
 class CollectMonthSummary:
     """Sanitized result of one plan or completed collection run."""
 

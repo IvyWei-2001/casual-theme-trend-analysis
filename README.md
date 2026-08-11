@@ -370,8 +370,9 @@ authentication path, Bearer-token use, and pagination shape were reused as
 contract evidence; its bare exception handling, missing timeouts/status
 checks, raw credential exposure, and unchecked responses were deliberately
 not copied. FEISHU-002 provisions the trend-score field schema; FEISHU-003A
-only verifies the read-only record-list contract. Real trend-record
-synchronization is deferred to FEISHU-003B.
+only verifies the read-only record-list contract. FEISHU-003B adds the
+separate synchronization reader and explicit batch record writes described
+below.
 
 ## FEISHU-002 trend-score field schema provisioning
 
@@ -403,7 +404,8 @@ The schema preserves the source terms `units_absolute` and
 such as `0.018`, and displayed with two decimal places. The complete logical
 schema and the verified formatter choices are documented in
 [`docs/FEISHU_SCHEMA.md`](docs/FEISHU_SCHEMA.md). Trend-record synchronization
-and dashboard configuration remain deferred to FEISHU-003B.
+is implemented separately by FEISHU-003B; dashboard view configuration remains
+manual.
 
 The command uses exit code `0` for a successful inspection or plan, `2` for
 invalid configuration, `3` for Feishu authentication/API failures, and `4`
@@ -439,9 +441,50 @@ authenticated URLs, and it never creates, updates, or deletes records.
 read YAML, `.env`, credentials, DuckDB, or local files, and does not construct
 an HTTP client. FEISHU-003A does not read DuckDB, generate a primary-field
 technical key, map `ThemeTrendScore` values, convert `NULL`/`0`, or implement
-record payload writes; those choices and real synchronization remain deferred
-to FEISHU-003B; no `batch_create` or `batch_update` method is part of this
-task. If a real table is empty, the only record-level claim this
+record payload writes; those choices belong to FEISHU-003B; no
+`batch_create` or `batch_update` method is part of this task. If a real table is empty, the only record-level claim this
 workflow can make is that the empty-table response envelope, authentication,
 and permission path were accepted; it does not claim any non-empty cell-value
 shape was observed.
+
+## FEISHU-003B idempotent trend synchronization
+
+FEISHU-003B synchronizes every stored monthly `ThemeTrendScore` row for the
+configured `sensor_tower_scope_name` from DuckDB to the provisioned Feishu
+table. DuckDB remains the source of truth; the complete stored score set is
+authoritative, so adding a new month also updates earlier latest-month flags.
+
+```powershell
+python -m src sync-feishu-trends --plan-only
+python -m src sync-feishu-trends
+python -m src sync-feishu-trends --apply
+```
+
+The plan-only command is credential-free and runs before configuration,
+logging, YAML, `.env`, DuckDB, HTTP client construction, network access, and
+file writes. The default command is an authenticated dry-run. Only explicit
+`--apply` can write records. Apply uses only table-level `batch_update` and
+`batch_create`, updates before creates, waits 0.5 seconds only between
+successful requests, and rereads the complete table for final verification.
+The internal default batch size is 100 and the permitted internal range is
+1-1000.
+
+The preserved primary Text field `鏂囨湰` is a versioned SHA-256 key:
+
+```text
+ctta:v1:{period_start YYYY-MM}:{sha256(UTF-8, scope + \x1f + cadence + \x1f + period_start + \x1f + period_end + \x1f + game_theme)}
+```
+
+All 21 provisioned non-primary fields map directly to the internal
+`ThemeTrendScore` model. `None` becomes an empty cell, while numeric zero and
+boolean false remain real values. The five existing blank records are counted
+as unmanaged, preserved, never matched, and never reused. Unmanaged nonblank
+records are also untouched. Duplicate managed keys and stale managed records
+are surfaced without printing keys or record IDs; duplicates fail before any
+write and stale records block apply.
+
+No record delete, view-write, `/records/search`, Sensor Tower request, or real
+Feishu request is part of development or automated tests. See
+[`docs/FEISHU_SYNC.md`](docs/FEISHU_SYNC.md) for the field table, exact key
+algorithm, reconciliation contract, no-delete policy, manual ranked-view
+steps, evidence status, and real acceptance sequence.

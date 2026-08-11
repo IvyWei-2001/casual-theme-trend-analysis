@@ -255,8 +255,9 @@ Identical internal inputs always produce the same score, and each score can be e
 
 ### Purpose
 
-Inspect the configured Feishu destination safely before publishing validated
-monthly theme metrics, while keeping DuckDB as the source of truth.
+Inspect the configured Feishu destination safely, provision its stable schema,
+and publish validated monthly Trend Score rows while keeping DuckDB as the
+source of truth.
 
 ### Work items
 
@@ -270,9 +271,9 @@ monthly theme metrics, while keeping DuckDB as the source of truth.
 - `FEISHU-001` must not create or update fields, records, tables, views, or
   dashboards. It must not synchronize Trend Score rows.
 - `FEISHU-002`: Provision the verified, deterministic 21-field Trend Score
-  schema after preserving the existing primary Text field as the future
-  technical key. Create missing fields only after explicit `--apply`; do not
-  update or delete fields and do not write records.
+  schema after preserving the existing primary Text field as the technical
+  key. Create missing fields only after explicit `--apply`; do not update or
+  delete fields and do not write records.
 - Keep the Feishu field schema in its own typed integration boundary. The
   schema preserves `units_absolute` and `revenue_absolute` and stores future
   percentage values as decimal ratios.
@@ -286,9 +287,13 @@ monthly theme metrics, while keeping DuckDB as the source of truth.
   table proves only the empty response envelope,
   authentication, and permission path; it does not prove a non-empty cell
   value shape.
-- `FEISHU-003B`: Map internal Trend Score outputs to the provisioned fields,
-  add idempotent record synchronization, and publish the ranked monthly view.
-  Real-time dashboards and workflows remain out of scope.
+- `FEISHU-003B`: Map the complete stored internal Trend Score set to the
+  provisioned fields, derive a versioned primary-field key, classify managed
+  and unmanaged records, reconcile deterministically, and synchronize only
+  through sequential `batch_update`/`batch_create` endpoints. Explicit apply
+  rereads and verifies the complete result. The ranked view remains a manual
+  UI operation; view APIs, real-time dashboards, and scheduling remain out of
+  scope.
 
 ### Exit criteria
 
@@ -299,7 +304,10 @@ mock boundary, rerun without duplicate field creation, and distinguish
 unavailable configuration from a live destination. FEISHU-003A can stop before
 records GET when the schema is incomplete, inspect all table-level record pages
  without a view filter, and report only sanitized counts. Record
- synchronization remains deferred to FEISHU-003B.
+ synchronization is covered by FEISHU-003B's mock-only complete-set workflow,
+ including idempotent rerun, five blank-record preservation, stale/duplicate
+ protection, and final verification. The manual ranked-view steps remain
+ documented in `docs/FEISHU_SYNC.md`.
 
 ## MVP verification sequence
 
@@ -312,7 +320,8 @@ The first monthly dashboard is accepted in this order:
 5. Produce deterministic monthly `ThemeMetric` aggregates.
 6. Calculate and explain Trend Scores.
 7. Complete `FEISHU-001` read-only field inspection, FEISHU-002 schema
-   provisioning, and FEISHU-003A record-contract inspection, then defer
-   trend-row synchronization to `FEISHU-003B`.
+   provisioning, and FEISHU-003A record-contract inspection.
+8. Run the FEISHU-003B dry-run, review the complete-set reconciliation counts,
+   then use explicit apply and perform the required post-write reread.
 
 Each external boundary needs a deterministic mock, unit tests, and an integration test. Real credentials must be provided through configuration and never committed.
