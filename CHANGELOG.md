@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added FEISHU-001 read-only Feishu Bitable field inspection with sanitized
+  tenant-token authentication, optional view scoping, paginated field metadata,
+  mock-only coverage, credential-safe output, and an explicit no-write
+  guarantee. The attached `daily-newgames-fetcher-main.zip` is documented as
+  the verified endpoint reference; its unsafe error-handling patterns were not
+  copied. Trend-row synchronization and field/record writes remain deferred to
+  FEISHU-002.
 - Added TREND-001 explainable monthly Game Theme trend scoring. Schema version
   3 adds `theme_trend_scores`; the score uses a six-month rolling grid,
   absent-theme zero filling, share-point gains and acceleration,

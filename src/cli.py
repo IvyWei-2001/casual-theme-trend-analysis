@@ -12,6 +12,12 @@ from pydantic import ValidationError
 
 from .analysis.errors import AggregationError
 from .config import load_config
+from .feishu.errors import FeishuConfigurationError, FeishuError
+from .feishu.inspection import (
+    format_feishu_inspection_plan,
+    format_feishu_inspection_summary,
+    inspect_feishu,
+)
 from .logging_config import configure_logging
 from .sensor_tower.errors import SensorTowerConfigurationError, SensorTowerError
 from .storage.errors import StorageError
@@ -146,6 +152,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="positive number of latest-month actionable themes to display (default: 20)",
     )
+    inspect_parser = subparsers.add_parser(
+        "inspect-feishu",
+        help="inspect configured Feishu Bitable field metadata without writes",
+    )
+    inspect_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the read-only plan without network or local storage access",
+    )
     return parser
 
 
@@ -165,6 +180,28 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command is None:
         LOGGER.info("bootstrap startup complete: %s", config.app_name)
+        return 0
+
+    if args.command == "inspect-feishu":
+        if args.plan_only:
+            print(format_feishu_inspection_plan(config))
+            return 0
+        try:
+            inspection_result = inspect_feishu(config)
+        except FeishuConfigurationError as error:
+            _print_error(str(error))
+            return 2
+        except FeishuError as error:
+            _print_error(str(error))
+            return 3
+        except OSError:
+            _print_error("local Feishu inspection operation failed")
+            return 4
+        except Exception:
+            _print_error("Feishu inspection failed")
+            return 4
+
+        print(format_feishu_inspection_summary(inspection_result))
         return 0
 
     if args.command == "collect-month":

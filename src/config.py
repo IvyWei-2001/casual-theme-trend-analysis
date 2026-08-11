@@ -9,12 +9,19 @@ from collections.abc import Mapping
 from datetime import date as Date
 from pathlib import Path
 from typing import Annotated, Any, Final
+from urllib.parse import urlsplit
 
 import yaml  # type: ignore[import-untyped]
 from dotenv import dotenv_values
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .feishu.errors import FeishuConfigurationError
+from .feishu.models import (
+    DEFAULT_FEISHU_API_BASE_URL,
+    DEFAULT_FEISHU_TIMEOUT_SECONDS,
+    FeishuClientConfig,
+)
 from .sensor_tower.client import SensorTowerClientConfig
 from .sensor_tower.errors import SensorTowerConfigurationError
 from .sensor_tower.metadata_request import (
@@ -91,8 +98,13 @@ _ENVIRONMENT_VARIABLES: Final[dict[str, str]] = {
     "APP_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS": (
         "sensor_tower_metadata_batch_delay_seconds"
     ),
+    "APP_FEISHU_API_BASE_URL": "feishu_api_base_url",
     "APP_FEISHU_APP_ID": "feishu_app_id",
     "APP_FEISHU_APP_SECRET": "feishu_app_secret",
+    "APP_FEISHU_BITABLE_APP_TOKEN": "feishu_bitable_app_token",
+    "APP_FEISHU_BITABLE_TABLE_ID": "feishu_bitable_table_id",
+    "APP_FEISHU_BITABLE_VIEW_ID": "feishu_bitable_view_id",
+    "APP_FEISHU_TIMEOUT_SECONDS": "feishu_timeout_seconds",
 }
 
 
@@ -148,8 +160,13 @@ class AppConfig(BaseSettings):
     sensor_tower_metadata_batch_delay_seconds: float = (
         DEFAULT_SENSOR_TOWER_METADATA_BATCH_DELAY_SECONDS
     )
+    feishu_api_base_url: str = DEFAULT_FEISHU_API_BASE_URL
     feishu_app_id: str | None = None
     feishu_app_secret: SecretStr | None = None
+    feishu_bitable_app_token: SecretStr | None = None
+    feishu_bitable_table_id: str | None = None
+    feishu_bitable_view_id: str | None = None
+    feishu_timeout_seconds: float = DEFAULT_FEISHU_TIMEOUT_SECONDS
 
     @field_validator("export_directory", mode="before")
     @classmethod
@@ -210,6 +227,66 @@ class AppConfig(BaseSettings):
             return _parse_metadata_fields_environment_value(value)
         return value
 
+    @field_validator("feishu_api_base_url")
+    @classmethod
+    def _validate_feishu_api_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value.strip().rstrip("/"))
+        cleaned = value.strip().rstrip("/")
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.netloc
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Feishu API base URL must be an https URL without a query")
+        return cleaned
+
+    @field_validator("feishu_app_id", "feishu_bitable_table_id", "feishu_bitable_view_id")
+    @classmethod
+    def _validate_optional_feishu_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("configured Feishu text settings must be strings")
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("feishu_app_secret", "feishu_bitable_app_token", mode="before")
+    @classmethod
+    def _validate_optional_feishu_secret(cls, value: object) -> object:
+        if value is None:
+            return None
+        raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if not isinstance(raw_value, str):
+            raise ValueError("configured Feishu secret settings must be strings")
+        cleaned = raw_value.strip()
+        return cleaned or None
+
+    @field_validator("feishu_timeout_seconds", mode="before")
+    @classmethod
+    def _validate_feishu_timeout(cls, value: object) -> float:
+        if isinstance(value, bool):
+            raise ValueError("feishu_timeout_seconds must be positive and finite")
+        try:
+            numeric_value = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as error:
+            raise ValueError("feishu_timeout_seconds must be positive and finite") from error
+        if not math.isfinite(numeric_value) or numeric_value <= 0:
+            raise ValueError("feishu_timeout_seconds must be positive and finite")
+        return numeric_value
+
+    @model_validator(mode="after")
+    def _validate_feishu_target_ids(self) -> AppConfig:
+        if self.feishu_bitable_table_id is not None and not self.feishu_bitable_table_id.startswith(
+            "tbl"
+        ):
+            raise ValueError("Feishu Bitable table_id must begin with tbl")
+        if self.feishu_bitable_view_id is not None and not self.feishu_bitable_view_id.startswith(
+            "vew"
+        ):
+            raise ValueError("Feishu Bitable view_id must begin with vew")
+        return self
+
     @property
     def sensor_tower_request_config(self) -> SensorTowerRequestConfig:
         """Return validated request-boundary settings."""
@@ -265,6 +342,31 @@ class AppConfig(BaseSettings):
             auth_token=self.sensor_tower_auth_token,
             timeout=self.sensor_tower_timeout_seconds,
         )
+
+    @property
+    def feishu_client_config(self) -> FeishuClientConfig:
+        """Return required settings for a real Feishu field inspection."""
+
+        if self.feishu_app_id is None:
+            raise FeishuConfigurationError("APP_FEISHU_APP_ID is not configured")
+        if self.feishu_app_secret is None:
+            raise FeishuConfigurationError("APP_FEISHU_APP_SECRET is not configured")
+        if self.feishu_bitable_app_token is None:
+            raise FeishuConfigurationError("APP_FEISHU_BITABLE_APP_TOKEN is not configured")
+        if self.feishu_bitable_table_id is None:
+            raise FeishuConfigurationError("APP_FEISHU_BITABLE_TABLE_ID is not configured")
+        try:
+            return FeishuClientConfig(
+                base_url=self.feishu_api_base_url,
+                app_id=self.feishu_app_id,
+                app_secret=self.feishu_app_secret,
+                bitable_app_token=self.feishu_bitable_app_token,
+                bitable_table_id=self.feishu_bitable_table_id,
+                bitable_view_id=self.feishu_bitable_view_id,
+                timeout_seconds=self.feishu_timeout_seconds,
+            )
+        except ValueError:
+            raise FeishuConfigurationError("Feishu inspection configuration is invalid") from None
 
     def build_sensor_tower_market_request(
         self,
