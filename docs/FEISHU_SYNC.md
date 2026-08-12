@@ -130,6 +130,17 @@ cleared. Numeric zero remains numeric `0`, and boolean `False` remains
 boolean `false`. Numeric comparison accepts int/float representation changes
 within the documented `1e-9` finite tolerance.
 
+Feishu Number compatibility is explicit at the transport boundary: create and
+update payloads send Number values as JSON numbers, while list-record responses
+may return Number values as numeric strings. The synchronization reader strips
+surrounding whitespace, strictly parses finite numeric strings with
+`decimal.Decimal`, returns integral values as `int` and non-integral values as
+`float`, and rejects empty, malformed, display-formatted, or non-finite forms.
+Date and DateTime fields remain epoch-millisecond integers, Checkbox fields
+remain booleans, and Text fields retain their supported text shapes. Missing or
+null values remain `None`; numeric zero remains a real value distinct from
+`None`.
+
 ## Existing-record classification
 
 The sync reader uses the table-level `GET /records` endpoint with
@@ -154,9 +165,9 @@ There is no delete or stale-record cleanup policy in this MVP.
 
 For managed records, the reader accepts a direct Text string or an array of
 plain objects containing string `text` values. It normalizes managed text,
-finite numbers, booleans, and integer date values. An unsupported managed
-cell shape fails before apply writes. Unmanaged records are not required to
-have valid unrelated cells.
+finite JSON numbers or numeric-string Number values, booleans, and integer date
+values. An unsupported managed cell shape fails before apply writes. Unmanaged
+records are not required to have valid unrelated cells.
 
 ## Reconciliation and writes
 
@@ -219,6 +230,19 @@ Mock-verified behavior uses synthetic DuckDB rows, temporary DuckDB files, and
 unmanaged records, idempotent create/rerun, update-only reconciliation,
 stale/duplicate failures, batch pacing, and final reread verification. No
 automated test calls real Feishu.
+
+The real acceptance evidence is recorded in sanitized form:
+
+```text
+source_score_count=411
+record_count=416
+managed records written=411
+unmanaged blank records preserved=5
+initial apply failed only during post-write numeric-string normalization
+```
+
+The first apply had already created all authoritative managed records; the
+failure category was limited to rereading Number fields returned as strings.
 
 Real-environment behavior remains an acceptance step. The development run for
 FEISHU-003B makes no real Feishu request or write and makes no Sensor Tower

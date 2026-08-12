@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from math import isfinite
 from types import MappingProxyType
@@ -503,15 +504,51 @@ def normalize_managed_field_value(
     if logical_type == "text":
         return _normalize_plain_text(value)
     if logical_type == "number":
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool):
             raise FeishuManagedRecordIntegrityError(
                 "managed Feishu number field has an unsupported value shape"
             )
-        if not isfinite(float(value)):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if not isfinite(value):
+                raise FeishuManagedRecordIntegrityError(
+                    "managed Feishu number field is not finite"
+                )
+            return value
+        if not isinstance(value, str):
+            raise FeishuManagedRecordIntegrityError(
+                "managed Feishu number field has an unsupported value shape"
+            )
+
+        stripped = value.strip()
+        if not stripped or "_" in stripped:
+            raise FeishuManagedRecordIntegrityError(
+                "managed Feishu number field has an unsupported value shape"
+            )
+        try:
+            decimal_value = Decimal(stripped)
+        except InvalidOperation:
+            raise FeishuManagedRecordIntegrityError(
+                "managed Feishu number field has an unsupported value shape"
+            ) from None
+        if not decimal_value.is_finite():
             raise FeishuManagedRecordIntegrityError(
                 "managed Feishu number field is not finite"
             )
-        return value
+        if decimal_value == decimal_value.to_integral_value():
+            return int(decimal_value)
+        try:
+            normalized = float(decimal_value)
+        except (OverflowError, ValueError):
+            raise FeishuManagedRecordIntegrityError(
+                "managed Feishu number field is not finite"
+            ) from None
+        if not isfinite(normalized):
+            raise FeishuManagedRecordIntegrityError(
+                "managed Feishu number field is not finite"
+            )
+        return normalized
     if logical_type == "checkbox":
         if not isinstance(value, bool):
             raise FeishuManagedRecordIntegrityError(

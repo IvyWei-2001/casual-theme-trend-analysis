@@ -483,6 +483,25 @@ records are also untouched. Duplicate managed keys and stale managed records
 are surfaced without printing keys or record IDs; duplicates fail before any
 write and stale records block apply.
 
+Number-field transport is deliberately asymmetric: writes send Number values
+as JSON numbers, while Feishu list-record responses may return Number values as
+numeric strings. The synchronization reader strips whitespace and strictly
+normalizes finite numeric strings with `decimal.Decimal`; integral strings
+become `int`, non-integral strings become `float`, and empty, malformed,
+display-formatted, or non-finite strings are rejected. Date and DateTime fields
+remain epoch-millisecond integers, Checkbox fields remain booleans, and
+missing/NULL values remain distinct from numeric zero.
+
+The first real FEISHU-003B acceptance produced this sanitized evidence:
+
+```text
+source_score_count=411
+record_count=416
+managed records written=411
+unmanaged blank records preserved=5
+initial apply failed only during post-write numeric-string normalization
+```
+
 No record delete, view-write, `/records/search`, Sensor Tower request, or real
 Feishu request is part of development or automated tests. See
 [`docs/FEISHU_SYNC.md`](docs/FEISHU_SYNC.md) for the field table, exact key
