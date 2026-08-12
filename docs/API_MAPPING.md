@@ -4,6 +4,22 @@ This document records the verified boundary between the existing Google Sheets /
 
 Sensor Tower remains the only approved market-data source. Business logic must consume internal models rather than Sensor Tower field names.
 
+## Project-owner-confirmed business semantics
+
+The project owner confirmed these business semantics on 2026-08-12. They are
+not claims inferred solely from the response field names:
+
+| Source field | Business meaning | Unit |
+| --- | --- | --- |
+| `units_absolute` | Downloads | count |
+| `revenue_absolute` | Revenue | USD |
+
+The source names remain unchanged in adapters and DuckDB persistence for
+provenance. Business-facing output may use **Downloads** and **Revenue (USD)**.
+For both fields, NULL means unavailable and remains SQL `NULL`; an observed
+numeric zero remains zero. Their monthly sums and shares use the compatible
+selected monthly sample described in `DATA_MODEL.md`.
+
 ## Evidence boundary
 
 ### Verified
@@ -69,7 +85,7 @@ Sensor Tower remains the only approved market-data source. Business logic must c
 - The `Game Theme` values observed in the sample are strings.
 - Example observed `Game Theme` values are `Decoration`, `Candy / Dessert`, `Hypercasual`, `Fashion / Aesthetics / Hair`, `Abstract`, `Tabletop`, and `Vehicles - Car`.
 - These examples are sample observations only; no taxonomy rule, hierarchy, or completeness is inferred from them.
-- Field existence is verified for every top-level field and custom-tag label listed above. Existence alone does not establish business semantics.
+- Field existence is verified for every top-level field and custom-tag label listed above. Existence alone does not establish business semantics beyond the confirmed-semantics section above.
 
 ### ST-004 live market-response compatibility
 
@@ -126,7 +142,8 @@ captured response.
   response error contract remains represented only by sanitized local errors.
 - The response-sample provenance is not sufficient to assign every observed field to the market request or the separate metadata request; field existence remains verified.
 - Whether all `custom_tags` entries follow the same key/value structure and value-type rules beyond the provided sample is still TODO.
-- The exact semantics, units, currency, period, and transformations of the observed metric fields are still TODO.
+- The exact semantics, units, currency, period, and transformations of source
+  metric fields not covered by the confirmed-semantics section remain TODO.
 
 ## Top1000 endpoint
 
@@ -166,7 +183,7 @@ captured response.
 - The workflow extracts source `app_id` values from the final market result
   before the separate metadata request. Metadata enrichment is deferred to
   ST-003 and is not implemented in ST-002.
-- The observed response field names listed in the Evidence boundary section are verified to exist in real samples. Their business semantics are not thereby verified.
+- The observed response field names listed in the Evidence boundary section are verified to exist in real samples. Field existence does not establish business semantics beyond the confirmed-semantics section above.
 
 ### Still TODO
 
@@ -317,17 +334,33 @@ No theme may be inferred from the `Game Genre` filter, app name, icon, store cop
 - The adapter preserves each observed source metric under its source name and
   stores omitted optional metrics as unavailable/SQL `NULL`.
 
+### Confirmed
+
+- `units_absolute` means Downloads, measured as a count, by project-owner
+  confirmation on 2026-08-12.
+- The source field name remains `units_absolute` in adapters and persistence;
+  **Downloads** is the approved business-facing alias.
+- `units_absolute_sum` is Downloads summed over covered products in the
+  selected monthly sample, and its share uses the compatible selected monthly
+  sample denominator.
+- NULL remains unavailable and an observed numeric zero remains zero.
+
 ### Still TODO
 
-- Whether any observed `*_units_*` field represents downloads.
-- The exact mapping from source fields to the internal `downloads` value.
-- The units, estimation basis, period, timezone, platform scope, and geography scope.
+- The exact mapping from `current_units_value` and other unresolved source
+  fields to any internal measure.
+- The units, estimation basis, period, timezone, platform scope, and geography
+  scope of the remaining unit fields.
 - The meaning of `current_units_value` and `comparison_units_value`.
-- The meaning of `units_absolute`, `units_delta`, and `units_transformed_delta`.
-- The denominator and calculation rule for `download_share`.
-- Missing-value and zero-value behavior.
+- The meaning of `units_delta` and `units_transformed_delta`.
+- The denominator and calculation rule for any share based on an unresolved
+  unit field.
+- Missing-value and zero-value behavior for the remaining unresolved unit
+  fields.
 
-The system must not describe `current_units_value` as downloads or use it in a share calculation until the semantics are verified by the existing code or approved API documentation.
+The system must not describe `current_units_value` as Downloads or use it in a
+share calculation until its semantics are verified by the existing code or
+approved API documentation.
 
 ## Revenue
 
@@ -343,21 +376,39 @@ The system must not describe `current_units_value` as downloads or use it in a s
   revenue_transformed_delta
   ```
 
-- The field existence is verified; the business meaning is not.
+- The field existence is verified; the business meaning of fields outside the
+  confirmed-semantics section remains open.
 - The verified live market response may omit the current/comparison revenue
   fields and expose only `revenue_absolute`, `revenue_delta`, and
   `revenue_transformed_delta`. The earlier sample contains the larger field
   set. No field is silently renamed or copied into another source field.
 
+### Confirmed
+
+- `revenue_absolute` means Revenue in USD, by project-owner confirmation on
+  2026-08-12.
+- The source field name remains `revenue_absolute` in adapters and persistence;
+  **Revenue (USD)** is the approved business-facing alias.
+- `revenue_absolute_sum` is USD revenue summed over covered products in the
+  selected monthly sample, and its share uses the compatible selected monthly
+  sample denominator.
+- NULL remains unavailable and an observed numeric zero remains zero.
+
 ### Still TODO
 
-- The exact mapping from source fields to the internal `revenue` value.
-- Whether `current_revenue_value` is a currency amount, an index, an estimate, or another value.
-- Currency, exchange-rate, estimation, period, timezone, platform, and geography semantics.
-- The meaning of `revenue_absolute`, `comparison_revenue_value`, `revenue_delta`, and `revenue_transformed_delta`.
-- The denominator and calculation rule for `revenue_share`.
+- The exact mapping from `current_revenue_value` and other unresolved source
+  fields to any internal measure.
+- Whether `current_revenue_value` is a currency amount, an index, an estimate,
+  or another value.
+- Currency, exchange-rate, estimation, period, timezone, platform, and
+  geography semantics for the remaining revenue fields.
+- The meaning of `comparison_revenue_value`, `revenue_delta`, and
+  `revenue_transformed_delta`.
+- The denominator and calculation rule for any share based on an unresolved
+  revenue field.
 - Whether revenue is required for the MVP Trend Score.
-- Missing-value and zero-value behavior.
+- Missing-value and zero-value behavior for the remaining unresolved revenue
+  fields.
 
 The system must not attach a currency or other business semantic to `current_revenue_value` without evidence.
 

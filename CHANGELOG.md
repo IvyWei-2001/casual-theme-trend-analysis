@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added CONTRACT-002 as a documentation and contract milestone. It confirms
+  Downloads and Revenue (USD), defines the six V2 decision questions, separates
+  theme opportunity from Product Greenlight, establishes the 36-month V2
+  roadmap, and reclassifies the current score as 6M Momentum. This milestone
+  does not change production code, data, Feishu, or external services.
 - Added the FEISHU-003B live compatibility hotfix for Feishu Number fields:
   writes continue to send JSON numbers, while list-record responses may return
   finite numeric strings. The synchronization reader now strips whitespace and

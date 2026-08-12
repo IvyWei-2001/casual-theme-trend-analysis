@@ -1,24 +1,42 @@
-# Explainable Monthly Game Theme Trend Score
+# 6M Short-Term Momentum Score
 
-TREND-001 calculates a deterministic first-version trend and opportunity score
-from stored schema-v2 monthly Game Theme metrics. The workflow reads only
-`monthly_market_totals` and `theme_monthly_metrics` through internal models. It
-does not construct a Sensor Tower client, make a network request, classify a
-theme with an LLM, or alter either source table or either schema-v2 derived
-table.
+TREND-001 calculates the current deterministic **6M Short-Term Momentum
+Score** from stored schema-v2 monthly Game Theme metrics. The workflow reads
+only `monthly_market_totals` and `theme_monthly_metrics` through internal
+models. It does not construct a Sensor Tower client, make a network request,
+classify a theme with an LLM, or alter either source table or either schema-v2
+derived table.
+
+`theme_trend_scores.trend_score` is the current legacy technical field name.
+Its approved business label is **6M Momentum Score**. The technical table and
+all existing field names remain unchanged.
 
 ## Objective
 
 The score surfaces raw Game Theme labels that are gaining product share,
-gaining `units_absolute_share` or `revenue_absolute_share` when those source
-metrics are available, accelerating, continuing to receive new Top-N entries,
-and showing breadth rather than excessive concentration. History, product
-count, source coverage, and publisher coverage reduce confidence. The score is
-not a ranking of the largest themes.
+gaining `units_absolute_share` (Downloads share) or
+`revenue_absolute_share` (Revenue (USD) share) when those source metrics are
+available, accelerating, continuing to receive new Top-N entries, and showing
+breadth rather than excessive concentration. History, product count, source
+coverage, and publisher coverage reduce confidence. The score is not a
+ranking of the largest themes.
 
 `units_absolute_share` and `revenue_absolute_share` retain their exact source
-names. Their unresolved business semantics are not changed into downloads or
-revenue by this analysis.
+names. Their confirmed business meanings are Downloads (count) and Revenue
+(USD), respectively. Their shares use the compatible selected monthly sample
+denominator, while NULL remains unavailable and observed zero remains zero.
+
+## Business interpretation boundary
+
+The current score is:
+
+- a 6M Momentum Score;
+- a short-term baseline for future backtesting; and
+- an explainable technical signal over the selected project sample.
+
+It is not Market Size, not a 12M or 36M trend score, not an investment
+recommendation, and not a forecast. MODEL-002 will add 12M and 36M dimensions
+rather than silently changing the meaning of existing historical values.
 
 ## Six-month window
 
@@ -229,3 +247,5 @@ produce lifecycle labels beyond actionability, or generate AI conclusions. It
 does not implement weekly scoring, Feishu synchronization, scheduling, or
 GitHub automation. A twelve-month history supports a transparent momentum
 comparison, but cannot prove a long-term theme cycle or durable market trend.
+The score remains a technical baseline until MODEL-002 dimensions and
+BACKTEST-001 launch-window validation are accepted.
