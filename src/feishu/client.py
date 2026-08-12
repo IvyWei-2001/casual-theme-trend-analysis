@@ -1,9 +1,9 @@
-"""Secret-safe Feishu client for schema operations and read-only record checks."""
+"""Secret-safe Feishu client for schema and trend-record operations."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from types import TracebackType
 from typing import Self, cast
@@ -30,11 +30,15 @@ from .models import (
     FEISHU_FIELDS_PATH_PREFIX,
     FEISHU_RECORD_PAGE_SIZE,
     FeishuAccessToken,
+    FeishuBatchWriteResult,
     FeishuBitableField,
     FeishuBitableRecord,
     FeishuClientConfig,
     FeishuRecordListResult,
+    FeishuSyncRecord,
+    FeishuSyncRecordListResult,
 )
+from .synchronization import PRIMARY_FIELD_NAME, parse_sync_record_item
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,9 +47,9 @@ class FeishuClient:
     """Synchronous Feishu client with injectable mock transport.
 
     The client deliberately implements tenant-token authentication, Bitable
-    field-list GET, record-list GET, and the verified create-field POST required
-    by FEISHU-002. Record listing is deliberately table-scoped and never uses a
-    view filter.
+    field-list GET, table-level record reads, the verified create-field POST,
+    and the two explicit batch record-write endpoints required by FEISHU-003B.
+    Record listing is deliberately table-scoped and never uses a view filter.
     """
 
     def __init__(
@@ -313,6 +317,168 @@ class FeishuClient:
 
         return FeishuRecordListResult(records=tuple(records), page_count=page_count)
 
+    def list_sync_records(
+        self,
+        *,
+        app_token: str,
+        table_id: str,
+        primary_field_name: str = PRIMARY_FIELD_NAME,
+    ) -> FeishuSyncRecordListResult:
+        """Read every table record with normalized managed values for sync only.
+
+        This is intentionally separate from FEISHU-003A's count-only reader.
+        Unmanaged rows are parsed only through their primary Text cell; a
+        managed row is normalized against the 21-field contract before any
+        caller can write.
+        """
+
+        self._validate_target(app_token=app_token, table_id=table_id, view_id=None)
+        if not isinstance(primary_field_name, str) or not primary_field_name.strip():
+            raise FeishuConfigurationError("Feishu primary field name is invalid")
+
+        tenant_access_token = self._require_tenant_access_token()
+        records_path = self._records_path(app_token=app_token, table_id=table_id)
+        records: list[FeishuSyncRecord] = []
+        record_ids: set[str] = set()
+        page_token: str | None = None
+        seen_page_tokens: set[str] = set()
+        page_count = 0
+
+        while True:
+            params: dict[str, str | int] = {"page_size": FEISHU_RECORD_PAGE_SIZE}
+            if page_token is not None:
+                params["page_token"] = page_token
+
+            response = self._get_records_page(
+                records_path,
+                tenant_access_token=tenant_access_token,
+                params=params,
+                operation="record synchronization",
+            )
+            page_count += 1
+            payload = self._decode_json(response, operation="record synchronization")
+            code = self._response_code(payload, operation="record synchronization")
+            if code != 0:
+                raise FeishuAPIError("record synchronization", code)
+
+            data = payload.get("data")
+            if not isinstance(data, Mapping):
+                raise FeishuMalformedResponseError("record synchronization")
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise FeishuMalformedResponseError("record synchronization")
+
+            for item in items:
+                record = parse_sync_record_item(
+                    item,
+                    primary_field_name=primary_field_name,
+                )
+                if record.record_id in record_ids:
+                    raise FeishuRecordIntegrityError(
+                        "Feishu Bitable record list contains duplicate record IDs"
+                    )
+                record_ids.add(record.record_id)
+                records.append(record)
+
+            raw_has_more = data.get("has_more")
+            if "has_more" in data and not isinstance(raw_has_more, bool):
+                raise FeishuMalformedResponseError("record synchronization")
+            raw_next_page_token = data.get("page_token")
+            if "page_token" in data and not isinstance(raw_next_page_token, str):
+                raise FeishuMalformedResponseError("record synchronization")
+
+            stripped_page_token = (
+                raw_next_page_token.strip()
+                if isinstance(raw_next_page_token, str)
+                else None
+            )
+            next_page_token = stripped_page_token or None
+            if raw_has_more is False or next_page_token is None:
+                if raw_has_more is True:
+                    raise FeishuRecordIntegrityError(
+                        "Feishu Bitable record pagination has_more=true without a page token"
+                    )
+                break
+            if next_page_token in seen_page_tokens:
+                raise FeishuRecordIntegrityError(
+                    "Feishu Bitable record pagination repeated a page token"
+                )
+            seen_page_tokens.add(next_page_token)
+            page_token = next_page_token
+
+        return FeishuSyncRecordListResult(records=tuple(records), page_count=page_count)
+
+    def batch_create_records(
+        self,
+        *,
+        app_token: str,
+        table_id: str,
+        records: Sequence[Mapping[str, object]],
+    ) -> FeishuBatchWriteResult:
+        """Create one validated batch through the only permitted create endpoint."""
+
+        values = _validate_record_write_payloads(records, update=False)
+        self._validate_target(app_token=app_token, table_id=table_id, view_id=None)
+        tenant_access_token = self._require_tenant_access_token()
+        batch_create_path = (
+            f"{FEISHU_FIELDS_PATH_PREFIX}/"
+            f"{quote(app_token, safe='')}/tables/{quote(table_id, safe='')}/records/batch_create"
+        )
+        request_body = {
+            "records": [
+                {"fields": dict(cast(Mapping[str, object], item["fields"]))}
+                for item in values
+            ]
+        }
+        response = self._post_record_batch(
+            batch_create_path,
+            tenant_access_token=tenant_access_token,
+            request_body=request_body,
+            operation="record batch create",
+        )
+        return self._parse_batch_write_response(
+            response,
+            requested_count=len(values),
+            operation="record batch create",
+        )
+
+    def batch_update_records(
+        self,
+        *,
+        app_token: str,
+        table_id: str,
+        records: Sequence[Mapping[str, object]],
+    ) -> FeishuBatchWriteResult:
+        """Update one validated batch through the only permitted update endpoint."""
+
+        values = _validate_record_write_payloads(records, update=True)
+        self._validate_target(app_token=app_token, table_id=table_id, view_id=None)
+        tenant_access_token = self._require_tenant_access_token()
+        batch_update_path = (
+            f"{FEISHU_FIELDS_PATH_PREFIX}/"
+            f"{quote(app_token, safe='')}/tables/{quote(table_id, safe='')}/records/batch_update"
+        )
+        request_body = {
+            "records": [
+                {
+                    "record_id": item["record_id"],
+                    "fields": dict(cast(Mapping[str, object], item["fields"])),
+                }
+                for item in values
+            ]
+        }
+        response = self._post_record_batch(
+            batch_update_path,
+            tenant_access_token=tenant_access_token,
+            request_body=request_body,
+            operation="record batch update",
+        )
+        return self._parse_batch_write_response(
+            response,
+            requested_count=len(values),
+            operation="record batch update",
+        )
+
     def _post_authentication(self, request_body: dict[str, str]) -> httpx.Response:
         """Send the one permitted POST request without logging its JSON body."""
 
@@ -379,6 +545,7 @@ class FeishuClient:
         *,
         tenant_access_token: str,
         params: dict[str, str | int],
+        operation: str = "record inspection",
     ) -> httpx.Response:
         """Send one authenticated table-record GET without exposing context."""
 
@@ -396,13 +563,79 @@ class FeishuClient:
             request_failure = "request"
 
         if request_failure == "timeout":
-            raise FeishuTimeoutError("record inspection") from None
+            raise FeishuTimeoutError(operation) from None
         if request_failure == "request":
-            raise FeishuRequestError("Feishu record inspection request failed") from None
+            raise FeishuRequestError(f"Feishu {operation} request failed") from None
 
         if not 200 <= response.status_code < 300:
-            raise FeishuHTTPError("record inspection", response.status_code)
+            raise FeishuHTTPError(operation, response.status_code)
         return response
+
+    def _post_record_batch(
+        self,
+        record_batch_path: str,
+        *,
+        tenant_access_token: str,
+        request_body: Mapping[str, object],
+        operation: str,
+    ) -> httpx.Response:
+        """Send one authenticated record batch without logging body or URL."""
+
+        request_failure: str | None = None
+        try:
+            with _suppress_httpx_request_logging():
+                response = self._client.post(
+                    record_batch_path,
+                    headers={"Authorization": f"Bearer {tenant_access_token}"},
+                    json=request_body,
+                )
+        except httpx.TimeoutException:
+            request_failure = "timeout"
+        except httpx.RequestError:
+            request_failure = "request"
+
+        if request_failure == "timeout":
+            raise FeishuTimeoutError(operation) from None
+        if request_failure == "request":
+            raise FeishuRequestError(f"Feishu {operation} request failed") from None
+        if not 200 <= response.status_code < 300:
+            raise FeishuHTTPError(operation, response.status_code)
+        return response
+
+    @classmethod
+    def _parse_batch_write_response(
+        cls,
+        response: httpx.Response,
+        *,
+        requested_count: int,
+        operation: str,
+    ) -> FeishuBatchWriteResult:
+        """Validate a batch-write envelope while retaining only its count."""
+
+        payload = cls._decode_json(response, operation=operation)
+        code = cls._response_code(payload, operation=operation)
+        if code != 0:
+            raise FeishuAPIError(operation, code)
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            raise FeishuMalformedResponseError(operation)
+        raw_records = data.get("records")
+        if not isinstance(raw_records, list) or len(raw_records) != requested_count:
+            raise FeishuMalformedResponseError(operation)
+        record_ids: set[str] = set()
+        for item in raw_records:
+            if not isinstance(item, Mapping):
+                raise FeishuMalformedResponseError(operation)
+            record_id = item.get("record_id")
+            if not isinstance(record_id, str) or not record_id.strip():
+                raise FeishuMalformedResponseError(operation)
+            normalized_id = record_id.strip()
+            if normalized_id in record_ids:
+                raise FeishuRecordIntegrityError(
+                    f"Feishu {operation} response contains duplicate record IDs"
+                )
+            record_ids.add(normalized_id)
+        return FeishuBatchWriteResult(record_count=len(raw_records))
 
     def _post_field(
         self,
@@ -694,6 +927,36 @@ def _has_value(value: object) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     return True
+
+
+def _validate_record_write_payloads(
+    records: Sequence[Mapping[str, object]],
+    *,
+    update: bool,
+) -> tuple[Mapping[str, object], ...]:
+    """Validate one bounded batch before constructing an authenticated request."""
+
+    try:
+        values = tuple(records)
+    except TypeError:
+        raise FeishuConfigurationError("Feishu record write batch is invalid") from None
+    if not values or len(values) > 1000:
+        raise FeishuConfigurationError(
+            "Feishu record write batch must contain between 1 and 1000 records"
+        )
+    for item in values:
+        if not isinstance(item, Mapping):
+            raise FeishuConfigurationError("Feishu record write batch is invalid")
+        fields = item.get("fields")
+        if not isinstance(fields, Mapping):
+            raise FeishuConfigurationError("Feishu record write fields are invalid")
+        if update:
+            record_id = item.get("record_id")
+            if not isinstance(record_id, str) or not record_id.strip():
+                raise FeishuConfigurationError("Feishu record update identifier is invalid")
+        elif "record_id" in item:
+            raise FeishuConfigurationError("Feishu record create payload is invalid")
+    return values
 
 
 @contextmanager

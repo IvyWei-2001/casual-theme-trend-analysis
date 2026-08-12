@@ -1,9 +1,9 @@
 # FEISHU-002 Feishu trend-score schema
 
-FEISHU-002 provisions the configured Feishu Bitable table schema needed for
-the future monthly Trend Score view. DuckDB remains the analytical source of
-truth. This issue creates fields only; it does not create, update, delete, or
-list Bitable records.
+FEISHU-002 provisions the configured Feishu Bitable table schema used by the
+monthly Trend Score view. DuckDB remains the analytical source of truth. This
+document describes the field-provisioning contract; FEISHU-003B owns record
+synchronization and does not change this schema.
 
 ## Verified starting state
 
@@ -46,7 +46,7 @@ as decimal ratios: a value such as `0.018` displays as `1.80%`.
 
 ## Internal source mapping
 
-The future FEISHU-003B record synchronization maps each field to the following
+The FEISHU-003B record synchronization maps each field to the following
 `ThemeTrendScore` property or deterministic derivation:
 
 | Feishu field | `ThemeTrendScore` property or derived rule |
@@ -76,7 +76,8 @@ The future FEISHU-003B record synchronization maps each field to the following
 All ratio fields are written in the future as decimal values from 0 through 1,
 not as already-scaled percentages. A Python/SQL `NULL` must become an empty
 Feishu cell, while a real numeric zero must be written as the number `0`.
-The record-level `NULL` versus zero mapping and its tests belong to FEISHU-003B.
+The record-level `NULL` versus zero mapping and its tests are implemented in
+FEISHU-003B and documented in [`FEISHU_SYNC.md`](FEISHU_SYNC.md).
 
 ## Verified Feishu field contract
 
@@ -144,6 +145,7 @@ The command rejects `--plan-only --apply`.
   writes or PUT, PATCH, or DELETE request. FEISHU-003A's separate record
   inspection uses only the table-level records GET.
 
-Trend-record synchronization, the future use of the preserved primary field
-as the idempotent record key, `batch_create`, `batch_update`, and dashboard
-configuration remain deferred to FEISHU-003B.
+FEISHU-003B uses the preserved primary field as the idempotent record key and
+implements only `batch_create` and `batch_update` for trend records. See
+[`FEISHU_SYNC.md`](FEISHU_SYNC.md) for the complete-set synchronization and
+manual dashboard-view contract. View APIs remain intentionally unimplemented.

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added FEISHU-003B idempotent DuckDB-to-Feishu monthly trend
+  synchronization. The complete configured-scope `ThemeTrendScore` set is
+  authoritative; the preserved primary Text field is a versioned SHA-256
+  managed key, all 21 provisioned fields use exact internal mappings, and
+  NULL/zero/false values retain their semantics. The default command is a
+  live dry-run and only explicit `--apply` uses sequential `batch_update` and
+  `batch_create` requests with a 100-record default batch size, 0.5-second
+  pacing between successful writes, complete post-write reread verification,
+  stale/duplicate protection, and no-delete handling. The five existing blank
+  records and unmanaged nonblank records remain untouched. Automated coverage
+  uses only synthetic DuckDB data and `httpx.MockTransport`; no real Feishu or
+  Sensor Tower request was made.
 - Added FEISHU-003A read-only Feishu Bitable record inspection with complete
   FEISHU-002 schema preflight, table-level paginated records GET, no-view
   filtering, record/page integrity validation, credential-safe count summaries,

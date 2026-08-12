@@ -351,12 +351,17 @@ def test_has_more_true_without_a_nonempty_page_token_fails_locally(
 def test_feishu_production_boundary_has_no_record_write_operations() -> None:
     source_root = Path(__file__).parents[1] / "src" / "feishu"
     forbidden = (
-        "batch_create",
-        "batch_update",
-        "create_record",
-        "update_record",
+        "def create_record",
+        "def update_record",
         "delete_record",
+        "batch_delete",
         "/records/search",
+        "method=\"DELETE\"",
+        "method='DELETE'",
+        "method=\"PUT\"",
+        "method='PUT'",
+        "method=\"PATCH\"",
+        "method='PATCH'",
     )
 
     violations = [
@@ -367,6 +372,9 @@ def test_feishu_production_boundary_has_no_record_write_operations() -> None:
     ]
 
     assert violations == []
+    client_source = (source_root / "client.py").read_text(encoding="utf-8")
+    assert "/records/batch_create" in client_source
+    assert "/records/batch_update" in client_source
 
 
 @pytest.mark.parametrize("failure", ["timeout", "connection", "http", "json"])

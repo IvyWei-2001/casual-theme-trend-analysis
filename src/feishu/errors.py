@@ -1,4 +1,4 @@
-"""Sanitized errors for Feishu inspection and explicit field provisioning."""
+"""Sanitized errors for Feishu inspection, provisioning, and synchronization."""
 
 from __future__ import annotations
 
@@ -61,6 +61,56 @@ class FeishuFieldIntegrityError(FeishuError):
 
 class FeishuRecordIntegrityError(FeishuFieldIntegrityError):
     """Raised when the record-list response violates integrity rules."""
+
+
+class FeishuSyncIntegrityError(FeishuRecordIntegrityError):
+    """Raised when a synchronization source or managed record is unsafe."""
+
+
+class FeishuSourceValidationError(FeishuSyncIntegrityError):
+    """Raised when the authoritative DuckDB score set is invalid."""
+
+
+class FeishuManagedRecordIntegrityError(FeishuSyncIntegrityError):
+    """Raised when a managed Feishu record has an unsupported cell shape."""
+
+
+class FeishuDuplicateManagedKeyError(FeishuSyncIntegrityError):
+    """Raised when multiple Feishu records claim one managed key."""
+
+    def __init__(self, duplicate_count: int) -> None:
+        self.duplicate_count = duplicate_count
+        super().__init__(
+            "Feishu trend synchronization found duplicate managed keys; "
+            f"duplicate_count={duplicate_count}"
+        )
+
+
+class FeishuStaleManagedRecordError(FeishuSyncIntegrityError):
+    """Raised when an apply would leave managed records outside the source set."""
+
+    def __init__(self, stale_count: int) -> None:
+        self.stale_count = stale_count
+        super().__init__(
+            "Feishu trend synchronization found stale managed records; "
+            f"stale_count={stale_count}"
+        )
+
+
+class FeishuReconciliationVerificationError(FeishuSyncIntegrityError):
+    """Raised when a post-write reread does not converge to the source set."""
+
+
+class FeishuPartialSynchronizationError(FeishuRequestError):
+    """Raised when one or more writes succeeded before a later write failed."""
+
+    def __init__(self, successful_write_request_count: int) -> None:
+        self.successful_write_request_count = successful_write_request_count
+        super().__init__(
+            "Feishu trend synchronization stopped after partial writes; "
+            "reread and rerun safely; "
+            f"successful_write_request_count={successful_write_request_count}"
+        )
 
 
 class FeishuSchemaValidationError(FeishuConfigurationError):

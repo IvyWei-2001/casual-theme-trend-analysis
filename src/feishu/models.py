@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
@@ -194,6 +194,77 @@ class FeishuBitableRecord:
             f"field_name_count={len(self.field_names)!r}, "
             f"has_primary_value={self.has_primary_value!r})"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuSyncRecord:
+    """Private synchronization metadata for one table-level record.
+
+    The record ID, primary value, and normalized fields are retained only for
+    reconciliation and write targeting.  The representation deliberately
+    exposes counts and state, never any identifier or cell value.
+    """
+
+    record_id: str
+    primary_value: str | None
+    fields: Mapping[str, object]
+
+    @property
+    def managed_field_count(self) -> int:
+        """Return the number of normalized managed fields retained in memory."""
+
+        return len(self.fields)
+
+    def __repr__(self) -> str:
+        """Represent synchronization state without keys, IDs, or cell values."""
+
+        primary_state = "blank" if self.primary_value is None else "nonblank"
+        return (
+            "FeishuSyncRecord(record_id=<redacted>, "
+            f"primary_state={primary_state!r}, "
+            f"managed_field_count={self.managed_field_count!r})"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuSyncRecordListResult:
+    """Sanitized result of one complete synchronization record read."""
+
+    records: tuple[FeishuSyncRecord, ...]
+    page_count: int
+
+    @property
+    def record_count(self) -> int:
+        """Return the table-level record count."""
+
+        return len(self.records)
+
+    def __iter__(self) -> Iterator[FeishuSyncRecord]:
+        return iter(self.records)
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> FeishuSyncRecord:
+        return self.records[index]
+
+    def __repr__(self) -> str:
+        """Represent only aggregate counts."""
+
+        return (
+            "FeishuSyncRecordListResult("
+            f"record_count={self.record_count!r}, page_count={self.page_count!r})"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuBatchWriteResult:
+    """Validated aggregate result of one batch record write."""
+
+    record_count: int
+
+    def __repr__(self) -> str:
+        return f"FeishuBatchWriteResult(record_count={self.record_count!r})"
 
 
 @dataclass(frozen=True, slots=True)
