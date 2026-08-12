@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 
 import duckdb
 
@@ -16,6 +16,7 @@ from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from ..analysis.trend_models import ThemeTrendScore
 from .connection import open_duckdb_connection, open_duckdb_read_only_connection
 from .errors import (
+    RepositoryConnectionModeError,
     RepositoryNotOpenError,
     SchemaNotInitializedError,
     StorageValidationError,
@@ -125,22 +126,35 @@ class DuckDBRepository:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path)
         self._connection: duckdb.DuckDBPyConnection | None = None
+        self._connection_mode: Literal["read-write", "read-only"] | None = None
         self._schema_initialized = False
 
     def open(self) -> duckdb.DuckDBPyConnection:
         """Open the configured database without creating business tables."""
 
-        if self._connection is None:
-            self._connection = open_duckdb_connection(self.database_path)
-            self._schema_initialized = False
+        if self._connection is not None:
+            if self._connection_mode != "read-write":
+                raise RepositoryConnectionModeError(
+                    "read-write", self._connection_mode or "unknown"
+                )
+            return self._connection
+        self._connection = open_duckdb_connection(self.database_path)
+        self._connection_mode = "read-write"
+        self._schema_initialized = False
         return self._connection
 
     def open_read_only(self) -> duckdb.DuckDBPyConnection:
         """Open the existing database in DuckDB read-only mode."""
 
-        if self._connection is None:
-            self._connection = open_duckdb_read_only_connection(self.database_path)
-            self._schema_initialized = False
+        if self._connection is not None:
+            if self._connection_mode != "read-only":
+                raise RepositoryConnectionModeError(
+                    "read-only", self._connection_mode or "unknown"
+                )
+            return self._connection
+        self._connection = open_duckdb_read_only_connection(self.database_path)
+        self._connection_mode = "read-only"
+        self._schema_initialized = False
         return self._connection
 
     def close(self) -> None:
@@ -149,11 +163,13 @@ class DuckDBRepository:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+        self._connection_mode = None
         self._schema_initialized = False
 
     def initialize_schema(self) -> None:
         """Explicitly create or verify the supported schema version."""
 
+        self._require_connection_mode("read-write")
         connection = self._require_open_connection()
         initialize_schema(connection)
         self._schema_initialized = True
@@ -161,6 +177,7 @@ class DuckDBRepository:
     def verify_read_only_schema(self) -> None:
         """Verify required read-only tables and columns without migrations."""
 
+        self._require_connection_mode("read-only")
         connection = self._require_open_connection()
         verify_read_only_schema(connection)
         self._schema_initialized = True
@@ -510,6 +527,16 @@ class DuckDBRepository:
         if self._connection is None:
             raise RepositoryNotOpenError()
         return self._connection
+
+    def _require_connection_mode(
+        self, expected: Literal["read-write", "read-only"]
+    ) -> None:
+        if self._connection is None:
+            raise RepositoryNotOpenError()
+        if self._connection_mode != expected:
+            raise RepositoryConnectionModeError(
+                expected, self._connection_mode or "unknown"
+            )
 
     def _require_initialized_connection(self) -> duckdb.DuckDBPyConnection:
         connection = self._require_open_connection()

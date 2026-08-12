@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 
 from ..config import AppConfig
+from ..sensor_tower.selection import normalize_game_genre
 from ..storage import AppMetadataRow, DuckDBRepository, MarketSnapshotRow, SnapshotPeriodKey
 from .errors import WorkflowError
 from .models import BackfillMonthRange, MonthlyPeriod
@@ -74,6 +75,7 @@ class HistoryMonthQuality:
     duplicate_rank_count: int
     ranks_are_contiguous: bool
     provenance_variant_count: int
+    provenance_mismatch_count: int
     structural_issue_count: int
     downloads_coverage_count: int
     downloads_coverage_ratio: float | None
@@ -129,6 +131,7 @@ class HistoryInspectionSummary:
     maximum_snapshot_count: int | None
     average_snapshot_count: float | None
     provenance_variant_count: int
+    expected_provenance: tuple[str, str, int, str] | None
     structural_issue_count: int
     structurally_complete: bool
     month_results: tuple[HistoryMonthQuality, ...]
@@ -167,7 +170,14 @@ def inspect_history(
             owns_repository = True
         active_repository.open_read_only()
         active_repository.verify_read_only_schema()
+        request_config = config.sensor_tower_request_config
         selection = config.sensor_tower_selection_config
+        expected_provenance = (
+            request_config.country,
+            request_config.device_type,
+            request_config.category,
+            request_config.data_model,
+        )
         inspected = tuple(
             _inspect_month(
                 active_repository,
@@ -176,6 +186,7 @@ def inspect_history(
                 selection.final_top_n,
                 selection.allowed_genres,
                 selection.exclude_china_revenue_market,
+                expected_provenance,
             )
             for period in month_range.periods
         )
@@ -184,6 +195,7 @@ def inspect_history(
             selection.scope_name,
             tuple(item[0] for item in inspected),
             {value for _result, values in inspected for value in values},
+            expected_provenance,
         )
     finally:
         if owns_repository and active_repository is not None:
@@ -230,6 +242,14 @@ def format_history_inspection_summary(summary: HistoryInspectionSummary) -> str:
         f"maximum_snapshot_count={_display(summary.maximum_snapshot_count)}",
         f"average_snapshot_count={_display(summary.average_snapshot_count)}",
         f"provenance_variant_count={summary.provenance_variant_count}",
+        "expected_provenance_country="
+        f"{summary.expected_provenance[0] if summary.expected_provenance else ''}",
+        "expected_provenance_device_type="
+        f"{summary.expected_provenance[1] if summary.expected_provenance else ''}",
+        "expected_provenance_category="
+        f"{summary.expected_provenance[2] if summary.expected_provenance else ''}",
+        "expected_provenance_data_model="
+        f"{summary.expected_provenance[3] if summary.expected_provenance else ''}",
         f"structural_issue_count={summary.structural_issue_count}",
         f"structurally_complete={str(summary.structurally_complete).lower()}",
         "database_mode=read-only",
@@ -247,6 +267,7 @@ def _inspect_month(
     final_top_n: int,
     allowed_genres: Sequence[str],
     exclude_china_revenue_market: bool,
+    expected_provenance: tuple[str, str, int, str],
 ) -> tuple[HistoryMonthQuality, set[tuple[str, str, int, str]]]:
     month = period.month
     key = SnapshotPeriodKey(
@@ -267,6 +288,7 @@ def _inspect_month(
         final_top_n=final_top_n,
         allowed_genres=set(allowed_genres),
         exclude_china_revenue_market=exclude_china_revenue_market,
+        expected_provenance=expected_provenance,
     )
     return result, {_provenance_tuple(row) for row in rows}
 
@@ -280,11 +302,16 @@ def _present_month(
     final_top_n: int,
     allowed_genres: set[str],
     exclude_china_revenue_market: bool,
+    expected_provenance: tuple[str, str, int, str],
 ) -> HistoryMonthQuality:
     snapshot_count = len(rows)
     ids = [row.unified_app_id for row in rows]
     ranks = [row.rank_position for row in rows]
     provenance = {_provenance_tuple(row) for row in rows}
+    normalized_allowed_genres = {normalize_game_genre(genre) for genre in allowed_genres}
+    provenance_mismatch_count = sum(
+        _provenance_tuple(row) != expected_provenance for row in rows
+    )
     downloads = _metric_quality(rows, "units_absolute")
     revenue = _metric_quality(rows, "revenue_absolute")
     issues = (
@@ -301,9 +328,14 @@ def _present_month(
         ),
         downloads[3] > 0,
         revenue[3] > 0,
-        any(row.game_genre not in allowed_genres for row in rows),
+        any(
+            row.game_genre is None
+            or normalize_game_genre(row.game_genre) not in normalized_allowed_genres
+            for row in rows
+        ),
         exclude_china_revenue_market
         and any(row.most_popular_country_by_revenue == "China" for row in rows),
+        provenance_mismatch_count > 0,
     )
     metadata_by_id = {app_id: metadata.get(app_id) for app_id in ids}
     values: dict[str, Any] = dict(
@@ -318,6 +350,7 @@ def _present_month(
         duplicate_rank_count=snapshot_count - len(set(ranks)),
         ranks_are_contiguous=set(ranks) == set(range(1, snapshot_count + 1)),
         provenance_variant_count=len(provenance),
+        provenance_mismatch_count=provenance_mismatch_count,
         structural_issue_count=sum(issues),
         downloads_coverage_count=downloads[0],
         downloads_coverage_ratio=_ratio(downloads[0], snapshot_count),
@@ -348,6 +381,7 @@ def _missing_month(month: str, final_top_n: int) -> HistoryMonthQuality:
         "duplicate_rank_count": 0,
         "ranks_are_contiguous": False,
         "provenance_variant_count": 0,
+        "provenance_mismatch_count": 0,
         "structural_issue_count": 0,
     }
     for prefix in ("downloads", "revenue_usd"):
@@ -436,8 +470,15 @@ def _read_only_summary(
     scope_name: str,
     results: tuple[HistoryMonthQuality, ...],
     provenance: set[tuple[str, str, int, str]],
+    expected_provenance: tuple[str, str, int, str],
 ) -> HistoryInspectionSummary:
-    return _summary_from_results(month_range, scope_name, results, len(provenance))
+    return _summary_from_results(
+        month_range,
+        scope_name,
+        results,
+        len(provenance),
+        expected_provenance,
+    )
 
 
 def _summary_from_results(
@@ -445,12 +486,18 @@ def _summary_from_results(
     scope_name: str,
     results: tuple[HistoryMonthQuality, ...],
     provenance_count: int,
+    expected_provenance: tuple[str, str, int, str],
 ) -> HistoryInspectionSummary:
     present = tuple(result for result in results if result.status == "present")
     missing = tuple(result.month for result in results if result.status == "missing")
     snapshots = [result.snapshot_count for result in present]
     structural_issues = sum(result.structural_issue_count for result in present)
-    complete = not missing and structural_issues == 0 and provenance_count == 1
+    complete = (
+        not missing
+        and structural_issues == 0
+        and provenance_count == 1
+        and _observed_provenance_matches(results)
+    )
     return HistoryInspectionSummary(
         "read-only",
         scope_name,
@@ -466,6 +513,7 @@ def _summary_from_results(
         max(snapshots) if snapshots else None,
         (sum(snapshots) / len(snapshots)) if snapshots else None,
         provenance_count,
+        expected_provenance,
         structural_issues,
         complete,
         results,
@@ -488,6 +536,7 @@ def _plan_summary(month_range: BackfillMonthRange) -> HistoryInspectionSummary:
         None,
         None,
         0,
+        None,
         0,
         False,
         (),
@@ -496,6 +545,18 @@ def _plan_summary(month_range: BackfillMonthRange) -> HistoryInspectionSummary:
 
 def _provenance_tuple(row: MarketSnapshotRow) -> tuple[str, str, int, str]:
     return row.scope_country, row.device_type, row.category, row.data_model
+
+
+def _observed_provenance_matches(
+    results: tuple[HistoryMonthQuality, ...],
+) -> bool:
+    """Check the configured tuple using aggregate month evidence only."""
+
+    return all(
+        result.provenance_mismatch_count == 0
+        for result in results
+        if result.status == "present"
+    )
 
 
 def _ratio(count: int, total: int) -> float | None:

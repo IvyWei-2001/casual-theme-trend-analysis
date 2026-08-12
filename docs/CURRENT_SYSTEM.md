@@ -35,8 +35,6 @@ current MVP boundary:
 - DuckDB as the local analytical source of truth and Parquet as the deterministic
   export/archive boundary;
 - manual single-month collection and resumable historical monthly backfill;
-- read-only range-based historical quality inspection, including a
-  `--require-complete` structural gate and no-write DuckDB connection;
 - monthly Game Theme aggregation with explicit product, source-coverage,
   publisher, entry, rank, and concentration metrics;
 - the current six-month momentum scoring workflow, stored under the unchanged
@@ -66,6 +64,13 @@ The sanitized real-environment acceptance evidence currently recorded is:
 No credentials, app tokens, table IDs, record IDs, managed keys, or raw
 payloads belong in this document or the repository.
 
+## HIST-002 implementation status
+
+The HIST-002 read-only range inspection is implemented and verified with
+synthetic rows, fake repositories, and temporary DuckDB files. Its real
+36-month inventory and post-backfill acceptance are pending the documented
+post-merge run; no real history inspection has been performed by this issue.
+
 ## Confirmed metric terminology
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
@@ -82,7 +87,7 @@ backtesting.
 
 The following V2 capabilities are not yet implemented:
 
-- 36-month production history;
+- real 36-month production-history inventory and post-backfill acceptance;
 - the market-size decision product;
 - growth-quality decomposition;
 - competitive white-space metrics;

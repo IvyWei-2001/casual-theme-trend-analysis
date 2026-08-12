@@ -506,8 +506,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         except StorageError:
             _print_error("local read-only history inspection failed")
             return 4
-        except WorkflowError as error:
-            _print_error(str(error))
+        except WorkflowError:
+            _print_error("invalid history inspection request")
             return 2
         except OSError:
             _print_error("local read-only history inspection failed")

@@ -4,6 +4,7 @@ from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from ..analysis.trend_models import ThemeTrendScore
 from .errors import (
     ParquetExportError,
+    RepositoryConnectionModeError,
     RepositoryError,
     RepositoryNotOpenError,
     SchemaError,
@@ -45,6 +46,7 @@ __all__ = [
     "MonthlyMarketTotal",
     "MetadataCacheLookup",
     "ParquetExportError",
+    "RepositoryConnectionModeError",
     "PublisherResolutionSource",
     "RepositoryError",
     "RepositoryNotOpenError",
