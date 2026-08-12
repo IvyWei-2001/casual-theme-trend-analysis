@@ -1,5 +1,33 @@
 # Casual Theme Trend Analysis
 
+## Current status and V2 direction
+
+The completed technical MVP now supports typed Sensor Tower market and
+metadata boundaries, DuckDB/Parquet persistence, manual monthly collection and
+backfill, monthly Game Theme aggregation, a deterministic six-month score, and
+Feishu schema inspection and trend synchronization. The current score is
+interpreted as **6M Momentum** because six months is short-term momentum only;
+it is not Market Size, an investment recommendation, or a forecast.
+
+The V2 product will answer six decision questions: market size, sustainable
+growth, competitive room, T+1/T+2/T+3 launch-window attractiveness, validated
+category fit versus migration hypothesis, and action rationale with risk and
+confidence. It will keep each decision explainable rather than presenting one
+opaque score.
+
+The project owner confirmed on 2026-08-12 that `units_absolute` means
+Downloads (count) and `revenue_absolute` means Revenue (USD). The source names
+remain in adapters and DuckDB for provenance; NULL remains unavailable and an
+observed zero remains zero. These measures are scoped to the WW
+Puzzle/Tabletop selected Top-N sample (cap 1000), not the complete global
+mobile-games market. The selected sample may contain fewer than 1000 products;
+future data-quality output must expose each month's actual `snapshot_count`
+rather than implying a fixed denominator.
+
+The next sequence is CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001,
+DECISION-001, FEISHU-004, and AUTOMATION-001. Automation is intentionally
+deferred until FEISHU-004 and cross-functional V2 acceptance.
+
 ## Requirements
 
 - Python 3.12
@@ -33,7 +61,9 @@ local testing. The earlier sample uses numeric IDs, top-level `custom_tags`,
 and a larger metric field set. The current live shape uses opaque string IDs,
 `entities[0].custom_tags` overlaid by `aggregate_tags`, and may omit the
 current/comparison and generic metric fields. The parser does not make network
-calls, and metric semantics remain pending API-contract confirmation.
+calls; remaining source-metric semantics remain pending contract confirmation.
+The confirmed `units_absolute` and `revenue_absolute` meanings are documented
+in [`docs/BUSINESS_DECISION_CONTRACT.md`](docs/BUSINESS_DECISION_CONTRACT.md).
 
 Live-contract compatibility is deliberately source-preserving: omitted
 optional metrics remain `None` and later become SQL `NULL`; `units_absolute`
@@ -235,8 +265,8 @@ The final Parquet export runs once, after all requested months are collected or
 skipped. A failed collection does not run that final export, while an export
 failure leaves valid DuckDB data intact.
 
-The workflow is manual only: scheduling, weekly backfill, Feishu sync,
-lifecycle classification, and Trend Score remain deferred.
+The workflow is manual only: scheduling, weekly backfill, lifecycle
+classification, and the V2 opportunity decision remain deferred.
 
 ## Monthly Game Theme aggregation (AGG-001)
 
@@ -261,13 +291,15 @@ inferred. NULL themes do not create a theme row and are counted separately in
 Schema version 2 adds the DuckDB derived tables `monthly_market_totals` and
 `theme_monthly_metrics`. Monthly totals contain population, theme presence,
 current normalized-metadata coverage, and `units_absolute`/
-`revenue_absolute` source coverage and sums. Theme metrics contain product
-share, Top-100/Top-500 counts, arithmetic average rank, deterministic median
-rank, publisher coverage/concentration, and the equivalent source metric sums
-and shares. A source metric sum is NULL when its coverage is zero; observed
-zero remains zero. Source metric names and business semantics remain
-`units_absolute` and `revenue_absolute`; they are not renamed to downloads or
-revenue. Theme shares use month-wide denominators that include rows with a
+`revenue_absolute` source coverage and sums. These source fields mean
+Downloads (count) and Revenue (USD), respectively, within the selected
+monthly sample. Theme metrics contain product share, Top-100/Top-500 counts,
+arithmetic average rank, deterministic median rank, publisher
+coverage/concentration, and the equivalent source metric sums and shares. A
+source metric sum is NULL when its coverage is zero; observed zero remains
+zero. Source names remain `units_absolute` and `revenue_absolute` for
+provenance; business-facing labels are Downloads and Revenue (USD). Theme
+shares use month-wide denominators that include rows with a
 missing theme, so visible theme shares may sum below 1. A zero or unavailable
 denominator produces a NULL share.
 
@@ -316,8 +348,8 @@ acceleration, and recent new entries, subtracts a product/publisher
 concentration penalty, and applies history, product-size, `units_absolute`,
 `revenue_absolute`, and publisher coverage confidence. Its weights are named
 project MVP defaults and are not Sensor Tower formulas. Source fields retain
-their exact names and unresolved semantics; they are not labeled as downloads
-or revenue.
+their exact names while their confirmed business labels are Downloads and
+Revenue (USD).
 
 Schema version 3 adds `theme_trend_scores`. DuckDB remains the source of truth;
 recalculation atomically replaces only requested target-month score rows. By
@@ -400,7 +432,8 @@ idempotent; no field is updated or deleted, and no Bitable record is created,
 updated, or deleted.
 
 The schema preserves the source terms `units_absolute` and
-`revenue_absolute`. Percentage values are later written as decimal ratios,
+`revenue_absolute` for provenance; the approved business labels are Downloads
+and Revenue (USD). Percentage values are later written as decimal ratios,
 such as `0.018`, and displayed with two decimal places. The complete logical
 schema and the verified formatter choices are documented in
 [`docs/FEISHU_SCHEMA.md`](docs/FEISHU_SCHEMA.md). Trend-record synchronization

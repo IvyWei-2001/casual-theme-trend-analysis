@@ -2,7 +2,24 @@
 
 This is a conceptual domain model, not a database schema. It defines the internal contract between the two-stage Sensor Tower ingestion flow, DuckDB persistence, analytics, and Feishu output.
 
-Sensor Tower field names must not leak into business logic. The adapter maps source fields into the internal names below and preserves unresolved semantics as explicit unavailable or TODO states.
+Sensor Tower field names must not leak into business logic. The adapter maps
+source fields into the internal names below, preserves source names where
+provenance requires them, and keeps only still-unconfirmed semantics as
+explicit unavailable or TODO states.
+
+## Operational market scope
+
+The current stored market sample uses Sensor Tower category `7012`, country
+`WW`, `device_type=total`, and Game Genre `Puzzle` or `Tabletop`. The request
+may return up to 1200 API candidates; local eligibility filtering then retains
+at most 1000 selected records in the `WW Puzzle/Tabletop selected Top-N sample
+(cap 1000)`, with the optional exclusion based on `Most Popular Country by
+Revenue = China`.
+
+Downloads and Revenue (USD) in this model are measured inside that selected
+project sample. Stored values must not be described as the complete global
+mobile-games market. The selected sample may contain fewer than 1000 products;
+future data-quality output must expose each month's actual `snapshot_count`.
 
 ## Design principles
 
@@ -34,8 +51,10 @@ or the schema-v2 monthly aggregation rows:
   as SQL `NULL`, and records the verified publisher-resolution source.
 - `market_snapshots` stores one final selected product per stored market period.
   It retains the verified source metric and tag names, including
-  `current_units_value` and `current_revenue_value`; their business semantics
-  remain source-contract TODOs and are not renamed to `downloads` or `revenue`.
+  `units_absolute` and `revenue_absolute` with their confirmed business
+  aliases Downloads (count) and Revenue (USD). It also retains
+  `current_units_value` and `current_revenue_value`, whose meanings remain
+  unresolved for the fields themselves; no cross-field substitution is made.
   Raw source-tag values are preserved literally, including `"Unknown"` and
   `"N/A"`; those strings are not normalized display fallbacks.
   Every verified source metric is nullable because the live market response
@@ -84,14 +103,17 @@ period_end)` and requires `cadence = monthly`. It records:
   `game_theme` counts;
 - `metadata_coverage_count`: rows whose `unified_app_id` has an
   `app_metadata` row, even when the metadata name or publisher is NULL;
-- `units_absolute_coverage_count` and `units_absolute_sum`: non-NULL source
-  `units_absolute` count and sum;
-- `revenue_absolute_coverage_count` and `revenue_absolute_sum`: the equivalent
-  source `revenue_absolute` count and sum.
+- `units_absolute_coverage_count` and `units_absolute_sum`: the number of
+  covered products and the Downloads count summed over non-NULL
+  `units_absolute` values;
+- `revenue_absolute_coverage_count` and `revenue_absolute_sum`: the number of
+  covered products and the USD Revenue summed over non-NULL
+  `revenue_absolute` values.
 
 The two source sums are NULL at zero coverage. An observed sum of zero remains
-zero. These source names and their business semantics remain unresolved; they
-are not renamed to downloads or revenue.
+zero. The source column names remain `units_absolute` and
+`revenue_absolute`; business-facing output may use Downloads and Revenue
+(USD). NULL is unavailable and is never converted to zero.
 
 `theme_monthly_metrics` has one row for every non-NULL raw `game_theme` value
 observed in a month. Labels such as `Unknown`, `N/A`, and an empty string are
@@ -103,9 +125,13 @@ top_100_count = count(rank_position <= 100)
 top_500_count = count(rank_position <= 500)
 average_rank = arithmetic mean(rank_position)
 median_rank = deterministic median(rank_position)
-units_absolute_share = theme units_absolute_sum / month units_absolute_sum
-revenue_absolute_share = theme revenue_absolute_sum / month revenue_absolute_sum
+units_absolute_share = theme Downloads sum / month Downloads sum
+revenue_absolute_share = theme Revenue (USD) sum / month Revenue (USD) sum
 ```
+
+The two shares use the compatible selected monthly sample denominator. Their
+technical field names remain `units_absolute_share` and
+`revenue_absolute_share` so source provenance is retained.
 
 The source metric shares are NULL when the theme sum or month-wide denominator
 is unavailable, including a zero denominator. Missing-theme rows remain in the
@@ -227,8 +253,8 @@ The source currently verifies the existence of a `Game Theme` custom-tag label, 
 | `market_scope` | Internal scope value | Geography and platform scope for the observation. |
 | `ranking_metric` | Optional internal descriptor | The ranking basis used by the source request, once verified. |
 | `rank_position` | Optional integer | Ranking position in the market result after its semantics are verified. |
-| `downloads` | Optional numeric value | Normalized download measure. Units and semantics remain TODO until verified. |
-| `revenue` | Optional numeric value | Normalized revenue measure. Currency and semantics remain TODO until verified. |
+| `units_absolute` | Optional numeric value | Retained DuckDB source column. Confirmed business alias: Downloads, count. NULL is unavailable; an observed zero remains zero. |
+| `revenue_absolute` | Optional numeric value | Retained DuckDB source column. Confirmed business alias: Revenue (USD). NULL is unavailable; an observed zero remains zero. |
 | `theme_ids` | Zero or more internal identifiers | Normalized theme assignments from the verified `Game Theme` source tag. Cardinality and missing behavior remain TODO. |
 | `availability` | Structured status | Whether each optional measure is observed, unavailable, or not requested. |
 
@@ -246,10 +272,10 @@ The source market/ranking row and metadata record should be merged into a snapsh
 | `period_end` | Date/time | End of the aggregation period. |
 | `market_scope` | Internal scope value | Scope inherited from compatible snapshots. |
 | `product_count` | Integer | Number of distinct products contributing to the theme aggregate. |
-| `downloads` | Optional numeric value | Sum or other approved aggregate of normalized downloads. Exact aggregation semantics are TODO until the source metric is verified. |
-| `download_share` | Optional numeric value | Theme download share within a compatible period and scope. Denominator and semantics are TODO. |
-| `revenue` | Optional numeric value | Sum or other approved aggregate of normalized revenue. Currency and aggregation semantics are TODO. |
-| `revenue_share` | Optional numeric value | Theme revenue share within a compatible period and scope. Denominator and semantics are TODO. |
+| `units_absolute_sum` | Optional numeric value | Downloads summed over covered products in the selected monthly sample. NULL at zero coverage; observed zero remains zero. |
+| `units_absolute_share` | Optional numeric value | Theme Downloads share using the compatible selected monthly sample denominator. |
+| `revenue_absolute_sum` | Optional numeric value | Revenue (USD) summed over covered products in the selected monthly sample. NULL at zero coverage; observed zero remains zero. |
+| `revenue_absolute_share` | Optional numeric value | Theme Revenue (USD) share using the compatible selected monthly sample denominator. |
 | `new_product_count` | Optional integer | Number of products classified as new under a documented comparison rule. |
 | `publisher_count` | Optional integer | Number of distinct normalized publishers when publisher identity is available. |
 | `concentration` | Optional numeric value | Dependence on a small number of contributing products under an approved calculation. |
@@ -258,7 +284,11 @@ The source market/ranking row and metadata record should be merged into a snapsh
 | `trend_score` | Optional numeric value | Transparent score calculated from validated internal metrics. |
 | `confidence` | Structured value | Coverage, comparability, and data-quality assessment for the aggregate. |
 
-There is deliberately no generic `market_volume` field. The model uses explicit `downloads`, `download_share`, `revenue`, and `revenue_share` fields so their independent data availability and semantics can be audited.
+There is deliberately no generic `market_volume` field. The model uses the
+explicit source-preserving fields `units_absolute_sum`,
+`units_absolute_share`, `revenue_absolute_sum`, and
+`revenue_absolute_share`; their business aliases are Downloads and Revenue
+(USD), so independent availability and coverage remain auditable.
 
 ## Relationships and ownership
 
@@ -323,8 +353,10 @@ errors and summaries. Existing DuckDB identifier columns remain `VARCHAR`;
 ST-004 does not change the schema version.
 
 All verified source metric fields remain under their actual source names.
-Missing optional fields become unavailable/SQL `NULL`; `units_absolute` is
-not copied into `current_units_value`, and `revenue_absolute` is not copied
-into `current_revenue_value`. The source metric semantics remain TODO and are
-not inferred by the storage or workflow layers. A missing verified custom-tag
-shape still fails validation rather than silently creating an empty mapping.
+`units_absolute` is the confirmed Downloads count and `revenue_absolute` is
+the confirmed Revenue (USD) measure. Missing optional fields become
+unavailable/SQL `NULL`; neither field is copied into
+`current_units_value`/`current_revenue_value`, and those comparison/current
+fields retain their own unresolved semantics. No storage or workflow layer
+infers unresolved source behavior. A missing verified custom-tag shape still
+fails validation rather than silently creating an empty mapping.

@@ -1,348 +1,68 @@
-# PROJECT PLAN
+# Project Plan
 
 Project: Casual Theme Trend Analysis
-
 Status: Active
-
----
-
-# Development Principle
-
-This project is developed incrementally.
-
-Each phase must be independently executable.
-
-Each Pull Request should complete ONE issue only.
-
-Never implement multiple milestones in one Pull Request.
-
----
-
-# MVP Execution Order
-
-The first delivery prioritizes monthly historical analysis:
-
-1. Bootstrap repository
-2. Sensor Tower adapter
-3. DuckDB persistence
-4. Historical monthly loading
-5. Theme monthly aggregation
-6. Trend Score
-7. Feishu sync
-
-Weekly tracking is a later incremental capability. It must not block the first monthly dashboard delivery.
-
----
-
-# Phase 0
-
-Goal
-
-Complete the system audit and document the external contracts.
-
-Deliverables
-
-- Existing architecture
-- Sensor Tower API mapping
-- Internal data model
-- MVP implementation plan
-
-Exit Criteria
-
-- The old Google Sheets / Apps Script contract and internal data model are documented.
-- These conditions are sufficient to begin `INF-001` and the remaining MVP data-pipeline phases.
-
-Status
-
-Complete enough to begin `INF-001`. Feishu inspection is deferred to Phase 7, `FS-001`, and is not a prerequisite for the MVP data pipeline.
-
-It is not required before Phase 1 Bootstrap, Phase 2 Sensor Tower, Phase 3 DuckDB, Phase 4 historical loading, or Phase 5 theme aggregation.
-
----
-
-# Phase 1
-
-Goal
-
-Bootstrap the repository for independent local execution.
-
-Tasks
-
-INF-001
-
-Repository structure
-
-INF-002
-
-Configuration
-
-INF-003
-
-Logging
-
-INF-004
-
-DuckDB foundation
-
-INF-005
-
-Parquet boundary
-
-INF-006
-
-Storage abstraction
-
-Exit Criteria
-
-The project foundation can run locally without external API access.
-
----
-
-# Phase 2
-
-Goal
-
-Normalize a verified Sensor Tower response sample.
-
-Tasks
-
-ST-001
-
-Authentication boundary
-
-ST-002
-
-HTTP client boundary
-
-ST-003
-
-Pagination contract
-
-ST-004
-
-Market/ranking response mapping
-
-ST-005
-
-Metadata enrichment mapping
-
-ST-006
-
-Custom-tag mapping
-
-Exit Criteria
-
-The market/ranking and metadata paths can be mapped into internal models using verified response evidence and mocks.
-
----
-
-# Phase 3
-
-Goal
-
-Persist normalized internal records in DuckDB.
-
-Tasks
-
-DB-001
-
-App identity persistence
-
-DB-002
-
-Theme persistence
-
-DB-003
-
-Snapshot persistence
-
-DB-004
-
-Validation and idempotency
-
-Exit Criteria
-
-The same normalized input can be persisted and read without duplicate observations.
-
----
-
-# Phase 4
-
-Goal
-
-Load historical monthly data for the first dashboard.
-
-Tasks
-
-HB-001
-
-Monthly loading
-
-HB-002
-
-Checkpoint
-
-HB-003
-
-Resume
-
-HB-004
-
-Validation
-
-Exit Criteria
-
-A small verified monthly history is available and can later expand toward the 36-month roadmap target.
-
----
-
-# Phase 5
-
-Goal
-
-Generate monthly theme metrics.
-
-Tasks
-
-TH-001
-
-Theme mapping
-
-TH-002
-
-Product count
-
-TH-003
-
-Downloads and download share
-
-TH-004
-
-Revenue and revenue share
-
-TH-005
-
-Publisher count and concentration
-
-TH-006
-
-Growth and acceleration
-
-Exit Criteria
-
-Monthly `ThemeMetric` records are generated from compatible internal snapshots without assuming unverified metric semantics.
-
----
-
-# Phase 6
-
-Goal
-
-Calculate an explainable Trend Score.
-
-Tasks
-
-TA-001
-
-Growth
-
-TA-002
-
-Acceleration
-
-TA-003
-
-Concentration
-
-TA-004
-
-Trend Score
-
-TA-005
-
-Confidence
-
-Exit Criteria
-
-Monthly theme ranking is reproducible, explainable, and explicit about insufficient data.
-
----
-
-# Phase 7
-
-Goal
-
-Synchronize the first monthly theme dashboard to Feishu.
-
-Tasks
-
-FS-001
-
-Feishu implementation review and reuse contract
-
-FS-002
-
-Schema mapping
-
-FS-003
-
-Sync
-
-FS-004
-
-Ranking and summary
-
-Exit Criteria
-
-The validated monthly theme ranking is available in Feishu without making Feishu the source of truth.
-
----
-
-# Deferred Incremental Capabilities
-
-- Weekly tracking after the monthly dashboard is validated.
-- Scheduled automation after the manual MVP flow is reliable.
-
-This plan does not add new future platform modules.
-
----
-
-# Rules
-
-Every Issue
-
-Must include:
-
-- Tests
-
-- Documentation
-
-- Type hints
-
-- Logging
-
-Every PR
-
-Must:
-
-- Pass Ruff
-
-- Pass Pytest
-
-- Update README
-
-- Update CHANGELOG
-
----
-
-# Current Sprint
-
-Current Focus
-
-Phase 1 Bootstrap Repository
-
-Current Issue
-
-INF-001
-
-Repository Structure
+Current focus: CONTRACT-002 - V2 business and data contract
+
+## Development principles
+
+The project is built incrementally. Each issue has one narrow purpose and
+each pull request implements one issue only. Every implementation issue must
+include tests, documentation, type hints, logging, known limitations, and a
+mock boundary for external APIs.
+
+DuckDB is the analytical source of truth and Parquet is the approved
+file-oriented export boundary. Feishu is a collaboration and dashboard
+projection. Sensor Tower is the only approved market-data source, and themes
+must come from Sensor Tower Game Theme / Custom Fields rather than manual or
+LLM classification.
+
+## Completed technical MVP
+
+The original monthly technical MVP is complete enough to support the next V2
+contract work. The merged implementation includes:
+
+- typed Python configuration, logging, CLI, validation, and tests;
+- verified Sensor Tower market and metadata boundaries with local candidate
+  selection and metadata caching;
+- DuckDB and Parquet persistence;
+- manual monthly collection and resumable historical backfill;
+- monthly Game Theme aggregation;
+- the current six-month momentum scoring baseline; and
+- Feishu schema provisioning, read-only inspection, idempotent trend
+  synchronization, and the documented manual ranked view.
+
+The current score is a 6M Momentum Score. It is not the V2 opportunity
+decision, an investment recommendation, or a forecast.
+
+## V2 issue sequence
+
+Implement the next issues in exactly this order:
+
+1. **CONTRACT-002 - V2 business and data contract**
+2. **HIST-002 - 36-month historical backfill and data-quality validation**
+3. **AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
+   and representative-game aggregates**
+4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
+   seasonality**
+5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation**
+6. **DECISION-001 - recommendation, risk, confidence, category fit, and
+   migration evidence**
+7. **FEISHU-004 - business tables, role views, and dashboards**
+8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
+
+CONTRACT-002 is the current focus. Final model weights are not selected in
+CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
+acceptance. The one-issue/one-PR rule continues throughout this sequence.
+
+## Scope guard
+
+CONTRACT-002 is documentation and contract consistency work only. It does not
+implement historical backfill, formulas, model weights, forecasting, machine
+learning, AI recommendations, CPI or retention integration, new DuckDB tables,
+Feishu fields/records/views/dashboards, GitHub Actions, or scheduling.
+
+The V2 product must keep theme opportunity separate from Product Greenlight.
+The latter additionally requires product quality, marketability, creative
+performance, CPI / IPM, retention, monetization, LTV / ROAS, production cost,
+and team capability.
