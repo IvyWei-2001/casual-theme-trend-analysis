@@ -466,23 +466,28 @@ _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (MARKET_SNAPSHOTS_TABLE, _CREATE_MARKET_SNAPSHOTS_SQL, MARKET_SNAPSHOT_COLUMNS),
 )
 _V2_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    MONTHLY_MARKET_TOTALS_TABLE,
-    _CREATE_MONTHLY_MARKET_TOTALS_SQL,
-    MONTHLY_MARKET_TOTALS_COLUMNS,
-), (
-    THEME_MONTHLY_METRICS_TABLE,
-    _CREATE_THEME_MONTHLY_METRICS_SQL,
-    THEME_MONTHLY_METRICS_COLUMNS,
-),
+    (
+        MONTHLY_MARKET_TOTALS_TABLE,
+        _CREATE_MONTHLY_MARKET_TOTALS_SQL,
+        MONTHLY_MARKET_TOTALS_COLUMNS,
+    ),
+    (
+        THEME_MONTHLY_METRICS_TABLE,
+        _CREATE_THEME_MONTHLY_METRICS_SQL,
+        THEME_MONTHLY_METRICS_COLUMNS,
+    ),
+)
 _TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     *_V1_TABLE_DEFINITIONS,
     *_V2_TABLE_DEFINITIONS,
 )
 _V3_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    THEME_TREND_SCORES_TABLE,
-    _CREATE_THEME_TREND_SCORES_SQL,
-    THEME_TREND_SCORES_COLUMNS,
-),
+    (
+        THEME_TREND_SCORES_TABLE,
+        _CREATE_THEME_TREND_SCORES_SQL,
+        THEME_TREND_SCORES_COLUMNS,
+    ),
+)
 _TABLE_DEFINITIONS = (
     *_TABLE_DEFINITIONS,
     *_V3_TABLE_DEFINITIONS,
@@ -535,6 +540,18 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         except duckdb.Error:
             pass
         raise
+
+
+def verify_read_only_schema(connection: duckdb.DuckDBPyConnection) -> None:
+    """Verify a compatible existing schema without migrations or writes."""
+
+    _assert_table_columns(connection, SCHEMA_MIGRATIONS_TABLE, SCHEMA_MIGRATIONS_COLUMNS)
+    newest_version = _get_newest_schema_version(connection)
+    if newest_version > CURRENT_SCHEMA_VERSION:
+        raise UnsupportedSchemaVersionError(newest_version, CURRENT_SCHEMA_VERSION)
+    if newest_version < 1:
+        raise SchemaInitializationError("database schema has no supported migrations")
+    _assert_table_definitions(connection, _V1_TABLE_DEFINITIONS)
 
 
 def _get_newest_schema_version(connection: duckdb.DuckDBPyConnection) -> int:

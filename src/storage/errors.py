@@ -18,6 +18,18 @@ class RepositoryNotOpenError(RepositoryError):
         super().__init__("DuckDBRepository is not open")
 
 
+class RepositoryConnectionModeError(RepositoryError):
+    """Raised when an open repository is reused with an incompatible mode."""
+
+    def __init__(self, requested_mode: str, current_mode: str) -> None:
+        self.requested_mode = requested_mode
+        self.current_mode = current_mode
+        super().__init__(
+            f"DuckDBRepository is already open in {current_mode} mode; "
+            f"cannot reuse it as {requested_mode}"
+        )
+
+
 class SchemaError(StorageError):
     """Base class for schema initialization and compatibility errors."""
 

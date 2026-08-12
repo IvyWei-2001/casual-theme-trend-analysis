@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added HIST-002 read-only 36-month history inspection, structural quality
+  evidence, and documented safe resumable backfill acceptance.
 - Added CONTRACT-002 as a documentation and contract milestone. It confirms
   Downloads and Revenue (USD), defines the six V2 decision questions, separates
   theme opportunity from Product Greenlight, establishes the 36-month V2

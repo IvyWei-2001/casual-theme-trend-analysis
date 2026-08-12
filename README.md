@@ -24,7 +24,7 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-The next sequence is CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001,
+CONTRACT-002 is complete. The next sequence is HIST-002, AGG-002, MODEL-002, BACKTEST-001,
 DECISION-001, FEISHU-004, and AUTOMATION-001. Automation is intentionally
 deferred until FEISHU-004 and cross-functional V2 acceptance.
 
@@ -267,6 +267,23 @@ failure leaves valid DuckDB data intact.
 
 The workflow is manual only: scheduling, weekly backfill, lifecycle
 classification, and the V2 opportunity decision remain deferred.
+
+## Historical data quality inspection (HIST-002)
+
+Inspect any inclusive range of completed UTC calendar months without writes:
+
+```powershell
+python -m src inspect-history --start 2023-08 --end 2026-07 --plan-only
+python -m src inspect-history --start 2023-08 --end 2026-07
+python -m src inspect-history --start 2023-08 --end 2026-07 --require-complete
+```
+
+The first V2 acceptance range is 36 months, `2023-08` through `2026-07`.
+Inspection opens only an existing DuckDB file in read-only mode and reports
+aggregate structural, metric, custom-field, metadata, and release-date quality.
+It makes no network request, export, or data change. See
+[`docs/HISTORY_QUALITY.md`](docs/HISTORY_QUALITY.md) for the safe pre- and
+post-backfill sequence and the current non-versioned-metadata limitation.
 
 ## Monthly Game Theme aggregation (AGG-001)
 

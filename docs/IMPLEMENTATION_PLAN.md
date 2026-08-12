@@ -34,18 +34,19 @@ recommendation, and not a forecast.
 
 ## V2 issue sequence
 
-### 1. CONTRACT-002 - V2 business and data contract
+### 1. CONTRACT-002 - V2 business and data contract (completed)
 
 Define the authoritative product questions, decision dimensions, source
 semantics, market scope, evidence boundaries, role outputs, Product Greenlight
 boundary, and V2 non-goals. This issue changes documentation and adds a
 documentation consistency test only.
 
-### 2. HIST-002 - 36-month historical backfill and data-quality validation
+### 2. HIST-002 - 36-month historical backfill and data-quality validation (current)
 
-Extend the manually validated history to at least 36 consecutive completed
-natural months, with coverage, continuity, source compatibility, and
-traceability checks. Keep future information out of historical decisions.
+Add read-only range inspection for at least 36 consecutive completed natural
+months, with coverage, continuity, source compatibility, and traceability
+checks. Reuse the existing resumable backfill for missing periods; keep future
+information out of historical decisions.
 
 ### 3. AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
 and representative-game aggregates

@@ -39,7 +39,7 @@ def select_market_records(
     if final_top_n <= 0:
         raise SensorTowerSelectionConfigurationError("final_top_n must be positive")
 
-    normalized_genres = frozenset(_normalize_genre(genre) for genre in allowed_genres)
+    normalized_genres = frozenset(normalize_game_genre(genre) for genre in allowed_genres)
     if not normalized_genres or "" in normalized_genres:
         raise SensorTowerSelectionConfigurationError("allowed genre names must be non-empty")
 
@@ -48,7 +48,7 @@ def select_market_records(
     for record in records:
         candidate_count += 1
         genre = record.game_genre
-        if genre is None or _normalize_genre(genre) not in normalized_genres:
+        if genre is None or normalize_game_genre(genre) not in normalized_genres:
             continue
 
         if (
@@ -121,4 +121,10 @@ def _selection_config_mismatches(
 
 
 def _normalize_genre(value: str) -> str:
+    return normalize_game_genre(value)
+
+
+def normalize_game_genre(value: str) -> str:
+    """Apply the shared production Game Genre comparison normalization."""
+
     return value.strip().casefold()

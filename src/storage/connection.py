@@ -15,4 +15,15 @@ def open_duckdb_connection(database_path: str | Path) -> duckdb.DuckDBPyConnecti
     return duckdb.connect(str(path))
 
 
+def open_duckdb_read_only_connection(
+    database_path: str | Path,
+) -> duckdb.DuckDBPyConnection:
+    """Open an existing DuckDB file without allowing any local mutation."""
+
+    path = Path(database_path)
+    if not path.is_file():
+        raise FileNotFoundError("configured DuckDB database does not exist")
+    return duckdb.connect(str(path), read_only=True)
+
+
 connect = open_duckdb_connection
