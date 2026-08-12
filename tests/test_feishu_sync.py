@@ -40,6 +40,7 @@ from src.feishu.synchronization import (
     build_desired_trend_records,
     build_reconciliation_plan,
     managed_key_for_score,
+    normalize_managed_field_value,
     parse_sync_record_item,
     score_to_feishu_fields,
     sync_field_mappings,
@@ -163,6 +164,37 @@ def _complete_fields() -> list[dict[str, object]]:
     return fields
 
 
+_NUMBER_FIELD_NAMES = frozenset(
+    mapping.field_name
+    for mapping in sync_field_mappings()
+    if mapping.logical_type == "number"
+)
+
+
+def _number_string_fields(fields: dict[str, object]) -> dict[str, object]:
+    result = copy.deepcopy(fields)
+    for field_name in _NUMBER_FIELD_NAMES:
+        if field_name not in result:
+            continue
+        value = result[field_name]
+        if value is None or isinstance(value, str) or isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            result[field_name] = str(value)
+    return result
+
+
+def _read_response_records(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    response_records = copy.deepcopy(records)
+    for record in response_records:
+        fields = record.get("fields")
+        if isinstance(fields, dict):
+            record["fields"] = _number_string_fields(fields)
+    return response_records
+
+
 def _server(
     records: list[dict[str, object]],
     *,
@@ -191,7 +223,10 @@ def _server(
                 200,
                 json={
                     "code": 0,
-                    "data": {"items": copy.deepcopy(state), "has_more": False},
+                    "data": {
+                        "items": _read_response_records(state),
+                        "has_more": False,
+                    },
                 },
             )
         if request.method == "POST" and request.url.path.endswith("/records/batch_create"):
@@ -318,6 +353,61 @@ def test_all_21_fields_map_in_schema_order_and_convert_dates_without_rounding() 
     assert fields[mappings[3].field_name] is True
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected", "expected_type"),
+    [
+        (7, 7, int),
+        (1.25, 1.25, float),
+        ("0", 0, int),
+        ("0.0", 0, int),
+        ("100", 100, int),
+        ("-2", -2, int),
+        ("1.25", 1.25, float),
+        (" 1.25 ", 1.25, float),
+        ("1e-3", 0.001, float),
+    ],
+)
+def test_number_normalization_accepts_finite_numeric_values(
+    raw: object,
+    expected: int | float,
+    expected_type: type[int] | type[float],
+) -> None:
+    normalized = normalize_managed_field_value(raw, logical_type="number")
+
+    assert normalized == expected
+    assert type(normalized) is expected_type
+    if expected == 0:
+        assert normalized is not None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        True,
+        False,
+        "",
+        "   ",
+        "abc",
+        "1,000",
+        "1.5%",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1_000",
+    ],
+)
+def test_number_normalization_rejects_unsupported_or_nonfinite_values(
+    raw: object,
+) -> None:
+    with pytest.raises(FeishuManagedRecordIntegrityError) as error:
+        normalize_managed_field_value(raw, logical_type="number")
+
+    assert str(error.value) in {
+        "managed Feishu number field has an unsupported value shape",
+        "managed Feishu number field is not finite",
+    }
+
+
 def test_latest_month_flag_uses_the_maximum_period_across_the_source_set() -> None:
     records = build_desired_trend_records(
         [_score("Theme", 1), _score("Other", 2)],
@@ -405,6 +495,32 @@ def test_unmanaged_rows_skip_unrelated_shapes_and_managed_rows_are_normalized() 
                 },
             }
         )
+
+
+def test_numeric_string_managed_record_reconciles_without_changes() -> None:
+    score = _score("Theme", 1)
+    desired = build_desired_trend_records(
+        [score],
+        scope_name="casual_puzzle_tabletop",
+    )[0]
+    raw_fields = build_batch_create_payload(desired)["fields"]
+    assert isinstance(raw_fields, dict)
+    parsed = parse_sync_record_item(
+        {
+            "record_id": "rec_managed",
+            "fields": _number_string_fields(raw_fields),
+        }
+    )
+
+    plan = build_reconciliation_plan(
+        [score],
+        [parsed],
+        scope_name="casual_puzzle_tabletop",
+    )
+
+    assert plan.create_count == 0
+    assert plan.update_count == 0
+    assert plan.unchanged_count == 1
 
 
 def test_reconciliation_is_deterministic_and_preserves_five_blank_records() -> None:
@@ -502,6 +618,22 @@ def test_apply_uses_batch_create_only_paces_between_requests_and_verifies(
     assert summary.final_managed_record_count == 2
     assert summary.final_create_count == 0
     assert summary.final_update_count == 0
+    create_requests = [
+        request
+        for request in requests
+        if request.url.path.endswith("/records/batch_create")
+    ]
+    assert len(create_requests) == 2
+    for request in create_requests:
+        body = json.loads(request.content.decode("utf-8"))
+        for payload in body["records"]:
+            for mapping in sync_field_mappings():
+                if mapping.logical_type != "number":
+                    continue
+                value = payload["fields"].get(mapping.field_name)
+                if value is not None:
+                    assert isinstance(value, (int, float))
+                    assert not isinstance(value, bool)
     assert [request.url.path.rsplit("/", 1)[-1] for request in record_requests] == [
         "records",
         "batch_create",
@@ -550,6 +682,47 @@ def test_default_sync_is_a_dry_run_and_never_writes(tmp_path: Path) -> None:
     ]
     assert not any("batch_" in request.url.path for request in requests)
     assert len(state) == 5
+
+
+def test_numeric_string_real_state_is_a_dry_run_noop_and_preserves_blanks(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "numeric-string-state.duckdb"
+    score = _score("Theme", 1)
+    desired = build_desired_trend_records(
+        [score],
+        scope_name="casual_puzzle_tabletop",
+    )[0]
+    raw_fields = build_batch_create_payload(desired)["fields"]
+    assert isinstance(raw_fields, dict)
+    initial_state = [
+        {"record_id": f"rec_blank_{index}", "fields": {}}
+        for index in range(5)
+    ]
+    initial_state.append(
+        {
+            "record_id": "rec_managed",
+            "fields": _number_string_fields(raw_fields),
+        }
+    )
+    _repository_with_scores(database_path, [score])
+    transport, requests, state = _server(initial_state)
+
+    summary = sync_feishu_trends(
+        SyncFeishuTrendsRequest(database_path=database_path),
+        _config(database_path),
+        transport=transport,
+    )
+
+    assert summary.current_record_count == 6
+    assert summary.managed_record_count == 1
+    assert summary.unmanaged_blank_record_count == 5
+    assert summary.create_count == 0
+    assert summary.update_count == 0
+    assert summary.unchanged_count == 1
+    assert len(state) == 6
+    assert not any("batch_" in request.url.path for request in requests)
+    assert not any("delete" in request.url.path for request in requests)
 
 
 def test_second_dry_run_is_noop_and_changed_value_plans_update(tmp_path: Path) -> None:

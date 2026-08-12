@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added the FEISHU-003B live compatibility hotfix for Feishu Number fields:
+  writes continue to send JSON numbers, while list-record responses may return
+  finite numeric strings. The synchronization reader now strips whitespace and
+  uses strict `decimal.Decimal` parsing, returning integral strings as `int`
+  and non-integral strings as `float` while rejecting empty, malformed,
+  display-formatted, and non-finite values. Date/DateTime epoch integers,
+  Checkbox booleans, NULL, and numeric zero semantics remain unchanged. The
+  real acceptance state already contained all 411 managed records and preserved
+  five unmanaged blank records; MockTransport now mirrors the numeric-string
+  read shape and final reread verification converges without writes.
 - Added FEISHU-003B idempotent DuckDB-to-Feishu monthly trend
   synchronization. The complete configured-scope `ThemeTrendScore` set is
   authoritative; the preserved primary Text field is a versioned SHA-256
