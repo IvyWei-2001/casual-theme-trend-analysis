@@ -57,13 +57,22 @@ required evidence.
 ### 2.3 Is there competitive room for a new product?
 
 - **Business purpose:** identify potential room for differentiated entry.
-- **Evidence required:** product breadth, publisher concentration, market-share
-  distribution, representative products, lifecycle position, and comparable
-  category evidence.
+- **Evidence required:** future evidence must separately expose new-entry
+  product count, new-entry product success rate, Downloads share captured by
+  new entrants, Revenue (USD) share captured by new entrants, Top 100 and Top
+  500 turnover, incumbent/head-product persistence or product age, whether
+  growth remains locked in established products, and whether new products
+  successfully break the existing structure. Product breadth, publisher
+  concentration, market-share distribution, representative products,
+  lifecycle position, and comparable category evidence remain supporting
+  context.
 - **Decision output:** Competitive White Space evidence, including saturation
-  and concentration risks.
+  and concentration risks. Concentration alone is insufficient to prove white
+  space.
 - **Must not be inferred:** low observed scale or low product count alone does
   not prove white space; missing coverage is not evidence of low competition.
+- Thresholds, formulas, weights, and decision rules for this evidence are
+  deferred to AGG-002, MODEL-002, and BACKTEST-001.
 
 ### 2.4 If development starts now, will the opportunity remain attractive at
 T+1, T+2, and T+3 months?
@@ -236,16 +245,19 @@ The current operational scope is:
 - `device_type=total`;
 - Game Genre `Puzzle` or `Tabletop`;
 - up to 1200 API candidates;
-- local filtering and a final Top 1000 sample; and
+- local eligibility filtering that retains at most 1000 selected records; and
 - the optional current exclusion rule based on `Most Popular Country by
   Revenue = China`.
 
-Downloads and Revenue (USD) are measured inside this selected project sample.
-They must not be described as the complete global mobile-games market.
+Downloads and Revenue (USD) are measured inside the `WW Puzzle/Tabletop
+selected Top-N sample (cap 1000)`. The selected sample may contain fewer than
+1000 products and must not be described as the complete global mobile-games
+market. Future data-quality output must expose each month's actual
+`snapshot_count`, rather than implying a fixed denominator.
 
 Recommended dashboard language:
 
-> Scope: WW Puzzle/Tabletop selected Top 1000 sample
+> Scope: WW Puzzle/Tabletop selected Top-N sample (cap 1000)
 
 Business field labels may remain **Downloads** and **Revenue (USD)** when this
 scope statement is visible.

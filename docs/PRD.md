@@ -65,13 +65,15 @@ The current operational sample uses:
 - `device_type=total`;
 - Game Genre `Puzzle` or `Tabletop`;
 - up to 1200 API candidates;
-- local filtering and a final Top 1000 sample; and
+- local eligibility filtering that retains at most 1000 selected records; and
 - the optional exclusion rule based on `Most Popular Country by Revenue =
   China`.
 
-Downloads and Revenue (USD) are measured inside this selected project sample.
-They are not the complete global mobile-games market. Recommended scope
-language is: `WW Puzzle/Tabletop selected Top 1000 sample`.
+Downloads and Revenue (USD) are measured inside the `WW Puzzle/Tabletop
+selected Top-N sample (cap 1000)`. The selected sample may contain fewer than
+1000 products and is not the complete global mobile-games market. Future
+data-quality output must expose each month's actual `snapshot_count`, rather
+than implying a fixed denominator.
 
 ## 5. Confirmed source semantics
 

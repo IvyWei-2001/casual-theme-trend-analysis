@@ -12,13 +12,14 @@ explicit unavailable or TODO states.
 The current stored market sample uses Sensor Tower category `7012`, country
 `WW`, `device_type=total`, and Game Genre `Puzzle` or `Tabletop`. The request
 may return up to 1200 API candidates; local eligibility filtering then retains
-the final Top 1000 sample, with the optional exclusion based on `Most Popular
-Country by Revenue = China`.
+at most 1000 selected records in the `WW Puzzle/Tabletop selected Top-N sample
+(cap 1000)`, with the optional exclusion based on `Most Popular Country by
+Revenue = China`.
 
 Downloads and Revenue (USD) in this model are measured inside that selected
 project sample. Stored values must not be described as the complete global
-mobile-games market. The recommended scope label is `WW Puzzle/Tabletop
-selected Top 1000 sample`.
+mobile-games market. The selected sample may contain fewer than 1000 products;
+future data-quality output must expose each month's actual `snapshot_count`.
 
 ## Design principles
 

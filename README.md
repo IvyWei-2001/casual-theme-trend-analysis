@@ -19,8 +19,10 @@ The project owner confirmed on 2026-08-12 that `units_absolute` means
 Downloads (count) and `revenue_absolute` means Revenue (USD). The source names
 remain in adapters and DuckDB for provenance; NULL remains unavailable and an
 observed zero remains zero. These measures are scoped to the WW
-Puzzle/Tabletop selected Top 1000 sample, not the complete global mobile-games
-market.
+Puzzle/Tabletop selected Top-N sample (cap 1000), not the complete global
+mobile-games market. The selected sample may contain fewer than 1000 products;
+future data-quality output must expose each month's actual `snapshot_count`
+rather than implying a fixed denominator.
 
 The next sequence is CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001,
 DECISION-001, FEISHU-004, and AUTOMATION-001. Automation is intentionally

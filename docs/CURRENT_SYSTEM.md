@@ -1,7 +1,7 @@
 # Current System
 
-This document records the audited state of the repository on the CONTRACT-002
-branch. It distinguishes implemented and accepted technical behavior from the
+This document records the audited state of the repository as of CONTRACT-002.
+It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
 
@@ -14,10 +14,13 @@ not use manual theme tagging, app-name or icon inference, or LLM theme
 classification.
 
 The current market sample uses category `7012`, country `WW`,
-`device_type=total`, Game Genre `Puzzle` or `Tabletop`, up to 1200 API
-candidates, local filtering, and a final Top 1000 sample. Downloads and
+`device_type=total`, Game Genre `Puzzle` or `Tabletop`, and up to 1200 API
+candidates. Local eligibility filtering retains at most 1000 selected records:
+the `WW Puzzle/Tabletop selected Top-N sample (cap 1000)`. Downloads and
 Revenue (USD) are measured within this selected sample, not the complete
-global mobile-games market.
+global mobile-games market. The selected sample may contain fewer than 1000
+products; future data-quality output must expose each month's actual
+`snapshot_count`.
 
 ## Implemented and real-environment accepted
 
@@ -43,10 +46,13 @@ current MVP boundary:
   batches, stale and duplicate protection, unmanaged-record preservation, and
   final reread verification;
 - numeric-string Feishu Number compatibility at the read boundary; and
-- the current Feishu view configuration as a documented manual ranked view:
-  latest month and actionable rows are filtered, trend rank is sorted
-  ascending, and the technical and quality fields remain visible. View APIs
-  are not implemented.
+- the current Feishu view configuration as a documented manual ranked view
+  named `最新月度趋势`: `是否最新月份 = true` and `是否可行动 = true` are
+  related with AND, and `趋势排名` is sorted ascending. The technical primary
+  field `文本` remains visible. The visible analytical fields are `月份`,
+  `题材`, `趋势排名`, `趋势分`, `置信度`, `增长分`, `加速度分`, `新产品分`,
+  and `集中度惩罚`; other quality-status and explanatory fields remain in the
+  table but are hidden from this view. View APIs are not implemented.
 
 The sanitized real-environment acceptance evidence currently recorded is:
 
