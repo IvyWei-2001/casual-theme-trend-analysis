@@ -469,7 +469,7 @@ successful requests, and rereads the complete table for final verification.
 The internal default batch size is 100 and the permitted internal range is
 1-1000.
 
-The preserved primary Text field `鏂囨湰` is a versioned SHA-256 key:
+The preserved primary Text field `文本` is a versioned SHA-256 key:
 
 ```text
 ctta:v1:{period_start YYYY-MM}:{sha256(UTF-8, scope + \x1f + cadence + \x1f + period_start + \x1f + period_end + \x1f + game_theme)}

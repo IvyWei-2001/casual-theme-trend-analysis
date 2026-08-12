@@ -21,7 +21,7 @@ from .errors import (
 from .field_schema import desired_feishu_fields
 from .models import FeishuSyncRecord
 
-PRIMARY_FIELD_NAME: Final[str] = "鏂囨湰"
+PRIMARY_FIELD_NAME: Final[str] = "文本"
 MANAGED_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^ctta:v1:[0-9]{4}-[0-9]{2}:[0-9a-f]{64}$"
 )

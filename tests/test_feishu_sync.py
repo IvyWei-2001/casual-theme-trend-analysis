@@ -135,7 +135,7 @@ def _repository_with_scores(path: Path, scores: list[ThemeTrendScore]) -> None:
 def _primary_field() -> dict[str, object]:
     return {
         "field_id": "fld_primary",
-        "field_name": PRIMARY_FIELD_NAME,
+        "field_name": "文本",
         "type": 1,
         "ui_type": "Text",
         "is_primary": True,
@@ -232,6 +232,31 @@ def _record_requests(requests: list[httpx.Request]) -> list[httpx.Request]:
     return [request for request in requests if "/records" in request.url.path]
 
 
+def test_primary_field_contract_uses_the_verified_utf8_literal() -> None:
+    assert PRIMARY_FIELD_NAME == "文本"
+    assert PRIMARY_FIELD_NAME != "鏂囨湰"
+
+
+def test_changed_production_and_documentation_files_have_no_encoding_corruption() -> None:
+    project_root = Path(__file__).parents[1]
+    files = [
+        *sorted((project_root / "src" / "feishu").rglob("*.py")),
+        *sorted((project_root / "src" / "workflows").rglob("*.py")),
+        project_root / "README.md",
+        project_root / "docs" / "FEISHU_SCHEMA.md",
+        project_root / "docs" / "FEISHU_SYNC.md",
+        project_root / "docs" / "IMPLEMENTATION_PLAN.md",
+    ]
+    markers = ("鏂囨湰", "\ufffd")
+    violations = [
+        f"{path.relative_to(project_root)}:{marker}"
+        for path in files
+        for marker in markers
+        if marker in path.read_text(encoding="utf-8")
+    ]
+    assert violations == []
+
+
 def test_plan_only_bypasses_config_logging_duckdb_and_http(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -312,6 +337,8 @@ def test_none_zero_and_false_are_distinct_in_create_and_update_payloads() -> Non
     payload = build_batch_create_payload(older)
     fields = payload["fields"]
     assert isinstance(fields, dict)
+    assert fields["文本"] == older.managed_key
+    assert "鏂囨湰" not in fields
     latest_field = sync_field_mappings()[2].field_name
     optional_none_field = sync_field_mappings()[4].field_name
     zero_field = sync_field_mappings()[14].field_name
@@ -513,11 +540,15 @@ def test_default_sync_is_a_dry_run_and_never_writes(tmp_path: Path) -> None:
     )
 
     assert summary.mode == "dry-run"
+    assert summary.schema_field_count == 22
+    assert summary.compatible_existing_count == 21
     assert summary.create_count == 1
     assert summary.update_count == 0
+    assert summary.unmanaged_blank_record_count == 5
     assert [request.url.path.rsplit("/", 1)[-1] for request in _record_requests(requests)] == [
         "records"
     ]
+    assert not any("batch_" in request.url.path for request in requests)
     assert len(state) == 5
 
 

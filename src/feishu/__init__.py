@@ -1,4 +1,4 @@
-"""Read-only Feishu integration boundaries."""
+"""Secret-safe Feishu schema, inspection, and synchronization boundaries."""
 
 from .client import FeishuClient
 from .errors import (
