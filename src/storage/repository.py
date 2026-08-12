@@ -14,7 +14,7 @@ import duckdb
 
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from ..analysis.trend_models import ThemeTrendScore
-from .connection import open_duckdb_connection
+from .connection import open_duckdb_connection, open_duckdb_read_only_connection
 from .errors import (
     RepositoryNotOpenError,
     SchemaNotInitializedError,
@@ -40,6 +40,7 @@ from .schema import (
     THEME_TREND_SCORES_COLUMNS,
     THEME_TREND_SCORES_TABLE,
     initialize_schema,
+    verify_read_only_schema,
 )
 
 _APP_METADATA_COLUMNS_SQL = ", ".join(APP_METADATA_COLUMNS)
@@ -47,17 +48,11 @@ _APP_METADATA_PLACEHOLDERS_SQL = ", ".join("?" for _ in APP_METADATA_COLUMNS)
 _MARKET_SNAPSHOT_COLUMNS_SQL = ", ".join(MARKET_SNAPSHOT_COLUMNS)
 _MARKET_SNAPSHOT_PLACEHOLDERS_SQL = ", ".join("?" for _ in MARKET_SNAPSHOT_COLUMNS)
 _MONTHLY_MARKET_TOTALS_COLUMNS_SQL = ", ".join(MONTHLY_MARKET_TOTALS_COLUMNS)
-_MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL = ", ".join(
-    "?" for _ in MONTHLY_MARKET_TOTALS_COLUMNS
-)
+_MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL = ", ".join("?" for _ in MONTHLY_MARKET_TOTALS_COLUMNS)
 _THEME_MONTHLY_METRICS_COLUMNS_SQL = ", ".join(THEME_MONTHLY_METRICS_COLUMNS)
-_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join(
-    "?" for _ in THEME_MONTHLY_METRICS_COLUMNS
-)
+_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_MONTHLY_METRICS_COLUMNS)
 _THEME_TREND_SCORES_COLUMNS_SQL = ", ".join(THEME_TREND_SCORES_COLUMNS)
-_THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join(
-    "?" for _ in THEME_TREND_SCORES_COLUMNS
-)
+_THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_TREND_SCORES_COLUMNS)
 
 _DELETE_MARKET_PERIOD_SQL = """
 DELETE FROM market_snapshots
@@ -140,6 +135,14 @@ class DuckDBRepository:
             self._schema_initialized = False
         return self._connection
 
+    def open_read_only(self) -> duckdb.DuckDBPyConnection:
+        """Open the existing database in DuckDB read-only mode."""
+
+        if self._connection is None:
+            self._connection = open_duckdb_read_only_connection(self.database_path)
+            self._schema_initialized = False
+        return self._connection
+
     def close(self) -> None:
         """Close the connection if it is open; repeated calls are safe."""
 
@@ -153,6 +156,13 @@ class DuckDBRepository:
 
         connection = self._require_open_connection()
         initialize_schema(connection)
+        self._schema_initialized = True
+
+    def verify_read_only_schema(self) -> None:
+        """Verify required read-only tables and columns without migrations."""
+
+        connection = self._require_open_connection()
+        verify_read_only_schema(connection)
         self._schema_initialized = True
 
     def replace_market_snapshot_period(
@@ -407,11 +417,7 @@ class DuckDBRepository:
             metadata_row.unified_app_id: metadata_row
             for metadata_row in (_app_metadata_from_database_row(row) for row in rows)
         }
-        return {
-            app_id: rows_by_id[app_id]
-            for app_id in normalized_ids
-            if app_id in rows_by_id
-        }
+        return {app_id: rows_by_id[app_id] for app_id in normalized_ids if app_id in rows_by_id}
 
     def lookup_metadata_cache(
         self,
@@ -540,9 +546,7 @@ def _validate_market_snapshot_period(
         if row.period_key != period_key:
             raise StorageValidationError("all market snapshot rows must share one period key")
         if row.request_provenance != provenance:
-            raise StorageValidationError(
-                "all market snapshot rows must share request provenance"
-            )
+            raise StorageValidationError("all market snapshot rows must share request provenance")
 
     unified_ids = [row.unified_app_id for row in rows_tuple]
     if len(set(unified_ids)) != len(unified_ids):
@@ -814,8 +818,7 @@ def _validate_theme_trend_score_range(
             raise StorageValidationError("trend scores must belong to target periods")
     period_keys = tuple(dict.fromkeys((*target_keys, *row_period_keys)))
     score_identities = {
-        (key, row.game_theme)
-        for key, row in zip(row_period_keys, scores_tuple, strict=True)
+        (key, row.game_theme) for key, row in zip(row_period_keys, scores_tuple, strict=True)
     }
     if len(score_identities) != len(scores_tuple):
         raise StorageValidationError("trend scores must have unique identities")

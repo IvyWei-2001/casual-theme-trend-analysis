@@ -1,6 +1,6 @@
 # Current System
 
-This document records the audited state of the repository as of CONTRACT-002.
+This document records the audited state of the repository as of HIST-002.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -35,6 +35,8 @@ current MVP boundary:
 - DuckDB as the local analytical source of truth and Parquet as the deterministic
   export/archive boundary;
 - manual single-month collection and resumable historical monthly backfill;
+- read-only range-based historical quality inspection, including a
+  `--require-complete` structural gate and no-write DuckDB connection;
 - monthly Game Theme aggregation with explicit product, source-coverage,
   publisher, entry, rank, and concentration metrics;
 - the current six-month momentum scoring workflow, stored under the unchanged

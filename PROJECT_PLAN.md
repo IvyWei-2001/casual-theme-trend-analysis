@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: CONTRACT-002 - V2 business and data contract
+Current focus: V2 historical data quality validation
 
 ## Development principles
 
@@ -39,8 +39,8 @@ decision, an investment recommendation, or a forecast.
 
 Implement the next issues in exactly this order:
 
-1. **CONTRACT-002 - V2 business and data contract**
-2. **HIST-002 - 36-month historical backfill and data-quality validation**
+1. **CONTRACT-002 - V2 business and data contract (completed)**
+2. **HIST-002 - 36-month historical backfill and data-quality validation (current)**
 3. **AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
    and representative-game aggregates**
 4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
@@ -51,13 +51,13 @@ Implement the next issues in exactly this order:
 7. **FEISHU-004 - business tables, role views, and dashboards**
 8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002 is the current focus. Final model weights are not selected in
+CONTRACT-002 is complete and HIST-002 is the current focus. Final model weights are not selected in
 CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
 acceptance. The one-issue/one-PR rule continues throughout this sequence.
 
 ## Scope guard
 
-CONTRACT-002 is documentation and contract consistency work only. It does not
+HIST-002 adds read-only historical inspection only. It does not
 implement historical backfill, formulas, model weights, forecasting, machine
 learning, AI recommendations, CPI or retention integration, new DuckDB tables,
 Feishu fields/records/views/dashboards, GitHub Actions, or scheduling.

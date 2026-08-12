@@ -41,6 +41,7 @@ from .workflows import (
     BackfillMonthsError,
     BackfillMonthsRequest,
     CollectMonthRequest,
+    HistoryInspectionRequest,
     InvalidMonthError,
     ScoreThemesRequest,
     SyncFeishuTrendsRequest,
@@ -53,7 +54,10 @@ from .workflows import (
     format_collection_summary,
     format_feishu_trend_sync_plan_only,
     format_feishu_trend_sync_summary,
+    format_history_inspection_plan,
+    format_history_inspection_summary,
     format_score_themes_summary,
+    inspect_history,
     score_themes,
     sync_feishu_trends,
 )
@@ -116,6 +120,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-export",
         action="store_true",
         help="store DuckDB rows but skip the final Parquet exports",
+    )
+    history_parser = subparsers.add_parser(
+        "inspect-history",
+        help="inspect stored monthly history without network or writes",
+    )
+    history_parser.add_argument(
+        "--start", required=True, help="oldest completed month in YYYY-MM format"
+    )
+    history_parser.add_argument(
+        "--end", required=True, help="newest completed month in YYYY-MM format"
+    )
+    history_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate the range without configuration or storage access",
+    )
+    history_parser.add_argument(
+        "--require-complete",
+        action="store_true",
+        help="return exit code 4 unless history is structurally complete",
     )
     aggregate_parser = subparsers.add_parser(
         "aggregate-themes",
@@ -242,6 +266,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (FeishuConfigurationError, FeishuSyncIntegrityError) as error:
             _print_error(str(error))
             return 2
+        return 0
+    if args.command == "inspect-history" and args.plan_only:
+        try:
+            history_plan_summary = inspect_history(
+                HistoryInspectionRequest(
+                    start_month=args.start,
+                    end_month=args.end,
+                    plan_only=True,
+                    require_complete=args.require_complete,
+                ),
+                current_utc=datetime.now(UTC),
+            )
+        except (InvalidMonthError, WorkflowError) as error:
+            _print_error(str(error))
+            return 2
+        print(format_history_inspection_plan(history_plan_summary))
         return 0
 
     try:
@@ -447,6 +487,36 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print(format_backfill_summary(backfill_summary))
         return 0
+
+    if args.command == "inspect-history":
+        try:
+            history_summary = inspect_history(
+                HistoryInspectionRequest(
+                    start_month=args.start,
+                    end_month=args.end,
+                    database_path=config.database_path,
+                    require_complete=args.require_complete,
+                ),
+                config,
+                current_utc=datetime.now(UTC),
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except StorageError:
+            _print_error("local read-only history inspection failed")
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local read-only history inspection failed")
+            return 4
+        except Exception:
+            _print_error("history inspection failed")
+            return 4
+        print(format_history_inspection_summary(history_summary))
+        return 0 if not args.require_complete or history_summary.structurally_complete else 4
 
     if args.command == "aggregate-themes":
         current_utc = datetime.now(UTC)

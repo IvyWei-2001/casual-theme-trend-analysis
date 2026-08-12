@@ -15,6 +15,14 @@ from .errors import (
     WorkflowError,
     WorkflowMetadataIntegrityError,
 )
+from .history_inspection import (
+    HistoryInspectionRequest,
+    HistoryInspectionSummary,
+    HistoryMonthQuality,
+    format_history_inspection_plan,
+    format_history_inspection_summary,
+    inspect_history,
+)
 from .models import (
     AggregateThemesRequest,
     AggregateThemesSummary,
@@ -49,6 +57,9 @@ __all__ = [
     "BackfillMonthsSummary",
     "CollectMonthRequest",
     "CollectMonthSummary",
+    "HistoryInspectionRequest",
+    "HistoryInspectionSummary",
+    "HistoryMonthQuality",
     "InvalidMonthError",
     "MonthlyPeriod",
     "ScoreThemesRequest",
@@ -61,7 +72,10 @@ __all__ = [
     "aggregate_themes",
     "backfill_months",
     "collect_month",
+    "inspect_history",
     "format_backfill_summary",
+    "format_history_inspection_plan",
+    "format_history_inspection_summary",
     "format_aggregate_themes_summary",
     "format_collection_summary",
     "format_score_themes_summary",
