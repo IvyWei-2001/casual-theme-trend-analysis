@@ -411,6 +411,40 @@ class _FailingRepository(DuckDBRepository):
         return _FailingConnection(connection) if self.fail_late_insert else connection
 
 
+class _NoTransactionRepository(DuckDBRepository):
+    def _require_initialized_connection(self) -> Any:
+        raise AssertionError("replacement transaction should not begin")
+
+
+def test_repository_prevalidates_invalid_no_previous_payload_before_transaction(
+    tmp_path: Path,
+) -> None:
+    repository = _NoTransactionRepository(tmp_path / "prevalidation.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    current = [
+        _row("app-a", 1, month="2026-07", theme="Theme", units=1, revenue=1),
+        _row("app-b", 2, month="2026-07", theme="Theme", units=2, revenue=2),
+    ]
+    result = aggregate_theme_opportunity_metrics([current], {}, calculated_at=CALCULATED_AT)
+    invalid_growth = replace(result.theme_growth_source_metrics[0])
+    object.__setattr__(
+        invalid_growth,
+        "downloads_current_coverage_count",
+        invalid_growth.current_product_count + 1,
+    )
+    with pytest.raises(StorageValidationError, match="failed validation"):
+        repository.replace_theme_opportunity_range(
+            result.monthly_totals,
+            result.theme_metrics,
+            result.theme_market_structure_metrics,
+            (invalid_growth,),
+            result.theme_dimension_monthly_metrics,
+            result.theme_representative_games,
+        )
+    repository.close()
+
+
 def test_later_table_insert_failure_rolls_back_every_derived_table(tmp_path: Path) -> None:
     repository = _FailingRepository(tmp_path / "rollback.duckdb")
     repository.open()

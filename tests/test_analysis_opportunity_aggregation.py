@@ -471,6 +471,118 @@ def test_missing_previous_month_leaves_previous_evidence_null() -> None:
     assert all(row.is_market_new_entry is None for row in result.theme_representative_games)
 
 
+@pytest.mark.parametrize("partial", (False, True), ids=("full", "partial"))
+@pytest.mark.parametrize(
+    "field_name",
+    ("downloads_current_coverage_count", "revenue_usd_current_coverage_count"),
+)
+def test_no_previous_month_validates_current_coverage_unconditionally(
+    partial: bool,
+    field_name: str,
+) -> None:
+    current = [
+        _row(
+            "app-a",
+            1,
+            month="2026-07",
+            theme="Theme",
+            units=1,
+            revenue=None if partial else 1,
+        ),
+        _row(
+            "app-b",
+            2,
+            month="2026-07",
+            theme="Theme",
+            units=None if partial else 2,
+            revenue=2,
+        ),
+    ]
+    result = aggregate_theme_opportunity_metrics(
+        [current],
+        {},
+        calculated_at=CALCULATED_AT,
+    )
+    growth = result.theme_growth_source_metrics[0]
+    expected_coverage = 1 if partial else 2
+    assert growth.has_previous_month is False
+    assert growth.current_product_count == 2
+    assert growth.downloads_current_coverage_count == expected_coverage
+    assert growth.revenue_usd_current_coverage_count == expected_coverage
+    previous_fields = (
+        "previous_product_count",
+        "product_count_change",
+        "market_new_entry_count",
+        "market_returning_product_count",
+        "theme_entry_count",
+        "theme_exit_count",
+        "continuing_theme_product_count",
+        "market_new_entry_share",
+        "theme_entry_share",
+        "market_new_entry_top_100_count",
+        "market_new_entry_top_100_rate",
+        "market_new_entry_top_500_count",
+        "market_new_entry_top_500_rate",
+        "top_100_previous_count",
+        "top_100_entry_count",
+        "top_100_exit_count",
+        "top_100_retained_count",
+        "top_100_turnover_rate",
+        "top_500_previous_count",
+        "top_500_entry_count",
+        "top_500_exit_count",
+        "top_500_retained_count",
+        "top_500_turnover_rate",
+        "downloads_top_10_retained_count",
+        "downloads_top_10_retention_rate",
+        "revenue_usd_top_10_retained_count",
+        "revenue_usd_top_10_retention_rate",
+        "downloads_previous_coverage_count",
+        "downloads_decomposition_complete",
+        "downloads_previous_sum",
+        "downloads_mom_change",
+        "downloads_mom_growth_rate",
+        "downloads_market_new_entry_sum",
+        "downloads_market_new_entry_share_of_current",
+        "downloads_theme_entry_contribution",
+        "downloads_continuing_contribution",
+        "downloads_theme_exit_contribution",
+        "downloads_positive_contribution_sum",
+        "downloads_negative_contribution_sum",
+        "downloads_positive_contributor_count",
+        "downloads_negative_contributor_count",
+        "downloads_unchanged_contributor_count",
+        "downloads_market_new_entry_positive_contribution_share",
+        "downloads_continuing_positive_contribution_share",
+        "downloads_top_1_positive_contribution_share",
+        "downloads_top_3_positive_contribution_share",
+        "downloads_top_10_positive_contribution_share",
+        "revenue_usd_previous_coverage_count",
+        "revenue_usd_decomposition_complete",
+        "revenue_usd_previous_sum",
+        "revenue_usd_mom_change",
+        "revenue_usd_mom_growth_rate",
+        "revenue_usd_market_new_entry_sum",
+        "revenue_usd_market_new_entry_share_of_current",
+        "revenue_usd_theme_entry_contribution",
+        "revenue_usd_continuing_contribution",
+        "revenue_usd_theme_exit_contribution",
+        "revenue_usd_positive_contribution_sum",
+        "revenue_usd_negative_contribution_sum",
+        "revenue_usd_positive_contributor_count",
+        "revenue_usd_negative_contributor_count",
+        "revenue_usd_unchanged_contributor_count",
+        "revenue_usd_market_new_entry_positive_contribution_share",
+        "revenue_usd_continuing_positive_contribution_share",
+        "revenue_usd_top_1_positive_contribution_share",
+        "revenue_usd_top_3_positive_contribution_share",
+        "revenue_usd_top_10_positive_contribution_share",
+    )
+    assert all(getattr(growth, field_name) is None for field_name in previous_fields)
+    with pytest.raises(AggregationValidationError, match=field_name):
+        replace(growth, **{field_name: growth.current_product_count + 1})
+
+
 def test_source_order_does_not_change_opportunity_rows() -> None:
     rows = [
         _row("app-a", 1, month="2026-07", theme="Theme", units=10, revenue=10),

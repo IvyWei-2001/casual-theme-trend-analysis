@@ -653,6 +653,17 @@ class ThemeGrowthSourceMetric:
             field_name="current_product_count",
             minimum=1,
         )
+        current_coverage_counts: dict[str, int] = {}
+        for prefix in ("downloads", "revenue_usd"):
+            current_coverage = _require_count(
+                getattr(self, f"{prefix}_current_coverage_count"),
+                field_name=f"{prefix}_current_coverage_count",
+            )
+            if current_coverage > current_count:
+                raise AggregationValidationError(
+                    f"{prefix}_current_coverage_count exceeds current_product_count"
+                )
+            current_coverage_counts[prefix] = current_coverage
         previous_count = _optional_count(
             self.previous_product_count,
             field_name="previous_product_count",
@@ -1004,14 +1015,7 @@ class ThemeGrowthSourceMetric:
                         f"{prefix}_decomposition_complete is required with a previous month"
                     )
 
-                current_coverage = _require_count(
-                    getattr(self, f"{prefix}_current_coverage_count"),
-                    field_name=f"{prefix}_current_coverage_count",
-                )
-                if current_coverage > current_count:
-                    raise AggregationValidationError(
-                        f"{prefix}_current_coverage_count exceeds current_product_count"
-                    )
+                current_coverage = current_coverage_counts[prefix]
                 previous_coverage = normalized_counts[f"{prefix}_previous_coverage_count"]
                 if previous_coverage is None:
                     raise AggregationValidationError(
