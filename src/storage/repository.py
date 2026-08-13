@@ -1684,13 +1684,36 @@ def _validate_theme_model_range(
         seasonality_groups[
             (key, seasonality_row.game_theme, seasonality_row.metric_name)
         ].append(seasonality_row)
-    for seasonality_group_rows in seasonality_groups.values():
+    for (group_key, group_theme, _metric_name), seasonality_group_rows in (
+        seasonality_groups.items()
+    ):
         if len(seasonality_group_rows) != 12:
             raise StorageValidationError("each seasonality profile must contain twelve rows")
         if {row.calendar_month for row in seasonality_group_rows} != set(range(1, 13)):
             raise StorageValidationError(
                 "each seasonality profile must contain calendar months one through twelve"
             )
+        profile_metadata = {
+            (
+                row.history_start,
+                row.history_month_count,
+                row.complete_year_count,
+                row.observation_count,
+                row.calculated_at,
+            )
+            for row in seasonality_group_rows
+        }
+        if len(profile_metadata) != 1:
+            raise StorageValidationError("seasonality profile metadata must be consistent")
+        profile = seasonality_group_rows[0]
+        if profile.complete_year_count * 12 != profile.history_month_count:
+            raise StorageValidationError("seasonality complete-year metadata is inconsistent")
+        profile_summary = summary_by_identity[_model_theme_identity(group_key, group_theme)]
+        if (
+            profile_summary.seasonality_history_month_count != profile.history_month_count
+            or profile_summary.seasonality_complete_year_count != profile.complete_year_count
+        ):
+            raise StorageValidationError("seasonality profile metadata must match model summary")
         if sum(row.is_peak_month for row in seasonality_group_rows) != 1:
             raise StorageValidationError("each seasonality profile must have one peak month")
         if sum(row.is_trough_month for row in seasonality_group_rows) != 1:

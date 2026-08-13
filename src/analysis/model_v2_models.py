@@ -551,7 +551,7 @@ class ThemeModelSummary:
         if complete_year_count is not None:
             if (
                 seasonality_count is None
-                or not 2 <= complete_year_count <= seasonality_count // 12
+                or complete_year_count != seasonality_count // 12
             ):
                 raise AggregationValidationError(
                     "seasonality year count is outside the selected history"
@@ -630,7 +630,7 @@ class ThemeSeasonalityProfile:
             field_name="complete_year_count",
             maximum=3,
         )
-        if complete_year_count < 2 or complete_year_count > history_month_count // 12:
+        if complete_year_count != history_month_count // 12:
             raise AggregationValidationError("complete_year_count is outside the profile history")
         observation_count = _require_count(
             self.observation_count,

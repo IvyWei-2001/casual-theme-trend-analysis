@@ -107,8 +107,8 @@ selected history is split into consecutive 12-month blocks.
 
 For each metric and block, all 12 values must be numeric and the block mean
 must be positive. Each valid block is normalized by its own mean. The selected
-history has `complete_year_count = history_month_count / 12`; a profile is
-emitted only when `2 <= observation_count <= complete_year_count`, where
+history has exactly `complete_year_count = history_month_count // 12`; a profile
+is emitted only when `2 <= observation_count <= complete_year_count`, where
 `observation_count` is the number of valid blocks that contribute to the
 profile, and all 12 calendar-month rows can be produced. For example, a
 36-month history with one invalid block emits profiles with
@@ -117,6 +117,12 @@ average approximately 1,
 `index_deviation` equals `seasonal_index - 1`, and the lowest calendar month
 breaks peak/trough ties. Exactly one peak and one trough are stored per metric
 profile; a flat profile may use the same month for both.
+
+Within each scope, target month, theme, and metric profile group, all twelve
+rows carry the same history start, history month count, complete-year count,
+observation count, and calculation timestamp. When a summary has seasonality
+profiles, its seasonality history and complete-year fields match those profile
+metadata.
 
 The summary stores peak, trough, and amplitude evidence for the complete
 `downloads_sum` and `revenue_usd_sum` profiles. Amplitude is the maximum
@@ -153,9 +159,9 @@ ACCELERATION_NORMALIZED_SLOPE_MARGIN = 0.005
 Direction uses only `product_share`, `downloads_share`, and
 `revenue_usd_share`. Each complete metric with a defined normalized slope is
 available evidence. Missing, incomplete, or undefined-slope metrics are
-unavailable. An available metric with missing or low R² is noisy and does not
-vote, even when its slope is near zero. With adequate R², a slope below the
-threshold is flat; positive and negative slopes are up and down. The summary's
+unavailable. An available metric with a slope below the threshold is flat,
+regardless of R². Otherwise, missing or low R² is noisy and does not vote.
+Positive and negative slopes with adequate R² are up and down. The summary's
 `direction_evidence_count_*` stores available share-metric count, separately
 from the up/down/flat votes. Fewer than two available metrics produces
 `insufficient_history`; at least two matching votes win, otherwise the result

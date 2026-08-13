@@ -1183,7 +1183,7 @@ CREATE TABLE IF NOT EXISTS theme_model_summaries (
     CHECK (seasonality_history_month_count IS NOT NULL OR seasonality_complete_year_count IS NULL),
     CHECK (
         seasonality_history_month_count IS NULL
-        OR seasonality_complete_year_count <= seasonality_history_month_count / 12
+        OR seasonality_complete_year_count * 12 = seasonality_history_month_count
     )
 )
 """
@@ -1210,7 +1210,7 @@ CREATE TABLE IF NOT EXISTS theme_seasonality_profiles (
     history_month_count INTEGER NOT NULL CHECK (history_month_count IN (24, 36)),
     complete_year_count INTEGER NOT NULL CHECK (
         complete_year_count BETWEEN 2 AND 3
-        AND complete_year_count <= history_month_count / 12
+        AND complete_year_count * 12 = history_month_count
     ),
     observation_count INTEGER NOT NULL CHECK (
         observation_count >= 2 AND observation_count <= complete_year_count

@@ -580,7 +580,7 @@ def _verify_readback(
         or _identities(actual_seasonality) != _identities(result.seasonality_profiles)
     ):
         raise ModelReadbackVerificationError("seasonality readback verification failed")
-    _verify_seasonality_groups(actual_seasonality)
+    _verify_seasonality_groups(actual_seasonality, actual_summaries)
 
 
 def _identities(rows: Sequence[object]) -> set[object]:
@@ -593,7 +593,10 @@ def _identities(rows: Sequence[object]) -> set[object]:
     return identities
 
 
-def _verify_seasonality_groups(rows: Sequence[ThemeSeasonalityProfile]) -> None:
+def _verify_seasonality_groups(
+    rows: Sequence[ThemeSeasonalityProfile],
+    summaries: Sequence[ThemeModelSummary],
+) -> None:
     groups: dict[tuple[str, str, date, date, str, str], list[ThemeSeasonalityProfile]] = {}
     for row in rows:
         key = (
@@ -605,10 +608,46 @@ def _verify_seasonality_groups(rows: Sequence[ThemeSeasonalityProfile]) -> None:
             row.metric_name,
         )
         groups.setdefault(key, []).append(row)
+    summaries_by_identity = {row.period_key: row for row in summaries}
     for values in groups.values():
         if len(values) != 12 or {row.calendar_month for row in values} != set(range(1, 13)):
             raise ModelReadbackVerificationError(
                 "seasonality calendar-month readback verification failed"
+            )
+        metadata = {
+            (
+                row.history_start,
+                row.history_month_count,
+                row.complete_year_count,
+                row.observation_count,
+                row.calculated_at,
+            )
+            for row in values
+        }
+        if len(metadata) != 1:
+            raise ModelReadbackVerificationError(
+                "seasonality metadata readback verification failed"
+            )
+        profile = values[0]
+        if profile.complete_year_count * 12 != profile.history_month_count:
+            raise ModelReadbackVerificationError(
+                "seasonality complete-year readback verification failed"
+            )
+        summary = summaries_by_identity.get(
+            (
+                profile.scope_name,
+                profile.cadence,
+                profile.period_start,
+                profile.period_end,
+                profile.game_theme,
+            )
+        )
+        if summary is None or (
+            summary.seasonality_history_month_count != profile.history_month_count
+            or summary.seasonality_complete_year_count != profile.complete_year_count
+        ):
+            raise ModelReadbackVerificationError(
+                "seasonality summary readback verification failed"
             )
         if sum(row.is_peak_month for row in values) != 1:
             raise ModelReadbackVerificationError("seasonality peak readback verification failed")

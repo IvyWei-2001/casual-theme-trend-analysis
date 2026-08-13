@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pytest
 from test_analysis_theme_monthly import _metadata, _row
 
@@ -143,6 +144,61 @@ def test_fresh_schema_adds_only_the_three_model_tables_with_exact_columns(
         )
         assert actual_columns == expected_columns
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (5,)
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("history_month_count", "complete_year_count"),
+    ((36, 2), (24, 3)),
+)
+def test_duckdb_rejects_non_exact_profile_complete_year_count(
+    tmp_path: Path,
+    history_month_count: int,
+    complete_year_count: int,
+) -> None:
+    repository = _initialized(
+        tmp_path / f"profile-{history_month_count}-{complete_year_count}.duckdb"
+    )
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    profile = next(row for row in model.seasonality_profiles if row.history_month_count == 36)
+    columns = schema_module.THEME_SEASONALITY_PROFILES_COLUMNS
+    values = [getattr(profile, column) for column in columns]
+    values[columns.index("history_month_count")] = history_month_count
+    values[columns.index("complete_year_count")] = complete_year_count
+    query = (
+        f"INSERT INTO {schema_module.THEME_SEASONALITY_PROFILES_TABLE} "
+        f"({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})"
+    )
+    with pytest.raises(duckdb.ConstraintException):
+        repository.open().execute(query, values)
+    repository.close()
+
+
+def test_duckdb_rejects_non_exact_summary_complete_year_count(tmp_path: Path) -> None:
+    repository = _initialized(tmp_path / "summary-complete-year.duckdb")
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    summary = next(
+        row for row in model.model_summaries if row.seasonality_history_month_count == 36
+    )
+    columns = schema_module.THEME_MODEL_SUMMARIES_COLUMNS
+    values = [getattr(summary, column) for column in columns]
+    values[columns.index("seasonality_complete_year_count")] = 2
+    query = (
+        f"INSERT INTO {schema_module.THEME_MODEL_SUMMARIES_TABLE} "
+        f"({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})"
+    )
+    with pytest.raises(duckdb.ConstraintException):
+        repository.open().execute(query, values)
     repository.close()
 
 
@@ -344,6 +400,153 @@ def test_model_replacement_rejects_corrupted_naive_timestamp_before_connection_a
             model.horizon_metrics,
             model.model_summaries,
             model.seasonality_profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("history_month_count", "complete_year_count"),
+    ((36, 2), (24, 3)),
+)
+def test_model_replacement_rejects_non_exact_complete_year_count_before_connection_access(
+    tmp_path: Path,
+    history_month_count: int,
+    complete_year_count: int,
+) -> None:
+    repository = _NoConnectionRepository(
+        tmp_path / f"prevalidation-{history_month_count}-{complete_year_count}.duckdb"
+    )
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    corrupted_profile = replace(model.seasonality_profiles[0])
+    object.__setattr__(corrupted_profile, "history_month_count", history_month_count)
+    object.__setattr__(corrupted_profile, "complete_year_count", complete_year_count)
+    profiles = (corrupted_profile, *model.seasonality_profiles[1:])
+
+    with pytest.raises(StorageValidationError, match="MODEL-002 rows failed validation"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement_value"),
+    (("observation_count", 2), ("history_start", date(2023, 9, 1))),
+)
+def test_model_replacement_rejects_mixed_seasonality_metadata_before_connection_access(
+    tmp_path: Path,
+    field_name: str,
+    replacement_value: object,
+) -> None:
+    repository = _NoConnectionRepository(tmp_path / f"mixed-{field_name}.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    original_profile = next(
+        row for row in model.seasonality_profiles if row.history_month_count == 36
+    )
+    malformed_profile = replace(
+        original_profile,
+        **{field_name: replacement_value},
+    )
+    profiles = tuple(
+        malformed_profile if row is original_profile else row
+        for row in model.seasonality_profiles
+    )
+
+    with pytest.raises(StorageValidationError, match="metadata must be consistent"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
+def test_model_replacement_rejects_mixed_complete_year_group_before_connection_access(
+    tmp_path: Path,
+) -> None:
+    repository = _NoConnectionRepository(tmp_path / "mixed-complete-year.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    original_profile = next(
+        row for row in model.seasonality_profiles if row.history_month_count == 36
+    )
+    malformed_profile = replace(original_profile)
+    object.__setattr__(malformed_profile, "complete_year_count", 2)
+    profiles = tuple(
+        malformed_profile if row is original_profile else row
+        for row in model.seasonality_profiles
+    )
+
+    with pytest.raises(StorageValidationError, match="MODEL-002 rows failed validation"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
+def test_model_replacement_rejects_summary_profile_complete_year_mismatch(
+    tmp_path: Path,
+) -> None:
+    repository = _NoConnectionRepository(tmp_path / "summary-profile-year.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    target = max(
+        row.period_start for row in model.seasonality_profiles if row.history_month_count == 36
+    )
+    profiles = tuple(
+        replace(row, history_month_count=24, complete_year_count=2, observation_count=2)
+        if row.period_start == target and row.metric_name == "product_count"
+        else row
+        for row in model.seasonality_profiles
+    )
+
+    with pytest.raises(StorageValidationError, match="match model summary"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            profiles,
             target_periods=_target_periods(payload),
             trend_target_periods=_target_periods(payload)[5:],
         )

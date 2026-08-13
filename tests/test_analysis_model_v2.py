@@ -20,6 +20,7 @@ SCOPE = "casual_puzzle_tabletop"
 THEME = "Theme"
 BASE_MONTH = date(2023, 8, 1)
 FLAT_SERIES = (0.200, 0.201, 0.202, 0.203, 0.204, 0.205)
+CONSTANT_POSITIVE_SERIES = (0.20,) * 6
 
 
 def _month_start(index: int) -> date:
@@ -306,10 +307,66 @@ def test_direction_uses_only_share_metrics_and_ignores_noisy_nonflat_evidence() 
     )
     result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
     summary = _summary(result, target=_month_start(5))
+    noisy_product = _horizon(
+        result,
+        target=_month_start(5),
+        horizon=6,
+        metric="product_share",
+    )
+    assert noisy_product.normalized_slope is not None
+    assert noisy_product.r_squared is None or noisy_product.r_squared < 0.20
     assert summary.direction_6m == "flat"
     assert summary.direction_evidence_count_6m == 3
     assert summary.direction_12m == "insufficient_history"
     assert summary.stability_band_6m == "stable"
+
+
+def test_constant_positive_share_series_are_flat_and_available_evidence() -> None:
+    totals, structures = _history(
+        6,
+        product_shares=CONSTANT_POSITIVE_SERIES,
+        downloads_shares=CONSTANT_POSITIVE_SERIES,
+        revenue_shares=CONSTANT_POSITIVE_SERIES,
+    )
+    summary = _summary(
+        calculate_theme_model_metrics(totals, structures, CALCULATED_AT),
+        target=_month_start(5),
+    )
+    assert summary.direction_6m == "flat"
+    assert summary.direction_evidence_count_6m == 3
+
+
+def test_constant_positive_twelve_month_history_is_mature() -> None:
+    series = (0.20,) * 12
+    totals, structures = _history(
+        12,
+        product_shares=series,
+        downloads_shares=series,
+        revenue_shares=series,
+        present_from=0,
+    )
+    summary = _summary(
+        calculate_theme_model_metrics(totals, structures, CALCULATED_AT),
+        target=_month_start(11),
+    )
+    assert summary.direction_6m == "flat"
+    assert summary.direction_12m == "flat"
+    assert summary.lifecycle_stage == "mature"
+
+
+def test_flat_noisy_and_unavailable_metrics_are_mixed_with_two_evidence() -> None:
+    totals, structures = _history(
+        6,
+        product_shares=CONSTANT_POSITIVE_SERIES,
+        downloads_shares=(0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+        revenue_shares=(None,) * 6,
+    )
+    summary = _summary(
+        calculate_theme_model_metrics(totals, structures, CALCULATED_AT),
+        target=_month_start(5),
+    )
+    assert summary.direction_6m == "mixed"
+    assert summary.direction_evidence_count_6m == 2
 
 
 @pytest.mark.parametrize(
@@ -648,6 +705,43 @@ def test_seasonality_distinguishes_selected_complete_years_from_valid_observatio
         for row in result_24.seasonality_profiles
         if row.metric_name in {"downloads_sum", "revenue_usd_sum"}
     ]
+
+
+@pytest.mark.parametrize(
+    ("history_month_count", "bad_complete_year_count"),
+    ((36, 2), (24, 3)),
+)
+def test_seasonality_profile_requires_exact_complete_year_count(
+    history_month_count: int,
+    bad_complete_year_count: int,
+) -> None:
+    totals, structures = _history(history_month_count)
+    result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
+    profile = next(
+        row
+        for row in result.seasonality_profiles
+        if row.history_month_count == history_month_count
+    )
+    with pytest.raises(AggregationValidationError, match="complete_year_count"):
+        replace(profile, complete_year_count=bad_complete_year_count)
+
+
+@pytest.mark.parametrize(
+    ("history_month_count", "bad_complete_year_count"),
+    ((36, 2), (24, 3)),
+)
+def test_model_summary_requires_exact_complete_year_count(
+    history_month_count: int,
+    bad_complete_year_count: int,
+) -> None:
+    totals, structures = _history(history_month_count)
+    result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
+    summary = _summary(result, target=_month_start(history_month_count - 1))
+    with pytest.raises(AggregationValidationError, match="seasonality year count"):
+        replace(
+            summary,
+            seasonality_complete_year_count=bad_complete_year_count,
+        )
 
 def test_historical_target_is_unchanged_when_future_months_change() -> None:
     base_totals, base_structures = _history(36)

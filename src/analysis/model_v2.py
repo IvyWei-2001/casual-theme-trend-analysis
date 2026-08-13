@@ -360,12 +360,14 @@ def _summarize_horizon_evidence(
         if row.normalized_slope is not None:
             available_share_metric_count += 1
             slope_values.append(row.normalized_slope)
-            if row.r_squared is None or row.r_squared < DIRECTION_MIN_R_SQUARED:
+            if abs(row.normalized_slope) < DIRECTION_NORMALIZED_SLOPE_THRESHOLD:
+                # Flat evidence is decisive before fit quality is considered.
+                # Constant series have no defined R-squared but are still flat.
+                direction_values.append("flat")
+            elif row.r_squared is None or row.r_squared < DIRECTION_MIN_R_SQUARED:
                 # A complete metric with a defined slope is available even
                 # when its fit is noisy; noisy evidence does not vote.
                 pass
-            elif abs(row.normalized_slope) < DIRECTION_NORMALIZED_SLOPE_THRESHOLD:
-                direction_values.append("flat")
             elif row.normalized_slope > 0:
                 direction_values.append("up")
             else:
