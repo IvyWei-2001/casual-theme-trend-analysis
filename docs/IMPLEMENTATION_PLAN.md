@@ -41,20 +41,26 @@ semantics, market scope, evidence boundaries, role outputs, Product Greenlight
 boundary, and V2 non-goals. This issue changes documentation and adds a
 documentation consistency test only.
 
-### 2. HIST-002 - 36-month historical backfill and data-quality validation (current)
+### 2. HIST-002 - 36-month historical backfill and data-quality validation (completed and real-environment accepted)
 
 Add read-only range inspection for at least 36 consecutive completed natural
 months, with coverage, continuity, source compatibility, and traceability
 checks. Reuse the existing resumable backfill for missing periods; keep future
 information out of historical decisions.
 
-### 3. AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
-and representative-game aggregates
+Recorded prerequisite evidence: 36 completed months, 35,525 source snapshots,
+monthly `snapshot_count` minimum 964 and maximum 1,000,
+`structural_issue_count=0`, and `structurally_complete=true`.
 
-Add internal aggregates for Market Size, growth-source decomposition,
-competition, category fit, migration evidence, and representative products
-without making Feishu the data store. The issue must preserve compatible
-sample denominators and explicit unavailable values.
+### 3. AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
+ and representative-game aggregates (current)
+
+Add raw internal aggregates for market structure, growth-source decomposition,
+publisher/product concentration, observed product dimensions, and
+representative products without making Feishu the data store. Preserve
+compatible sample denominators, explicit unavailable values, current-cache
+metadata limitations, and the existing AGG-001/TREND-001 baseline. Scores,
+recommendations, and business dashboards remain later-issue work.
 
 ### 4. MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
 seasonality

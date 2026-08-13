@@ -1,6 +1,12 @@
 """Internal DuckDB storage package for market snapshots and metadata cache."""
 
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
+from ..analysis.opportunity_models import (
+    ThemeDimensionMonthlyMetric,
+    ThemeGrowthSourceMetric,
+    ThemeMarketStructureMetric,
+    ThemeRepresentativeGame,
+)
 from ..analysis.trend_models import ThemeTrendScore
 from .errors import (
     ParquetExportError,
@@ -31,7 +37,11 @@ from .parquet import (
     export_app_metadata_to_parquet,
     export_market_snapshots_to_parquet,
     export_monthly_market_totals_to_parquet,
+    export_theme_dimension_monthly_metrics_to_parquet,
+    export_theme_growth_source_metrics_to_parquet,
+    export_theme_market_structure_metrics_to_parquet,
     export_theme_monthly_metrics_to_parquet,
+    export_theme_representative_games_to_parquet,
     export_theme_trend_scores_to_parquet,
 )
 from .repository import DuckDBRepository
@@ -57,6 +67,10 @@ __all__ = [
     "StorageError",
     "StorageValidationError",
     "ThemeMonthlyMetric",
+    "ThemeDimensionMonthlyMetric",
+    "ThemeGrowthSourceMetric",
+    "ThemeMarketStructureMetric",
+    "ThemeRepresentativeGame",
     "ThemeTrendScore",
     "UnsupportedSchemaVersionError",
     "build_app_metadata_rows",
@@ -65,6 +79,10 @@ __all__ = [
     "export_market_snapshots_to_parquet",
     "export_monthly_market_totals_to_parquet",
     "export_theme_monthly_metrics_to_parquet",
+    "export_theme_dimension_monthly_metrics_to_parquet",
+    "export_theme_growth_source_metrics_to_parquet",
+    "export_theme_market_structure_metrics_to_parquet",
+    "export_theme_representative_games_to_parquet",
     "export_theme_trend_scores_to_parquet",
     "initialize_schema",
     "normalize_opaque_id_sequence",

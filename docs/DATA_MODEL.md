@@ -42,9 +42,9 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 3 contains five business tables plus the `schema_migrations` control
-table. Version 3 adds `theme_trend_scores` without changing the source tables
-or the schema-v2 monthly aggregation rows:
+version 4 contains nine business tables plus the `schema_migrations` control
+table. Version 4 adds four V2 evidence tables without changing the source
+tables, schema-v2 monthly aggregation rows, or schema-v3 trend scores:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -84,8 +84,9 @@ source of truth, and generated database/WAL/Parquet files are not committed.
 DB-001 does not implement live collection, historical backfill, theme
 aggregation, Trend Score, or Feishu synchronization. Live single-period
 collection is deferred to DB-002. AGG-001 adds the two derived tables described
-below without changing the source-table columns. TREND-001 adds the separate
-schema-v3 score table described after the aggregation contract.
+below without changing the source-table columns. AGG-002 adds the separate
+schema-v4 evidence tables described after the AGG-001 contract. TREND-001 adds
+the schema-v3 score table described after the V2 evidence contract.
 
 ## AGG-001 schema-v2 derived storage contract
 
@@ -157,6 +158,60 @@ only after both succeed. A failed replacement leaves the previous derived
 result and all source rows unchanged. DuckDB remains the source of truth;
 `monthly_market_totals.parquet` and `theme_monthly_metrics.parquet` are
 deterministic exports. AGG-001 does not implement Trend Score.
+
+## AGG-002 schema-v4 opportunity evidence storage contract
+
+AGG-002 consumes only normalized `MarketSnapshotRow` and `AppMetadataRow`
+values. It adds four immutable typed derived models and tables:
+
+- `theme_market_structure_metrics`: current theme breadth, rank distribution,
+  Downloads and Revenue (USD) coverage/sums/means/medians, top-product shares,
+  HHI, publisher concentration, and `release_date_ww` age evidence;
+- `theme_growth_source_metrics`: previous-month membership, market new entry,
+  theme entry/exit, Top-100/Top-500 turnover, Top-10 retention, and raw metric
+  contribution decomposition;
+- `theme_dimension_monthly_metrics`: observed raw values for
+  `game_subgenre`, `game_product_model`, `game_art_style`, and `game_setting`;
+  and
+- `theme_representative_games`: fixed-limit traceable evidence for Downloads,
+  Revenue (USD), market-new-entry, and strictly positive growth leaders.
+
+All four tables use one theme-month identity plus their table-specific key.
+V2 business-facing fields use `downloads_*` and `revenue_usd_*`; source columns
+remain `units_absolute` and `revenue_absolute`. Downloads means count and
+Revenue means USD. No cents conversion, display rounding, or fixed 1,000-row
+denominator is applied. Actual `snapshot_count` is used for market shares.
+
+Raw labels are evidence, not a taxonomy decision: SQL `NULL` creates no group,
+while `Unknown`, `N/A`, and an empty string remain separate values. `NULL`
+metric values are unavailable; observed zero values remain covered numeric
+zeros. Zero denominators yield `NULL` shares/rates. Current metadata names and
+publishers may be NULL and are not historically versioned.
+
+Market structure uses covered-value sums, arithmetic means, medians, top-N
+shares, and HHI `sum((value / theme_sum) ** 2)`. Product and publisher
+concentration are calculated only over compatible covered rows; no artificial
+Unknown Publisher group is created. Product age uses only `release_date_ww`,
+excludes future dates from medians, and reports future-date counts.
+
+Growth decomposition uses the union of current and previous same-theme IDs,
+with absent values treated as zero and present-but-NULL values making the
+metric decomposition incomplete. Complete rows reconcile product deltas to
+`current_sum - previous_sum`; positive and negative gross contributions remain
+separate. The growth rate is defined only for a positive previous sum. Missing
+previous months leave previous-dependent fields NULL rather than fabricating an
+empty market.
+
+The existing AGG-001 replacement remains available. The new replacement method
+validates all six derived payloads before one transaction, deletes only the
+requested period identities, inserts the six sets atomically, and leaves source,
+metadata, and trend-score tables untouched. Readers support deterministic
+period/theme filters; dimension readers add type/value filters and
+representative readers add evidence-type filters. Four deterministic ZSTD
+Parquet exports use explicit columns, stable ordering, temporary sibling files,
+and atomic replacement. AGG-002 does not calculate scores, recommendations,
+forecasts, category-fit decisions, migration potential, dashboards, or Feishu
+outputs.
 
 ## TREND-001 schema-v3 trend score storage contract
 

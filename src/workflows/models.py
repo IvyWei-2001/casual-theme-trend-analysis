@@ -316,12 +316,37 @@ class AggregateThemesSummary:
     source_missing_theme_count: int
     source_units_coverage_count: int
     source_revenue_coverage_count: int
+    market_structure_row_count: int
+    growth_source_row_count: int
+    dimension_row_count: int
+    game_subgenre_dimension_row_count: int
+    game_product_model_dimension_row_count: int
+    game_art_style_dimension_row_count: int
+    game_setting_dimension_row_count: int
+    representative_game_row_count: int
+    verification_passed: bool
     database_path: Path
     monthly_totals_parquet_path: Path | None
     theme_metrics_parquet_path: Path | None
+    market_structure_parquet_path: Path | None
+    growth_source_parquet_path: Path | None
+    dimension_parquet_path: Path | None
+    representative_games_parquet_path: Path | None
     plan_only: bool
     started_at: datetime
     completed_at: datetime
+
+    @property
+    def legacy_theme_metrics_row_count(self) -> int:
+        """Return the AGG-001 theme row count under the V2 summary name."""
+
+        return self.theme_metrics_row_count
+
+    @property
+    def verification(self) -> str:
+        """Return the sanitized readback status used by CLI summaries."""
+
+        return "passed" if self.verification_passed else "not_run"
 
 
 @dataclass(frozen=True, slots=True)

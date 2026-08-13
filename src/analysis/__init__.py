@@ -1,5 +1,14 @@
 """Pure analytical functions over normalized DuckDB source rows."""
 
+from .opportunity_aggregation import aggregate_theme_opportunity_metrics
+from .opportunity_models import (
+    DEFAULT_REPRESENTATIVE_GAME_LIMIT,
+    OpportunityAggregationResult,
+    ThemeDimensionMonthlyMetric,
+    ThemeGrowthSourceMetric,
+    ThemeMarketStructureMetric,
+    ThemeRepresentativeGame,
+)
 from .trend_models import ThemeTrendScore
 from .trend_score import (
     MVP_CONFIDENCE_WEIGHTS,
@@ -18,4 +27,11 @@ __all__ = [
     "TrendScoreWeights",
     "calculate_theme_trend_scores",
     "calculate_trend_scores",
+    "DEFAULT_REPRESENTATIVE_GAME_LIMIT",
+    "OpportunityAggregationResult",
+    "ThemeDimensionMonthlyMetric",
+    "ThemeGrowthSourceMetric",
+    "ThemeMarketStructureMetric",
+    "ThemeRepresentativeGame",
+    "aggregate_theme_opportunity_metrics",
 ]

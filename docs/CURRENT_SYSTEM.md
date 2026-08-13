@@ -1,6 +1,6 @@
 # Current System
 
-This document records the audited state of the repository as of HIST-002.
+This document records the audited state of the repository as of AGG-002.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -37,6 +37,10 @@ current MVP boundary:
 - manual single-month collection and resumable historical monthly backfill;
 - monthly Game Theme aggregation with explicit product, source-coverage,
   publisher, entry, rank, and concentration metrics;
+- AGG-002 raw opportunity evidence for market structure, growth sources,
+  observed product dimensions, and representative products;
+- schema version 4 migration, atomic six-output replacement, mandatory
+  identity/count readback verification, and deterministic six-file exports;
 - the current six-month momentum scoring workflow, stored under the unchanged
   technical `theme_trend_scores` schema and interpreted as 6M Momentum;
 - Feishu schema provisioning with a preserved primary field and deterministic
@@ -67,9 +71,22 @@ payloads belong in this document or the repository.
 ## HIST-002 implementation status
 
 The HIST-002 read-only range inspection is implemented and verified with
-synthetic rows, fake repositories, and temporary DuckDB files. Its real
-36-month inventory and post-backfill acceptance are pending the documented
-post-merge run; no real history inspection has been performed by this issue.
+synthetic rows, fake repositories, and temporary DuckDB files. The recorded
+real-environment prerequisite evidence is 36 completed months, 35,525 source
+snapshots, monthly `snapshot_count` minimum 964 and maximum 1,000,
+`structural_issue_count=0`, and `structurally_complete=true`.
+
+## AGG-002 implementation status
+
+The current local `aggregate-themes` workflow builds AGG-001 and AGG-002 from
+internal storage rows only. It adds four V2 tables for market structure,
+growth-source decomposition, observed Game Sub-genre / Product Model / Art
+Style / Setting values, and fixed-limit representative-game evidence. A
+version-3 database migrates sequentially to version 4 without rewriting source,
+AGG-001, or trend-score rows. The workflow replaces all six derived output sets
+atomically, rereads identities and counts, and exports deterministic ZSTD
+Parquet files unless export is skipped. No real Sensor Tower, Feishu, DuckDB,
+or Parquet operation is part of development validation.
 
 ## Confirmed metric terminology
 
@@ -87,11 +104,10 @@ backtesting.
 
 The following V2 capabilities are not yet implemented:
 
-- real 36-month production-history inventory and post-backfill acceptance;
-- the market-size decision product;
-- growth-quality decomposition;
+- the market-size decision product or Market Size Score;
+- a Growth Quality score or recommendation layer;
 - competitive white-space metrics;
-- Theme x Sub-genre aggregation;
+- business category-fit or migration decisions;
 - lifecycle and seasonality;
 - leakage-safe T+1 / T+2 / T+3 launch-window backtesting;
 - investment recommendation;

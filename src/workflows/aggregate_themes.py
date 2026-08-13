@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..analysis.errors import AggregationError, MissingSourcePeriodError
-from ..analysis.theme_monthly import aggregate_monthly_theme_metrics
+from ..analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
 from ..config import AppConfig
 from ..storage import (
     AppMetadataRow,
@@ -19,7 +19,11 @@ from ..storage import (
     MarketSnapshotRow,
     MonthlyMarketTotal,
     SnapshotPeriodKey,
+    ThemeDimensionMonthlyMetric,
+    ThemeGrowthSourceMetric,
+    ThemeMarketStructureMetric,
     ThemeMonthlyMetric,
+    ThemeRepresentativeGame,
 )
 from .errors import WorkflowError
 from .models import (
@@ -56,11 +60,96 @@ class AggregationRepository(Protocol):
     ) -> None:
         """Atomically replace both derived tables for the requested range."""
 
+    def replace_theme_opportunity_range(
+        self,
+        monthly_totals: Sequence[MonthlyMarketTotal],
+        theme_metrics: Sequence[ThemeMonthlyMetric],
+        theme_market_structure_metrics: Sequence[ThemeMarketStructureMetric],
+        theme_growth_source_metrics: Sequence[ThemeGrowthSourceMetric],
+        theme_dimension_monthly_metrics: Sequence[ThemeDimensionMonthlyMetric],
+        theme_representative_games: Sequence[ThemeRepresentativeGame],
+    ) -> None:
+        """Atomically replace all six derived opportunity output sets."""
+
+    def get_monthly_market_totals(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+    ) -> list[MonthlyMarketTotal]:
+        """Read month-wide derived totals for verification."""
+
+    def get_theme_monthly_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMonthlyMetric]:
+        """Read legacy theme metrics for verification."""
+
+    def get_theme_market_structure_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMarketStructureMetric]:
+        """Read market-structure metrics for verification."""
+
+    def get_theme_growth_source_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeGrowthSourceMetric]:
+        """Read growth-source metrics for verification."""
+
+    def get_theme_dimension_monthly_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        dimension_type: str | None = None,
+        dimension_value: str | None = None,
+    ) -> list[ThemeDimensionMonthlyMetric]:
+        """Read dimension metrics for verification."""
+
+    def get_theme_representative_games(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        evidence_type: str | None = None,
+    ) -> list[ThemeRepresentativeGame]:
+        """Read representative-game evidence for verification."""
+
     def export_monthly_market_totals_to_parquet(self, path: str | Path) -> None:
         """Export monthly totals."""
 
     def export_theme_monthly_metrics_to_parquet(self, path: str | Path) -> None:
         """Export theme metrics."""
+
+    def export_theme_market_structure_metrics_to_parquet(self, path: str | Path) -> None:
+        """Export market-structure metrics."""
+
+    def export_theme_growth_source_metrics_to_parquet(self, path: str | Path) -> None:
+        """Export growth-source metrics."""
+
+    def export_theme_dimension_monthly_metrics_to_parquet(self, path: str | Path) -> None:
+        """Export dimension metrics."""
+
+    def export_theme_representative_games_to_parquet(self, path: str | Path) -> None:
+        """Export representative-game evidence."""
 
     def close(self) -> None:
         """Close the local database."""
@@ -81,12 +170,16 @@ def aggregate_themes(
     repository_initialized: bool = False,
     monthly_totals_exporter: ExportFunction | None = None,
     theme_metrics_exporter: ExportFunction | None = None,
+    market_structure_exporter: ExportFunction | None = None,
+    growth_source_exporter: ExportFunction | None = None,
+    dimension_exporter: ExportFunction | None = None,
+    representative_games_exporter: ExportFunction | None = None,
 ) -> AggregateThemesSummary:
     """Validate or execute a deterministic aggregation over stored DuckDB rows.
 
     The plan-only branch returns before a repository is built or opened.  The
     real branch reads source snapshots and current normalized metadata only;
-    this workflow never constructs a Sensor Tower client.
+    this workflow does not construct an external network client.
     """
 
     if repository is not None and repository_factory is not None:
@@ -111,6 +204,15 @@ def aggregate_themes(
             source_missing_theme_count=0,
             source_units_coverage_count=0,
             source_revenue_coverage_count=0,
+            market_structure_row_count=0,
+            growth_source_row_count=0,
+            dimension_row_count=0,
+            game_subgenre_dimension_row_count=0,
+            game_product_model_dimension_row_count=0,
+            game_art_style_dimension_row_count=0,
+            game_setting_dimension_row_count=0,
+            representative_game_row_count=0,
+            verification_passed=False,
             started_at=started_at,
             completed_at=_completion_timestamp(started_at, utc_clock),
         )
@@ -150,25 +252,47 @@ def aggregate_themes(
             previous_rows_by_key[previous_key] = previous_rows or None
 
         metadata_by_id = active_repository.get_app_metadata(all_current_ids)
-        result = aggregate_monthly_theme_metrics(
+        result = aggregate_theme_opportunity_metrics(
             current_rows_by_period,
             metadata_by_id,
             previous_periods=previous_rows_by_key,
             calculated_at=started_at,
         )
-        active_repository.replace_theme_monthly_range(
+        active_repository.replace_theme_opportunity_range(
             result.monthly_totals,
             result.theme_metrics,
+            result.theme_market_structure_metrics,
+            result.theme_growth_source_metrics,
+            result.theme_dimension_monthly_metrics,
+            result.theme_representative_games,
+        )
+        _verify_opportunity_readback(
+            active_repository,
+            result,
+            scope_name=scope_name,
+            month_range=month_range,
         )
 
         monthly_totals_parquet_path: Path | None = None
         theme_metrics_parquet_path: Path | None = None
+        market_structure_parquet_path: Path | None = None
+        growth_source_parquet_path: Path | None = None
+        dimension_parquet_path: Path | None = None
+        representative_games_parquet_path: Path | None = None
         if not request.skip_export:
-            monthly_totals_parquet_path = (
-                request.export_directory / "monthly_market_totals.parquet"
+            monthly_totals_parquet_path = request.export_directory / "monthly_market_totals.parquet"
+            theme_metrics_parquet_path = request.export_directory / "theme_monthly_metrics.parquet"
+            market_structure_parquet_path = (
+                request.export_directory / "theme_market_structure_metrics.parquet"
             )
-            theme_metrics_parquet_path = (
-                request.export_directory / "theme_monthly_metrics.parquet"
+            growth_source_parquet_path = (
+                request.export_directory / "theme_growth_source_metrics.parquet"
+            )
+            dimension_parquet_path = (
+                request.export_directory / "theme_dimension_monthly_metrics.parquet"
+            )
+            representative_games_parquet_path = (
+                request.export_directory / "theme_representative_games.parquet"
             )
             totals_export = (
                 _export_monthly_totals
@@ -176,12 +300,30 @@ def aggregate_themes(
                 else monthly_totals_exporter
             )
             metrics_export = (
-                _export_theme_metrics
-                if theme_metrics_exporter is None
-                else theme_metrics_exporter
+                _export_theme_metrics if theme_metrics_exporter is None else theme_metrics_exporter
             )
             totals_export(active_repository, monthly_totals_parquet_path)
             metrics_export(active_repository, theme_metrics_parquet_path)
+            structure_export = (
+                _export_market_structure
+                if market_structure_exporter is None
+                else market_structure_exporter
+            )
+            growth_export = (
+                _export_growth_source if growth_source_exporter is None else growth_source_exporter
+            )
+            dimension_export = (
+                _export_dimension if dimension_exporter is None else dimension_exporter
+            )
+            representative_export = (
+                _export_representative_games
+                if representative_games_exporter is None
+                else representative_games_exporter
+            )
+            structure_export(active_repository, market_structure_parquet_path)
+            growth_export(active_repository, growth_source_parquet_path)
+            dimension_export(active_repository, dimension_parquet_path)
+            representative_export(active_repository, representative_games_parquet_path)
 
         return _build_summary(
             request=request,
@@ -199,10 +341,35 @@ def aggregate_themes(
             source_revenue_coverage_count=sum(
                 row.revenue_absolute_coverage_count for row in result.monthly_totals
             ),
+            market_structure_row_count=len(result.theme_market_structure_metrics),
+            growth_source_row_count=len(result.theme_growth_source_metrics),
+            dimension_row_count=len(result.theme_dimension_monthly_metrics),
+            game_subgenre_dimension_row_count=sum(
+                row.dimension_type == "game_subgenre"
+                for row in result.theme_dimension_monthly_metrics
+            ),
+            game_product_model_dimension_row_count=sum(
+                row.dimension_type == "game_product_model"
+                for row in result.theme_dimension_monthly_metrics
+            ),
+            game_art_style_dimension_row_count=sum(
+                row.dimension_type == "game_art_style"
+                for row in result.theme_dimension_monthly_metrics
+            ),
+            game_setting_dimension_row_count=sum(
+                row.dimension_type == "game_setting"
+                for row in result.theme_dimension_monthly_metrics
+            ),
+            representative_game_row_count=len(result.theme_representative_games),
+            verification_passed=True,
             started_at=started_at,
             completed_at=_completion_timestamp(started_at, utc_clock),
             monthly_totals_parquet_path=monthly_totals_parquet_path,
             theme_metrics_parquet_path=theme_metrics_parquet_path,
+            market_structure_parquet_path=market_structure_parquet_path,
+            growth_source_parquet_path=growth_source_parquet_path,
+            dimension_parquet_path=dimension_parquet_path,
+            representative_games_parquet_path=representative_games_parquet_path,
         )
     finally:
         if owns_repository and active_repository is not None:
@@ -218,33 +385,50 @@ def format_aggregate_themes_summary(summary: AggregateThemesSummary) -> str:
     month_sequence = ",".join(summary.planned_months)
     if summary.plan_only:
         return (
-            "Theme aggregation plan validated: "
-            f"start_month={summary.start_month} end_month={summary.end_month} "
-            f"planned_month_count={summary.planned_month_count} "
-            f"month_sequence={month_sequence} plan_only=true "
-            f"database_path={summary.database_path} network=disabled files=none"
+            "Opportunity aggregation plan:\n"
+            "mode=plan-only\n"
+            f"start_month={summary.start_month}\n"
+            f"end_month={summary.end_month}\n"
+            f"planned_month_count={summary.planned_month_count}\n"
+            f"month_sequence={month_sequence}\n"
+            "source=market_snapshots+app_metadata\n"
+            "legacy_outputs=monthly_market_totals,theme_monthly_metrics\n"
+            "v2_outputs=theme_market_structure_metrics,theme_growth_source_metrics,"
+            "theme_dimension_monthly_metrics,theme_representative_games\n"
+            "network=disabled\n"
+            "database=disabled\n"
+            "file_writes=disabled"
         )
 
     export_text = (
         f"monthly_totals_parquet_path={summary.monthly_totals_parquet_path} "
-        f"theme_metrics_parquet_path={summary.theme_metrics_parquet_path}"
+        f"theme_metrics_parquet_path={summary.theme_metrics_parquet_path} "
+        f"market_structure_parquet_path={summary.market_structure_parquet_path} "
+        f"growth_source_parquet_path={summary.growth_source_parquet_path} "
+        f"dimension_parquet_path={summary.dimension_parquet_path} "
+        f"representative_games_parquet_path={summary.representative_games_parquet_path}"
         if summary.monthly_totals_parquet_path is not None
         and summary.theme_metrics_parquet_path is not None
         else "parquet_export=skipped"
     )
     return (
-        "Theme aggregation complete: "
+        "Opportunity aggregation complete: "
         f"start_month={summary.start_month} end_month={summary.end_month} "
-        f"planned_month_count={summary.planned_month_count} "
         f"aggregated_month_count={summary.aggregated_month_count} "
-        f"monthly_totals_row_count={summary.monthly_totals_row_count} "
-        f"theme_metrics_row_count={summary.theme_metrics_row_count} "
         f"source_snapshot_row_count={summary.source_snapshot_row_count} "
-        f"source_missing_theme_count={summary.source_missing_theme_count} "
-        f"source_units_coverage_count={summary.source_units_coverage_count} "
-        f"source_revenue_coverage_count={summary.source_revenue_coverage_count} "
-        f"database_path={summary.database_path} {export_text}"
+        f"monthly_totals_row_count={summary.monthly_totals_row_count} "
+        f"legacy_theme_metrics_row_count={summary.legacy_theme_metrics_row_count} "
+        f"market_structure_row_count={summary.market_structure_row_count} "
+        f"growth_source_row_count={summary.growth_source_row_count} "
+        f"dimension_row_count={summary.dimension_row_count} "
+        f"game_subgenre_dimension_row_count={summary.game_subgenre_dimension_row_count} "
+        f"game_product_model_dimension_row_count={summary.game_product_model_dimension_row_count} "
+        f"game_art_style_dimension_row_count={summary.game_art_style_dimension_row_count} "
+        f"game_setting_dimension_row_count={summary.game_setting_dimension_row_count} "
+        f"representative_game_row_count={summary.representative_game_row_count} "
+        f"verification={summary.verification} network=disabled feishu=disabled {export_text}"
     )
+
 
 def _build_summary(
     *,
@@ -257,10 +441,23 @@ def _build_summary(
     source_missing_theme_count: int,
     source_units_coverage_count: int,
     source_revenue_coverage_count: int,
+    market_structure_row_count: int,
+    growth_source_row_count: int,
+    dimension_row_count: int,
+    game_subgenre_dimension_row_count: int,
+    game_product_model_dimension_row_count: int,
+    game_art_style_dimension_row_count: int,
+    game_setting_dimension_row_count: int,
+    representative_game_row_count: int,
+    verification_passed: bool,
     started_at: datetime,
     completed_at: datetime,
     monthly_totals_parquet_path: Path | None = None,
     theme_metrics_parquet_path: Path | None = None,
+    market_structure_parquet_path: Path | None = None,
+    growth_source_parquet_path: Path | None = None,
+    dimension_parquet_path: Path | None = None,
+    representative_games_parquet_path: Path | None = None,
 ) -> AggregateThemesSummary:
     return AggregateThemesSummary(
         start_month=month_range.start_month,
@@ -274,9 +471,22 @@ def _build_summary(
         source_missing_theme_count=source_missing_theme_count,
         source_units_coverage_count=source_units_coverage_count,
         source_revenue_coverage_count=source_revenue_coverage_count,
+        market_structure_row_count=market_structure_row_count,
+        growth_source_row_count=growth_source_row_count,
+        dimension_row_count=dimension_row_count,
+        game_subgenre_dimension_row_count=game_subgenre_dimension_row_count,
+        game_product_model_dimension_row_count=game_product_model_dimension_row_count,
+        game_art_style_dimension_row_count=game_art_style_dimension_row_count,
+        game_setting_dimension_row_count=game_setting_dimension_row_count,
+        representative_game_row_count=representative_game_row_count,
+        verification_passed=verification_passed,
         database_path=request.database_path,
         monthly_totals_parquet_path=monthly_totals_parquet_path,
         theme_metrics_parquet_path=theme_metrics_parquet_path,
+        market_structure_parquet_path=market_structure_parquet_path,
+        growth_source_parquet_path=growth_source_parquet_path,
+        dimension_parquet_path=dimension_parquet_path,
+        representative_games_parquet_path=representative_games_parquet_path,
         plan_only=request.plan_only,
         started_at=started_at,
         completed_at=completed_at,
@@ -289,6 +499,183 @@ def _export_monthly_totals(repository: AggregationRepository, path: Path) -> Non
 
 def _export_theme_metrics(repository: AggregationRepository, path: Path) -> None:
     repository.export_theme_monthly_metrics_to_parquet(path)
+
+
+def _export_market_structure(repository: AggregationRepository, path: Path) -> None:
+    repository.export_theme_market_structure_metrics_to_parquet(path)
+
+
+def _export_growth_source(repository: AggregationRepository, path: Path) -> None:
+    repository.export_theme_growth_source_metrics_to_parquet(path)
+
+
+def _export_dimension(repository: AggregationRepository, path: Path) -> None:
+    repository.export_theme_dimension_monthly_metrics_to_parquet(path)
+
+
+def _export_representative_games(repository: AggregationRepository, path: Path) -> None:
+    repository.export_theme_representative_games_to_parquet(path)
+
+
+def _verify_opportunity_readback(
+    repository: AggregationRepository,
+    result: object,
+    *,
+    scope_name: str,
+    month_range: BackfillMonthRange,
+) -> None:
+    from ..analysis.opportunity_models import OpportunityAggregationResult
+
+    if not isinstance(result, OpportunityAggregationResult):
+        raise AggregationError("opportunity aggregation result has an invalid type")
+    if not month_range.periods:
+        raise AggregationError("opportunity aggregation range is empty")
+    start = month_range.periods[0].period_start
+    end = month_range.periods[-1].period_end
+    expected_totals = {
+        (row.scope_name, row.cadence, row.period_start, row.period_end)
+        for row in result.monthly_totals
+    }
+    expected_themes = {
+        (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+        for row in result.theme_metrics
+    }
+    expected_structures = {
+        (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+        for row in result.theme_market_structure_metrics
+    }
+    expected_growth = {
+        (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+        for row in result.theme_growth_source_metrics
+    }
+    expected_dimensions = {
+        (
+            row.scope_name,
+            row.cadence,
+            row.period_start,
+            row.period_end,
+            row.game_theme,
+            row.dimension_type,
+            row.dimension_value,
+        )
+        for row in result.theme_dimension_monthly_metrics
+    }
+    expected_representatives = {
+        (
+            row.scope_name,
+            row.cadence,
+            row.period_start,
+            row.period_end,
+            row.game_theme,
+            row.evidence_type,
+            row.evidence_rank,
+        )
+        for row in result.theme_representative_games
+    }
+    actual_totals = repository.get_monthly_market_totals(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_themes = repository.get_theme_monthly_metrics(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_structures = repository.get_theme_market_structure_metrics(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_growth = repository.get_theme_growth_source_metrics(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_dimensions = repository.get_theme_dimension_monthly_metrics(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_representatives = repository.get_theme_representative_games(
+        scope_name=scope_name,
+        period_start=start,
+        period_end=end,
+    )
+    actual_sets = (
+        {(row.scope_name, row.cadence, row.period_start, row.period_end) for row in actual_totals},
+        {
+            (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+            for row in actual_themes
+        },
+        {
+            (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+            for row in actual_structures
+        },
+        {
+            (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+            for row in actual_growth
+        },
+        {
+            (
+                row.scope_name,
+                row.cadence,
+                row.period_start,
+                row.period_end,
+                row.game_theme,
+                row.dimension_type,
+                row.dimension_value,
+            )
+            for row in actual_dimensions
+        },
+        {
+            (
+                row.scope_name,
+                row.cadence,
+                row.period_start,
+                row.period_end,
+                row.game_theme,
+                row.evidence_type,
+                row.evidence_rank,
+            )
+            for row in actual_representatives
+        },
+    )
+    expected_sets = (
+        expected_totals,
+        expected_themes,
+        expected_structures,
+        expected_growth,
+        expected_dimensions,
+        expected_representatives,
+    )
+    expected_counts = (
+        len(expected_totals),
+        len(expected_themes),
+        len(expected_structures),
+        len(expected_growth),
+        len(expected_dimensions),
+        len(expected_representatives),
+    )
+    actual_rows = (
+        len(actual_totals),
+        len(actual_themes),
+        len(actual_structures),
+        len(actual_growth),
+        len(actual_dimensions),
+        len(actual_representatives),
+    )
+    if any(
+        expected != actual or expected_count != row_count
+        for expected, actual, expected_count, row_count in zip(
+            expected_sets,
+            actual_sets,
+            expected_counts,
+            actual_rows,
+            strict=True,
+        )
+    ):
+        raise AggregationError("opportunity aggregation readback verification failed")
 
 
 def _resolve_started_at(

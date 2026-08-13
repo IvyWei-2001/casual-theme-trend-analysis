@@ -141,6 +141,11 @@ def test_aggregate_workflow_uses_previous_month_outside_requested_range_and_skip
     assert summary.source_missing_theme_count == 0
     assert summary.monthly_totals_parquet_path is None
     assert summary.theme_metrics_parquet_path is None
+    assert summary.market_structure_row_count == 2
+    assert summary.growth_source_row_count == 2
+    assert summary.dimension_row_count == 0
+    assert summary.representative_game_row_count > 0
+    assert summary.verification == "passed"
     assert not request.export_directory.exists()
     metrics = repository.get_theme_monthly_metrics()
     decoration = next(row for row in metrics if row.game_theme == "Decoration")
@@ -150,6 +155,9 @@ def test_aggregate_workflow_uses_previous_month_outside_requested_range_and_skip
     unknown = next(row for row in metrics if row.game_theme == "Unknown")
     assert unknown.new_entry_count == 1
     assert unknown.returning_product_count == 0
+    assert len(repository.get_theme_market_structure_metrics()) == 2
+    assert len(repository.get_theme_growth_source_metrics()) == 2
+    assert len(repository.get_theme_representative_games()) == summary.representative_game_row_count
     rendered = format_aggregate_themes_summary(summary)
     assert "app-1" not in rendered
     assert "auth_token" not in rendered
@@ -217,6 +225,14 @@ def test_default_export_writes_both_derived_parquet_files(tmp_path: Path) -> Non
     )
     assert summary.monthly_totals_parquet_path.exists()
     assert summary.theme_metrics_parquet_path.exists()
+    assert summary.market_structure_parquet_path is not None
+    assert summary.growth_source_parquet_path is not None
+    assert summary.dimension_parquet_path is not None
+    assert summary.representative_games_parquet_path is not None
+    assert summary.market_structure_parquet_path.exists()
+    assert summary.growth_source_parquet_path.exists()
+    assert summary.dimension_parquet_path.exists()
+    assert summary.representative_games_parquet_path.exists()
 
 
 def test_derived_export_failure_leaves_committed_duckdb_rows(tmp_path: Path) -> None:
@@ -240,4 +256,7 @@ def test_derived_export_failure_leaves_committed_duckdb_rows(tmp_path: Path) -> 
     repository.initialize_schema()
     assert len(repository.get_monthly_market_totals()) == 1
     assert len(repository.get_theme_monthly_metrics()) == 2
+    assert len(repository.get_theme_market_structure_metrics()) == 2
+    assert len(repository.get_theme_growth_source_metrics()) == 2
+    assert len(repository.get_theme_representative_games()) > 0
     repository.close()

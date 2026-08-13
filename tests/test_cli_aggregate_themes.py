@@ -39,6 +39,7 @@ def test_plan_only_needs_no_token_database_or_output_files(
     assert "month_sequence=2025-08" in captured.out
     assert "2026-07" in captured.out
     assert "network=disabled" in captured.out
+    assert "v2_outputs=theme_market_structure_metrics" in captured.out
     assert "token" not in captured.out.lower()
     assert not (tmp_path / "data" / "casual_theme_trends.duckdb").exists()
     assert not (tmp_path / "data" / "exports").exists()

@@ -9,6 +9,11 @@ The inspected population is the WW Puzzle/Tabletop selected Top-N sample (cap
 fewer than 1000 products; `snapshot_count` always reports its actual stored
 population.
 
+The recorded real-environment acceptance evidence is 36 completed months,
+35,525 source snapshots, minimum monthly `snapshot_count` 964, maximum monthly
+`snapshot_count` 1000, `structural_issue_count` 0, and
+`structurally_complete=true`.
+
 ## Safe acceptance sequence
 
 First validate the range without configuration, credentials, DuckDB, network,
