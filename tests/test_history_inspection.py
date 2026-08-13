@@ -8,10 +8,12 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from src.config import AppConfig
 from src.storage import AppMetadataRow, DuckDBRepository, MarketSnapshotRow
+from src.storage import schema as schema_module
 from src.workflows.history_inspection import (
     HistoryInspectionRequest,
     format_history_inspection_plan,
@@ -150,6 +152,51 @@ def test_missing_database_is_not_created_by_read_only_inspection(tmp_path: Path)
 
     assert not database_path.exists()
     assert not database_path.parent.exists()
+
+
+def test_schema_v4_is_inspectable_read_only_without_model_tables(tmp_path: Path) -> None:
+    database_path = tmp_path / "version-four-history.duckdb"
+    writable = DuckDBRepository(database_path)
+    writable.open()
+    writable.initialize_schema()
+    writable.replace_market_snapshot_period([_row("2026-07")])
+    connection = writable.open()
+    for table_name in (
+        schema_module.THEME_HORIZON_METRICS_TABLE,
+        schema_module.THEME_MODEL_SUMMARIES_TABLE,
+        schema_module.THEME_SEASONALITY_PROFILES_TABLE,
+    ):
+        connection.execute(f"DROP TABLE {table_name}")
+    connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
+    writable.close()
+
+    summary = inspect_history(
+        HistoryInspectionRequest("2026-07", "2026-07", database_path=database_path),
+        AppConfig(),
+        current_utc=AS_OF,
+    )
+
+    assert summary.present_month_count == 1
+    assert summary.structurally_complete is True
+    read_only_connection = duckdb.connect(str(database_path), read_only=True)
+    try:
+        table_names = {
+            row[0]
+            for row in read_only_connection.execute(
+                "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'main'"
+            ).fetchall()
+        }
+        assert {
+            schema_module.THEME_HORIZON_METRICS_TABLE,
+            schema_module.THEME_MODEL_SUMMARIES_TABLE,
+            schema_module.THEME_SEASONALITY_PROFILES_TABLE,
+        }.isdisjoint(table_names)
+        assert read_only_connection.execute(
+            "SELECT max(version) FROM schema_migrations"
+        ).fetchone() == (4,)
+    finally:
+        read_only_connection.close()
 
 
 def test_complete_36_month_history_preserves_null_and_zero_evidence(tmp_path: Path) -> None:

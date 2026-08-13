@@ -323,6 +323,66 @@ def test_model_replacement_rejects_duplicate_identity_before_connection_access(
     repository.close()
 
 
+def test_model_replacement_rejects_corrupted_naive_timestamp_before_connection_access(
+    tmp_path: Path,
+) -> None:
+    repository = _NoConnectionRepository(tmp_path / "naive-timestamp.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    corrupted_row = model.horizon_metrics[0]
+    object.__setattr__(corrupted_row, "calculated_at", datetime(2026, 8, 10, 12, 0))
+
+    with pytest.raises(StorageValidationError, match="MODEL-002 rows failed validation"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            model.seasonality_profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
+def test_model_replacement_rejects_malformed_seasonality_mean_before_transaction(
+    tmp_path: Path,
+) -> None:
+    repository = _NoConnectionRepository(tmp_path / "seasonality-mean.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        CALCULATED_AT,
+    )
+    original_profile = model.seasonality_profiles[0]
+    malformed_index = original_profile.seasonal_index + 0.1
+    malformed_profile = replace(
+        original_profile,
+        seasonal_index=malformed_index,
+        index_deviation=malformed_index - 1,
+    )
+    profiles = (malformed_profile, *model.seasonality_profiles[1:])
+
+    with pytest.raises(StorageValidationError, match="average approximately one"):
+        repository.replace_theme_model_range(
+            (),
+            model.horizon_metrics,
+            model.model_summaries,
+            profiles,
+            target_periods=_target_periods(payload),
+            trend_target_periods=_target_periods(payload)[5:],
+        )
+    repository.close()
+
+
 def test_model_replacement_rejects_mismatched_source_identity(tmp_path: Path) -> None:
     repository = _initialized(tmp_path / "source-identity.duckdb")
     payload = _payload()

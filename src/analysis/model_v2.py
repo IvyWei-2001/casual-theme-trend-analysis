@@ -349,6 +349,7 @@ def _summarize_horizon_evidence(
         return "insufficient_history", 0, None, None, "insufficient_history"
 
     direction_values: list[str] = []
+    available_share_metric_count = 0
     slope_values: list[float] = []
     r_squared_values: list[float] = []
     coefficient_values: list[float] = []
@@ -357,13 +358,14 @@ def _summarize_horizon_evidence(
         if row is None or not row.is_complete:
             continue
         if row.normalized_slope is not None:
+            available_share_metric_count += 1
             slope_values.append(row.normalized_slope)
-            if abs(row.normalized_slope) < DIRECTION_NORMALIZED_SLOPE_THRESHOLD:
-                direction_values.append("flat")
-            elif row.r_squared is None or row.r_squared < DIRECTION_MIN_R_SQUARED:
-                # A non-flat but low-fit series is noisy evidence, not a
-                # directional vote.
+            if row.r_squared is None or row.r_squared < DIRECTION_MIN_R_SQUARED:
+                # A complete metric with a defined slope is available even
+                # when its fit is noisy; noisy evidence does not vote.
                 pass
+            elif abs(row.normalized_slope) < DIRECTION_NORMALIZED_SLOPE_THRESHOLD:
+                direction_values.append("flat")
             elif row.normalized_slope > 0:
                 direction_values.append("up")
             else:
@@ -373,19 +375,26 @@ def _summarize_horizon_evidence(
         if row.coefficient_of_variation is not None:
             coefficient_values.append(row.coefficient_of_variation)
 
-    direction = _composite_direction(direction_values)
+    direction = _composite_direction(
+        direction_values,
+        available_share_metric_count=available_share_metric_count,
+    )
     stability_band = _stability_band(coefficient_values)
     return (
         direction,
-        len(direction_values),
+        available_share_metric_count,
         median(slope_values) if slope_values else None,
         median(r_squared_values) if r_squared_values else None,
         stability_band,
     )
 
 
-def _composite_direction(values: Sequence[str]) -> str:
-    if len(values) < 2:
+def _composite_direction(
+    values: Sequence[str],
+    *,
+    available_share_metric_count: int,
+) -> str:
+    if available_share_metric_count < 2:
         return "insufficient_history"
     for candidate in ("up", "down", "flat"):
         if values.count(candidate) >= 2:
@@ -630,7 +639,7 @@ def _build_seasonality_profiles(
                     calendar_month=calendar_month_number,
                     history_start=history_start,
                     history_month_count=history_month_count,
-                    complete_year_count=len(blocks),
+                    complete_year_count=complete_year_count,
                     observation_count=len(blocks),
                     seasonal_index=seasonal_index,
                     index_deviation=seasonal_index - 1,
@@ -649,11 +658,17 @@ def _seasonality_summary(
     rows = [row for row in profiles if row.metric_name == metric_name]
     if len(rows) != 12:
         return None, None, None
+    if {row.calendar_month for row in rows} != set(range(1, 13)):
+        raise AggregationValidationError(
+            "seasonality profile must contain calendar months one through twelve"
+        )
     peak_rows = [row for row in rows if row.is_peak_month]
     trough_rows = [row for row in rows if row.is_trough_month]
     if len(peak_rows) != 1 or len(trough_rows) != 1:
         raise AggregationValidationError("seasonality profile must have one peak and one trough")
     values = [row.seasonal_index for row in rows]
+    if not isclose(sum(values) / 12, 1.0, rel_tol=1e-9, abs_tol=1e-9):
+        raise AggregationValidationError("seasonality indices must average approximately one")
     return peak_rows[0].calendar_month, trough_rows[0].calendar_month, max(values) - min(values)
 
 

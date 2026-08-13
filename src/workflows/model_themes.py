@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
+from math import isclose
 from pathlib import Path
 from typing import Protocol
 
@@ -538,9 +539,9 @@ def _verify_readback(
         period_start=start,
         period_end=end,
     )
-    if len(actual_scores) != len(trend_rows) or _identities(actual_scores) != _identities(
-        trend_rows
-    ):
+    if len(actual_scores) != len(trend_rows) or _legacy_score_identities(
+        actual_scores
+    ) != _legacy_score_identities(trend_rows):
         raise ModelReadbackVerificationError("legacy score readback verification failed")
     if (
         len(actual_horizons) != len(result.horizon_metrics)
@@ -605,10 +606,38 @@ def _verify_seasonality_groups(rows: Sequence[ThemeSeasonalityProfile]) -> None:
         )
         groups.setdefault(key, []).append(row)
     for values in groups.values():
-        if len(values) != 12 or sum(row.is_peak_month for row in values) != 1:
+        if len(values) != 12 or {row.calendar_month for row in values} != set(range(1, 13)):
+            raise ModelReadbackVerificationError(
+                "seasonality calendar-month readback verification failed"
+            )
+        if sum(row.is_peak_month for row in values) != 1:
             raise ModelReadbackVerificationError("seasonality peak readback verification failed")
         if sum(row.is_trough_month for row in values) != 1:
             raise ModelReadbackVerificationError("seasonality trough readback verification failed")
+        if not isclose(
+            sum(row.seasonal_index for row in values) / 12,
+            1.0,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            raise ModelReadbackVerificationError("seasonality mean readback verification failed")
+
+
+def _legacy_score_identities(
+    rows: Sequence[ThemeTrendScore],
+) -> set[tuple[str, str, date, date, str]]:
+    """Return the complete legacy score identity, including the raw theme."""
+
+    return {
+        (
+            row.scope_name,
+            row.cadence,
+            row.period_start,
+            row.period_end,
+            row.game_theme,
+        )
+        for row in rows
+    }
 
 
 def _period_key(scope_name: str, period: MonthlyPeriod) -> SnapshotPeriodKey:

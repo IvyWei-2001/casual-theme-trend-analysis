@@ -1179,7 +1179,12 @@ CREATE TABLE IF NOT EXISTS theme_model_summaries (
     calculated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),
     CHECK (period_start <= period_end),
-    CHECK (seasonality_history_month_count IS NOT NULL OR seasonality_complete_year_count IS NULL)
+    CHECK (seasonality_history_month_count IS NULL OR seasonality_complete_year_count IS NOT NULL),
+    CHECK (seasonality_history_month_count IS NOT NULL OR seasonality_complete_year_count IS NULL),
+    CHECK (
+        seasonality_history_month_count IS NULL
+        OR seasonality_complete_year_count <= seasonality_history_month_count / 12
+    )
 )
 """
 
@@ -1203,8 +1208,13 @@ CREATE TABLE IF NOT EXISTS theme_seasonality_profiles (
     calendar_month INTEGER NOT NULL CHECK (calendar_month BETWEEN 1 AND 12),
     history_start DATE NOT NULL,
     history_month_count INTEGER NOT NULL CHECK (history_month_count IN (24, 36)),
-    complete_year_count INTEGER NOT NULL CHECK (complete_year_count BETWEEN 2 AND 3),
-    observation_count INTEGER NOT NULL CHECK (observation_count = complete_year_count),
+    complete_year_count INTEGER NOT NULL CHECK (
+        complete_year_count BETWEEN 2 AND 3
+        AND complete_year_count <= history_month_count / 12
+    ),
+    observation_count INTEGER NOT NULL CHECK (
+        observation_count >= 2 AND observation_count <= complete_year_count
+    ),
     seasonal_index DOUBLE NOT NULL CHECK (seasonal_index >= 0),
     index_deviation DOUBLE NOT NULL,
     is_peak_month BOOLEAN NOT NULL,
@@ -1373,7 +1383,7 @@ def verify_read_only_schema(connection: duckdb.DuckDBPyConnection) -> None:
         raise UnsupportedSchemaVersionError(newest_version, CURRENT_SCHEMA_VERSION)
     if newest_version < 1:
         raise SchemaInitializationError("database schema has no supported migrations")
-    _assert_required_tables(connection)
+    _assert_table_definitions(connection, _table_definitions_for_version(newest_version))
 
 
 def _get_newest_schema_version(connection: duckdb.DuckDBPyConnection) -> int:
@@ -1411,6 +1421,24 @@ def _apply_version_five(connection: duckdb.DuckDBPyConnection) -> None:
 
 def _assert_required_tables(connection: duckdb.DuckDBPyConnection) -> None:
     _assert_table_definitions(connection, _TABLE_DEFINITIONS)
+
+
+def _table_definitions_for_version(
+    schema_version: int,
+) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """Return only tables guaranteed by an existing schema version."""
+
+    definitions: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    for minimum_version, version_definitions in (
+        (1, _V1_TABLE_DEFINITIONS),
+        (2, _V2_TABLE_DEFINITIONS),
+        (3, _V3_TABLE_DEFINITIONS),
+        (4, _V4_TABLE_DEFINITIONS),
+        (5, _V5_TABLE_DEFINITIONS),
+    ):
+        if schema_version >= minimum_version:
+            definitions += version_definitions
+    return definitions
 
 
 def _assert_table_definitions(

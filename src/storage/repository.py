@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Self, cast
@@ -1687,10 +1687,23 @@ def _validate_theme_model_range(
     for seasonality_group_rows in seasonality_groups.values():
         if len(seasonality_group_rows) != 12:
             raise StorageValidationError("each seasonality profile must contain twelve rows")
+        if {row.calendar_month for row in seasonality_group_rows} != set(range(1, 13)):
+            raise StorageValidationError(
+                "each seasonality profile must contain calendar months one through twelve"
+            )
         if sum(row.is_peak_month for row in seasonality_group_rows) != 1:
             raise StorageValidationError("each seasonality profile must have one peak month")
         if sum(row.is_trough_month for row in seasonality_group_rows) != 1:
             raise StorageValidationError("each seasonality profile must have one trough month")
+        if not isclose(
+            sum(row.seasonal_index for row in seasonality_group_rows) / 12,
+            1.0,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            raise StorageValidationError(
+                "each seasonality profile must average approximately one"
+            )
 
     score_keys = tuple(_period_key_from_trend_score(row) for row in scores_tuple)
     score_identities = {

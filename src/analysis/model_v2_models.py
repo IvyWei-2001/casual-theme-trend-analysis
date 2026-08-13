@@ -189,6 +189,7 @@ class ThemeHorizonMetric:
 
     def __post_init__(self) -> None:
         _require_text(self.scope_name, field_name="scope_name")
+        _require_timestamp(self.calculated_at, field_name="calculated_at")
         if self.cadence != "monthly":
             raise AggregationValidationError("cadence must equal monthly")
         _require_natural_month(self.period_start, self.period_end, field_name="period")
@@ -394,6 +395,7 @@ class ThemeModelSummary:
 
     def __post_init__(self) -> None:
         _require_text(self.scope_name, field_name="scope_name")
+        _require_timestamp(self.calculated_at, field_name="calculated_at")
         if self.cadence != "monthly":
             raise AggregationValidationError("cadence must equal monthly")
         _require_natural_month(self.period_start, self.period_end, field_name="period")
@@ -546,6 +548,14 @@ class ThemeModelSummary:
             raise AggregationValidationError("seasonality year count requires seasonality history")
         if seasonality_count is not None and complete_year_count is None:
             raise AggregationValidationError("seasonality year count is required with history")
+        if complete_year_count is not None:
+            if (
+                seasonality_count is None
+                or not 2 <= complete_year_count <= seasonality_count // 12
+            ):
+                raise AggregationValidationError(
+                    "seasonality year count is outside the selected history"
+                )
 
         for field_name, optional_value in optional_numbers.items():
             object.__setattr__(self, field_name, optional_value)
@@ -626,8 +636,10 @@ class ThemeSeasonalityProfile:
             self.observation_count,
             field_name="observation_count",
         )
-        if observation_count != complete_year_count:
-            raise AggregationValidationError("one observation is required per valid year block")
+        if observation_count < 2 or observation_count > complete_year_count:
+            raise AggregationValidationError(
+                "observation_count must be between two and the complete year count"
+            )
         seasonal_index = _require_number(self.seasonal_index, field_name="seasonal_index")
         if seasonal_index < 0:
             raise AggregationValidationError("seasonal_index must be non-negative")

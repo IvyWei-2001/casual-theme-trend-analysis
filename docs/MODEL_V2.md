@@ -7,7 +7,9 @@ forecast, launch-window outcome, dashboard, Feishu record, or Product Greenlight
 
 DuckDB remains authoritative. The calculation layer accepts only normalized
 `MonthlyMarketTotal`, `ThemeMarketStructureMetric`, and one injected,
-timezone-aware `calculated_at`. It has no configuration, network, Sensor Tower,
+timezone-aware `calculated_at`. Every typed MODEL-002 row, including horizon
+metrics, summaries, and seasonality profiles, requires a timezone-aware
+`calculated_at`. It has no configuration, network, Sensor Tower,
 Feishu, HTTP, or DuckDB dependency. The workflow reads the already stored
 AGG-001/AGG-002 rows and performs no collection or aggregation.
 
@@ -104,9 +106,14 @@ available history of 24–35 months, and 36 months for 36 or more months. Each
 selected history is split into consecutive 12-month blocks.
 
 For each metric and block, all 12 values must be numeric and the block mean
-must be positive. Each valid block is normalized by its own mean. A profile is
-emitted only when at least two valid blocks exist and all 12 calendar-month
-rows can be produced. Its seasonal indices must average approximately 1,
+must be positive. Each valid block is normalized by its own mean. The selected
+history has `complete_year_count = history_month_count / 12`; a profile is
+emitted only when `2 <= observation_count <= complete_year_count`, where
+`observation_count` is the number of valid blocks that contribute to the
+profile, and all 12 calendar-month rows can be produced. For example, a
+36-month history with one invalid block emits profiles with
+`complete_year_count=3` and `observation_count=2`. Its seasonal indices must
+average approximately 1,
 `index_deviation` equals `seasonal_index - 1`, and the lowest calendar month
 breaks peak/trough ties. Exactly one peak and one trough are stored per metric
 profile; a flat profile may use the same month for both.
@@ -144,11 +151,15 @@ ACCELERATION_NORMALIZED_SLOPE_MARGIN = 0.005
 ```
 
 Direction uses only `product_share`, `downloads_share`, and
-`revenue_usd_share`. A missing, incomplete, or undefined-slope metric is
-unavailable. A slope below the threshold is flat; a non-flat slope with
-missing or low R² is noisy and does not vote. At least two votes are required;
-two matching up/down/flat votes win, otherwise the result is mixed or
-`insufficient_history`.
+`revenue_usd_share`. Each complete metric with a defined normalized slope is
+available evidence. Missing, incomplete, or undefined-slope metrics are
+unavailable. An available metric with missing or low R² is noisy and does not
+vote, even when its slope is near zero. With adequate R², a slope below the
+threshold is flat; positive and negative slopes are up and down. The summary's
+`direction_evidence_count_*` stores available share-metric count, separately
+from the up/down/flat votes. Fewer than two available metrics produces
+`insufficient_history`; at least two matching votes win, otherwise the result
+is mixed.
 
 Stability is the median available complete share-metric CV. Fewer than two
 values is `insufficient_history`; the remaining bands are stable through 0.15,
@@ -180,10 +191,16 @@ tables or columns:
 
 A version-4 database migrates to version 5 without rebuilding or rewriting
 existing rows. Fresh initialization records versions 1 through 5 in order.
+The read-only HIST-002 boundary is version-aware: it accepts a valid v4 source
+without requiring MODEL-002 tables or creating migrations, accepts v5, and
+rejects unsupported future versions.
 
 `replace_theme_model_range(...)` validates typed rows, identities, timestamps,
 source identity equality, horizon references, seasonality groups, and legacy
-score references before one transaction. It replaces the four output sets:
+score references before one transaction. Seasonality groups must contain
+calendar months 1 through 12, exactly one peak and trough, and an arithmetic
+mean of seasonal indices approximately equal to 1. It replaces the four output
+sets:
 
 - legacy `theme_trend_scores` rows for 6M-scorable target periods;
 - `theme_horizon_metrics`;
@@ -191,7 +208,10 @@ score references before one transaction. It replaces the four output sets:
 - `theme_seasonality_profiles`.
 
 After commit, the workflow rereads exact counts and identities, validates
-seasonality groups, and exports deterministic atomic ZSTD Parquet files:
+seasonality groups, and verifies legacy score identities using
+`(scope_name, cadence, period_start, period_end, game_theme)` rather than the
+backward-compatible four-field `ThemeTrendScore.period_key`. It exports
+deterministic atomic ZSTD Parquet files:
 
 ```text
 theme_trend_scores.parquet

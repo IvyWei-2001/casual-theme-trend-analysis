@@ -10,6 +10,7 @@ from math import isclose
 import pytest
 from test_analysis_theme_monthly import _metadata, _row
 
+from src.analysis.errors import AggregationValidationError
 from src.analysis.model_v2 import _lifecycle_stage, calculate_theme_model_metrics
 from src.analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
 from src.storage import MonthlyMarketTotal
@@ -18,6 +19,7 @@ CALCULATED_AT = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 SCOPE = "casual_puzzle_tabletop"
 THEME = "Theme"
 BASE_MONTH = date(2023, 8, 1)
+FLAT_SERIES = (0.200, 0.201, 0.202, 0.203, 0.204, 0.205)
 
 
 def _month_start(index: int) -> date:
@@ -264,6 +266,20 @@ def test_constant_and_zero_series_keep_undefined_fit_fields_and_zero_drawdown() 
     assert row.maximum_drawdown == 0.0
 
 
+@pytest.mark.parametrize("row_kind", ("horizon", "summary"))
+@pytest.mark.parametrize("bad_timestamp", (datetime(2026, 8, 10, 12, 0), "not-a-timestamp"))
+def test_model_rows_require_timezone_aware_calculated_at(
+    row_kind: str,
+    bad_timestamp: object,
+) -> None:
+    totals, structures = _history(6)
+    result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
+    row = result.horizon_metrics[0] if row_kind == "horizon" else result.model_summaries[0]
+
+    with pytest.raises(AggregationValidationError, match="calculated_at must be timezone-aware"):
+        replace(row, calculated_at=bad_timestamp)  # type: ignore[arg-type]
+
+
 def test_transition_coverage_uses_only_adjacent_numeric_pairs() -> None:
     totals, structures = _history(
         6,
@@ -285,15 +301,76 @@ def test_direction_uses_only_share_metrics_and_ignores_noisy_nonflat_evidence() 
     totals, structures = _history(
         6,
         product_shares=(0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
-        downloads_shares=(0.2,) * 6,
-        revenue_shares=(0.2,) * 6,
+        downloads_shares=FLAT_SERIES,
+        revenue_shares=FLAT_SERIES,
     )
     result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
     summary = _summary(result, target=_month_start(5))
     assert summary.direction_6m == "flat"
-    assert summary.direction_evidence_count_6m == 2
+    assert summary.direction_evidence_count_6m == 3
     assert summary.direction_12m == "insufficient_history"
     assert summary.stability_band_6m == "stable"
+
+
+@pytest.mark.parametrize(
+    ("product", "downloads", "revenue", "expected_direction", "expected_evidence"),
+    (
+        (
+            (0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+            (0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+            (None,) * 6,
+            "mixed",
+            2,
+        ),
+        (
+            (0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+            (0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+            (None,) * 6,
+            "mixed",
+            2,
+        ),
+        (
+            (0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+            (0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+            (0.9, 0.1, 0.9, 0.1, 0.9, 0.1),
+            "mixed",
+            3,
+        ),
+        (
+            (0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+            (None,) * 6,
+            (None,) * 6,
+            "insufficient_history",
+            1,
+        ),
+        (
+            FLAT_SERIES,
+            FLAT_SERIES,
+            (0.1, 0.9, 0.1, 0.9, 0.1, 0.9),
+            "flat",
+            3,
+        ),
+    ),
+)
+def test_direction_evidence_counts_noisy_metrics_as_available(
+    product: tuple[float | None, ...],
+    downloads: tuple[float | None, ...],
+    revenue: tuple[float | None, ...],
+    expected_direction: str,
+    expected_evidence: int,
+) -> None:
+    totals, structures = _history(
+        6,
+        product_shares=product,
+        downloads_shares=downloads,
+        revenue_shares=revenue,
+    )
+    summary = _summary(
+        calculate_theme_model_metrics(totals, structures, CALCULATED_AT),
+        target=_month_start(5),
+    )
+    assert summary.direction_6m == expected_direction
+    assert summary.direction_evidence_count_6m == expected_evidence
 
 
 @pytest.mark.parametrize(
@@ -301,7 +378,7 @@ def test_direction_uses_only_share_metrics_and_ignores_noisy_nonflat_evidence() 
     (
         ((0.1, 0.2, 0.3, 0.4, 0.5, 0.6),) * 3 + ("up",),
         ((0.6, 0.5, 0.4, 0.3, 0.2, 0.1),) * 3 + ("down",),
-        ((0.2,) * 6,) * 3 + ("flat",),
+        (FLAT_SERIES,) * 3 + ("flat",),
         (
             (0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
             (0.6, 0.5, 0.4, 0.3, 0.2, 0.1),
@@ -366,7 +443,7 @@ def test_empty_unknown_and_na_labels_remain_target_groups() -> None:
         ((0.1,) * 6 + (0.1, 0.2, 0.3, 0.4, 0.5, 0.6), 6, "emerging"),
         ((0.1, 0.101, 0.102, 0.103, 0.104, 0.105, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7), 0, "accelerating"),
         ((0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66), 0, "growing"),
-        ((0.5,) * 12, 0, "mature"),
+        (FLAT_SERIES + (0.206, 0.207, 0.208, 0.209, 0.210, 0.211), 0, "mature"),
     ),
 )
 def test_lifecycle_policy_order_is_deterministic(
@@ -538,6 +615,39 @@ def test_seasonality_requires_valid_nonzero_blocks() -> None:
         if row.metric_name in {"downloads_sum", "revenue_usd_sum"}
     ]
 
+
+def test_seasonality_distinguishes_selected_complete_years_from_valid_observations() -> None:
+    pattern = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0)
+    values = pattern + (None,) * 12 + pattern
+    totals, structures = _history(
+        36,
+        downloads_values=values,
+        revenue_values=values,
+    )
+    result = calculate_theme_model_metrics(totals, structures, CALCULATED_AT)
+    target = _month_start(35)
+    downloads_profile = [
+        row
+        for row in result.seasonality_profiles
+        if row.period_start == target and row.metric_name == "downloads_sum"
+    ]
+    assert len(downloads_profile) == 12
+    assert {row.history_month_count for row in downloads_profile} == {36}
+    assert {row.complete_year_count for row in downloads_profile} == {3}
+    assert {row.observation_count for row in downloads_profile} == {2}
+    assert _summary(result, target=target).seasonality_complete_year_count == 3
+
+    totals_24, structures_24 = _history(
+        24,
+        downloads_values=pattern + (None,) * 12,
+        revenue_values=pattern + (None,) * 12,
+    )
+    result_24 = calculate_theme_model_metrics(totals_24, structures_24, CALCULATED_AT)
+    assert not [
+        row
+        for row in result_24.seasonality_profiles
+        if row.metric_name in {"downloads_sum", "revenue_usd_sum"}
+    ]
 
 def test_historical_target_is_unchanged_when_future_months_change() -> None:
     base_totals, base_structures = _history(36)
