@@ -20,6 +20,12 @@ The source is the WW Puzzle/Tabletop selected Top-N sample with a cap of 1,000.
 It is not the complete global mobile-games market. Every calculation uses the
 actual stored monthly `snapshot_count` and never pads the sample to the cap.
 
+The accepted real-environment AGG-002 evidence is 36 completed months, 35,525
+source snapshots, 2,153 theme-month evidence rows, 20,880 observed-dimension
+rows, 21,528 representative-game evidence rows, and
+`verification=passed`. The evidence summary intentionally excludes raw
+labels, identifiers, publishers, metric values, and database rows.
+
 AGG-002 receives only `MarketSnapshotRow`, `AppMetadataRow`, current and
 immediately previous stored monthly periods, and one injected timezone-aware
 `calculated_at` timestamp. The analysis layer does not load configuration,

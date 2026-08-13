@@ -44,6 +44,8 @@ from .workflows import (
     CollectMonthRequest,
     HistoryInspectionRequest,
     InvalidMonthError,
+    ModelThemesError,
+    ModelThemesRequest,
     ScoreThemesRequest,
     SyncFeishuTrendsRequest,
     WorkflowError,
@@ -57,8 +59,10 @@ from .workflows import (
     format_feishu_trend_sync_summary,
     format_history_inspection_plan,
     format_history_inspection_summary,
+    format_model_themes_summary,
     format_score_themes_summary,
     inspect_history,
+    model_themes,
     score_themes,
     sync_feishu_trends,
 )
@@ -196,6 +200,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="positive number of latest-month actionable themes to display (default: 20)",
     )
+    model_parser = subparsers.add_parser(
+        "model-themes",
+        help="calculate MODEL-002 horizon, lifecycle, and seasonality evidence",
+    )
+    model_parser.add_argument(
+        "--start",
+        required=True,
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    model_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
+    )
+    model_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the model plan without database or file access",
+    )
+    model_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="store model rows but skip all four Parquet exports",
+    )
     inspect_parser = subparsers.add_parser(
         "inspect-feishu",
         help="inspect configured Feishu Bitable field metadata without writes",
@@ -285,6 +313,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_error(str(error))
             return 2
         print(format_aggregate_themes_summary(aggregate_plan_summary))
+        return 0
+    if args.command == "model-themes" and args.plan_only:
+        try:
+            model_plan_summary = model_themes(
+                ModelThemesRequest(
+                    start_month=args.start,
+                    end_month=args.end,
+                    database_path=Path(DEFAULT_DATABASE_PATH),
+                    export_directory=Path(DEFAULT_EXPORT_DIRECTORY),
+                    plan_only=True,
+                ),
+                AppConfig.model_construct(),
+                current_utc=datetime.now(UTC),
+            )
+        except (InvalidMonthError, WorkflowError) as error:
+            _print_error(str(error))
+            return 2
+        print(format_model_themes_summary(model_plan_summary))
         return 0
     if args.command == "inspect-history" and args.plan_only:
         try:
@@ -612,6 +658,48 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_score_themes_summary(score_summary))
+        return 0
+
+    if args.command == "model-themes":
+        current_utc = datetime.now(UTC)
+        model_request = ModelThemesRequest(
+            start_month=args.start,
+            end_month=args.end,
+            database_path=config.database_path,
+            export_directory=config.export_directory,
+            plan_only=args.plan_only,
+            skip_export=args.skip_export,
+        )
+        try:
+            model_summary = model_themes(
+                model_request,
+                config,
+                current_utc=current_utc,
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except AggregationError as error:
+            _print_error(str(error))
+            return 4
+        except StorageError as error:
+            _print_error("local MODEL-002 storage operation failed")
+            LOGGER.debug("MODEL-002 storage failure: %s", error)
+            return 4
+        except ModelThemesError as error:
+            _print_error(str(error))
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local MODEL-002 storage operation failed")
+            return 4
+        except Exception:
+            _print_error("theme model calculation failed")
+            return 4
+
+        print(format_model_themes_summary(model_summary))
         return 0
 
     _print_error("unsupported command")

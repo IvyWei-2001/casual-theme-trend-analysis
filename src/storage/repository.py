@@ -13,6 +13,11 @@ from typing import Any, Literal, Self, cast
 
 import duckdb
 
+from ..analysis.model_v2_models import (
+    ThemeHorizonMetric,
+    ThemeModelSummary,
+    ThemeSeasonalityProfile,
+)
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from ..analysis.opportunity_models import (
     DEFAULT_REPRESENTATIVE_GAME_LIMIT,
@@ -48,12 +53,18 @@ from .schema import (
     THEME_DIMENSION_MONTHLY_METRICS_TABLE,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_TABLE,
+    THEME_HORIZON_METRICS_COLUMNS,
+    THEME_HORIZON_METRICS_TABLE,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_TABLE,
+    THEME_MODEL_SUMMARIES_COLUMNS,
+    THEME_MODEL_SUMMARIES_TABLE,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_TABLE,
     THEME_REPRESENTATIVE_GAMES_COLUMNS,
     THEME_REPRESENTATIVE_GAMES_TABLE,
+    THEME_SEASONALITY_PROFILES_COLUMNS,
+    THEME_SEASONALITY_PROFILES_TABLE,
     THEME_TREND_SCORES_COLUMNS,
     THEME_TREND_SCORES_TABLE,
     initialize_schema,
@@ -86,6 +97,18 @@ _THEME_REPRESENTATIVE_GAMES_PLACEHOLDERS_SQL = ", ".join(
 )
 _THEME_TREND_SCORES_COLUMNS_SQL = ", ".join(THEME_TREND_SCORES_COLUMNS)
 _THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_TREND_SCORES_COLUMNS)
+_THEME_HORIZON_METRICS_COLUMNS_SQL = ", ".join(THEME_HORIZON_METRICS_COLUMNS)
+_THEME_HORIZON_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_HORIZON_METRICS_COLUMNS
+)
+_THEME_MODEL_SUMMARIES_COLUMNS_SQL = ", ".join(THEME_MODEL_SUMMARIES_COLUMNS)
+_THEME_MODEL_SUMMARIES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_MODEL_SUMMARIES_COLUMNS
+)
+_THEME_SEASONALITY_PROFILES_COLUMNS_SQL = ", ".join(THEME_SEASONALITY_PROFILES_COLUMNS)
+_THEME_SEASONALITY_PROFILES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_SEASONALITY_PROFILES_COLUMNS
+)
 
 _DELETE_MARKET_PERIOD_SQL = """
 DELETE FROM market_snapshots
@@ -202,6 +225,43 @@ WHERE scope_name = ?
 _INSERT_THEME_TREND_SCORE_SQL = (
     f"INSERT INTO {THEME_TREND_SCORES_TABLE} ({_THEME_TREND_SCORES_COLUMNS_SQL}) "
     f"VALUES ({_THEME_TREND_SCORES_PLACEHOLDERS_SQL})"
+)
+
+_DELETE_THEME_HORIZON_METRICS_SQL = """
+DELETE FROM theme_horizon_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+_DELETE_THEME_MODEL_SUMMARIES_SQL = """
+DELETE FROM theme_model_summaries
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+_DELETE_THEME_SEASONALITY_PROFILES_SQL = """
+DELETE FROM theme_seasonality_profiles
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+_INSERT_THEME_HORIZON_METRIC_SQL = (
+    f"INSERT INTO {THEME_HORIZON_METRICS_TABLE} "
+    f"({_THEME_HORIZON_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_HORIZON_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_MODEL_SUMMARY_SQL = (
+    f"INSERT INTO {THEME_MODEL_SUMMARIES_TABLE} "
+    f"({_THEME_MODEL_SUMMARIES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_MODEL_SUMMARIES_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_SEASONALITY_PROFILE_SQL = (
+    f"INSERT INTO {THEME_SEASONALITY_PROFILES_TABLE} "
+    f"({_THEME_SEASONALITY_PROFILES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_SEASONALITY_PROFILES_PLACEHOLDERS_SQL})"
 )
 
 
@@ -507,6 +567,97 @@ class DuckDBRepository:
         ).fetchall()
         return [_theme_trend_score_from_database_row(row) for row in rows]
 
+    def get_theme_horizon_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        horizon_month_count: int | None = None,
+        metric_name: str | None = None,
+    ) -> list[ThemeHorizonMetric]:
+        """Read long-form horizon evidence in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            horizon_month_count=horizon_month_count,
+            metric_name=metric_name,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_HORIZON_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_HORIZON_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, "
+            "horizon_month_count, metric_name, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_horizon_metric_from_database_row(row) for row in rows]
+
+    def get_theme_model_summaries(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeModelSummary]:
+        """Read model-evidence summaries in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_MODEL_SUMMARIES_COLUMNS_SQL} "
+            f"FROM {THEME_MODEL_SUMMARIES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_model_summary_from_database_row(row) for row in rows]
+
+    def get_theme_seasonality_profiles(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        metric_name: str | None = None,
+        calendar_month: int | None = None,
+    ) -> list[ThemeSeasonalityProfile]:
+        """Read seasonality profiles in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            metric_name=metric_name,
+            calendar_month=calendar_month,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_SEASONALITY_PROFILES_COLUMNS_SQL} "
+            f"FROM {THEME_SEASONALITY_PROFILES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, "
+            "metric_name, calendar_month, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_seasonality_profile_from_database_row(row) for row in rows]
+
     def replace_theme_monthly_range(
         self,
         monthly_totals: Sequence[MonthlyMarketTotal],
@@ -660,6 +811,79 @@ class DuckDBRepository:
                 connection.executemany(
                     _INSERT_THEME_TREND_SCORE_SQL,
                     [_theme_trend_score_parameters(row) for row in scores_tuple],
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            _rollback(connection)
+            raise
+
+    def replace_theme_model_range(
+        self,
+        trend_scores: Sequence[ThemeTrendScore],
+        horizon_metrics: Sequence[ThemeHorizonMetric],
+        model_summaries: Sequence[ThemeModelSummary],
+        seasonality_profiles: Sequence[ThemeSeasonalityProfile],
+        *,
+        target_periods: Sequence[SnapshotPeriodKey],
+        trend_target_periods: Sequence[SnapshotPeriodKey] | None = None,
+    ) -> None:
+        """Atomically replace all MODEL-002 outputs for requested periods."""
+
+        payload = _validate_theme_model_range(
+            trend_scores,
+            horizon_metrics,
+            model_summaries,
+            seasonality_profiles,
+            target_periods=target_periods,
+            trend_target_periods=trend_target_periods,
+        )
+        (
+            scores_tuple,
+            horizons_tuple,
+            summaries_tuple,
+            seasonality_tuple,
+            target_keys,
+            score_target_keys,
+        ) = payload
+        connection = self._require_initialized_connection()
+        _verify_model_summary_source_identities(connection, target_keys, summaries_tuple)
+
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for key in target_keys:
+                parameters = [
+                    key.scope_name,
+                    key.cadence,
+                    key.period_start,
+                    key.period_end,
+                ]
+                connection.execute(_DELETE_THEME_HORIZON_METRICS_SQL, parameters)
+                connection.execute(_DELETE_THEME_MODEL_SUMMARIES_SQL, parameters)
+                connection.execute(_DELETE_THEME_SEASONALITY_PROFILES_SQL, parameters)
+            for key in score_target_keys:
+                connection.execute(
+                    _DELETE_THEME_TREND_SCORES_SQL,
+                    [key.scope_name, key.cadence, key.period_start, key.period_end],
+                )
+            if scores_tuple:
+                connection.executemany(
+                    _INSERT_THEME_TREND_SCORE_SQL,
+                    [_theme_trend_score_parameters(row) for row in scores_tuple],
+                )
+            if horizons_tuple:
+                connection.executemany(
+                    _INSERT_THEME_HORIZON_METRIC_SQL,
+                    [_theme_horizon_metric_parameters(row) for row in horizons_tuple],
+                )
+            if summaries_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MODEL_SUMMARY_SQL,
+                    [_theme_model_summary_parameters(row) for row in summaries_tuple],
+                )
+            if seasonality_tuple:
+                connection.executemany(
+                    _INSERT_THEME_SEASONALITY_PROFILE_SQL,
+                    [_theme_seasonality_profile_parameters(row) for row in seasonality_tuple],
                 )
             connection.execute("COMMIT")
         except Exception:
@@ -822,6 +1046,27 @@ class DuckDBRepository:
         from .parquet import export_theme_trend_scores_to_parquet
 
         export_theme_trend_scores_to_parquet(self, path)
+
+    def export_theme_horizon_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export MODEL-002 horizon metrics to Parquet."""
+
+        from .parquet import export_theme_horizon_metrics_to_parquet
+
+        export_theme_horizon_metrics_to_parquet(self, path)
+
+    def export_theme_model_summaries_to_parquet(self, path: str | Path) -> None:
+        """Atomically export MODEL-002 summaries to Parquet."""
+
+        from .parquet import export_theme_model_summaries_to_parquet
+
+        export_theme_model_summaries_to_parquet(self, path)
+
+    def export_theme_seasonality_profiles_to_parquet(self, path: str | Path) -> None:
+        """Atomically export MODEL-002 seasonality profiles to Parquet."""
+
+        from .parquet import export_theme_seasonality_profiles_to_parquet
+
+        export_theme_seasonality_profiles_to_parquet(self, path)
 
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
@@ -1063,6 +1308,20 @@ def _theme_trend_score_parameters(row: ThemeTrendScore) -> tuple[object, ...]:
     )
 
 
+def _theme_horizon_metric_parameters(row: ThemeHorizonMetric) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_HORIZON_METRICS_COLUMNS)
+
+
+def _theme_model_summary_parameters(row: ThemeModelSummary) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_MODEL_SUMMARIES_COLUMNS)
+
+
+def _theme_seasonality_profile_parameters(
+    row: ThemeSeasonalityProfile,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_SEASONALITY_PROFILES_COLUMNS)
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -1114,6 +1373,23 @@ def _theme_representative_game_from_database_row(
 def _theme_trend_score_from_database_row(row: Sequence[object]) -> ThemeTrendScore:
     values = dict(zip(THEME_TREND_SCORES_COLUMNS, row, strict=True))
     return ThemeTrendScore(**cast(Any, values))
+
+
+def _theme_horizon_metric_from_database_row(row: Sequence[object]) -> ThemeHorizonMetric:
+    values = dict(zip(THEME_HORIZON_METRICS_COLUMNS, row, strict=True))
+    return ThemeHorizonMetric(**cast(Any, values))
+
+
+def _theme_model_summary_from_database_row(row: Sequence[object]) -> ThemeModelSummary:
+    values = dict(zip(THEME_MODEL_SUMMARIES_COLUMNS, row, strict=True))
+    return ThemeModelSummary(**cast(Any, values))
+
+
+def _theme_seasonality_profile_from_database_row(
+    row: Sequence[object],
+) -> ThemeSeasonalityProfile:
+    values = dict(zip(THEME_SEASONALITY_PROFILES_COLUMNS, row, strict=True))
+    return ThemeSeasonalityProfile(**cast(Any, values))
 
 
 def _validate_theme_monthly_range(
@@ -1303,6 +1579,191 @@ def _validate_theme_opportunity_range(
     )
 
 
+def _validate_theme_model_range(
+    trend_scores: Sequence[ThemeTrendScore],
+    horizon_metrics: Sequence[ThemeHorizonMetric],
+    model_summaries: Sequence[ThemeModelSummary],
+    seasonality_profiles: Sequence[ThemeSeasonalityProfile],
+    *,
+    target_periods: Sequence[SnapshotPeriodKey],
+    trend_target_periods: Sequence[SnapshotPeriodKey] | None,
+) -> tuple[
+    tuple[ThemeTrendScore, ...],
+    tuple[ThemeHorizonMetric, ...],
+    tuple[ThemeModelSummary, ...],
+    tuple[ThemeSeasonalityProfile, ...],
+    tuple[SnapshotPeriodKey, ...],
+    tuple[SnapshotPeriodKey, ...],
+]:
+    """Validate a MODEL-002 payload without opening or mutating DuckDB."""
+
+    scores_tuple = tuple(trend_scores)
+    horizons_tuple = tuple(horizon_metrics)
+    summaries_tuple = tuple(model_summaries)
+    seasonality_tuple = tuple(seasonality_profiles)
+    typed_values = (
+        (scores_tuple, ThemeTrendScore, "trend scores"),
+        (horizons_tuple, ThemeHorizonMetric, "horizon metrics"),
+        (summaries_tuple, ThemeModelSummary, "model summaries"),
+        (seasonality_tuple, ThemeSeasonalityProfile, "seasonality profiles"),
+    )
+    for values, expected_type, label in typed_values:
+        if any(not isinstance(row, expected_type) for row in values):
+            raise StorageValidationError(f"{label} contain an invalid typed row")
+    try:
+        scores_tuple = tuple(replace(row) for row in scores_tuple)
+        horizons_tuple = tuple(replace(row) for row in horizons_tuple)
+        summaries_tuple = tuple(replace(row) for row in summaries_tuple)
+        seasonality_tuple = tuple(replace(row) for row in seasonality_tuple)
+    except Exception as error:
+        raise StorageValidationError("MODEL-002 rows failed validation") from error
+
+    target_keys = _validate_target_periods(target_periods)
+    if not target_keys:
+        raise StorageValidationError("MODEL-002 target periods must not be empty")
+    target_key_set = set(target_keys)
+
+    summary_keys = tuple(_period_key_from_model_summary(row) for row in summaries_tuple)
+    summary_identities = {
+        _model_theme_identity(key, row.game_theme)
+        for key, row in zip(summary_keys, summaries_tuple, strict=True)
+    }
+    if len(summary_identities) != len(summaries_tuple):
+        raise StorageValidationError("model summaries must have unique identities")
+    if any(key not in target_key_set for key in summary_keys):
+        raise StorageValidationError("model summaries must belong to target periods")
+    summary_by_identity = {
+        _model_theme_identity(key, row.game_theme): row
+        for key, row in zip(summary_keys, summaries_tuple, strict=True)
+    }
+
+    horizon_keys = tuple(_period_key_from_model_horizon(row) for row in horizons_tuple)
+    horizon_identities = {
+        (*_model_theme_identity(key, row.game_theme), row.horizon_month_count, row.metric_name)
+        for key, row in zip(horizon_keys, horizons_tuple, strict=True)
+    }
+    if len(horizon_identities) != len(horizons_tuple):
+        raise StorageValidationError("horizon metrics must have unique identities")
+    if any(key not in target_key_set for key in horizon_keys):
+        raise StorageValidationError("horizon metrics must belong to target periods")
+    if any(
+        _model_theme_identity(key, row.game_theme) not in summary_by_identity
+        for key, row in zip(horizon_keys, horizons_tuple, strict=True)
+    ):
+        raise StorageValidationError("horizon metrics must reference a model summary")
+    horizon_groups: dict[
+        tuple[SnapshotPeriodKey, str, int], list[ThemeHorizonMetric]
+    ] = defaultdict(list)
+    for key, row in zip(horizon_keys, horizons_tuple, strict=True):
+        horizon_groups[(key, row.game_theme, row.horizon_month_count)].append(row)
+    for rows in horizon_groups.values():
+        active_months = {row.active_month_count for row in rows}
+        if len(active_months) != 1:
+            raise StorageValidationError("horizon active-month evidence must be consistent")
+
+    seasonality_keys = tuple(
+        _period_key_from_model_seasonality(row) for row in seasonality_tuple
+    )
+    seasonality_identities = {
+        (*_model_theme_identity(key, row.game_theme), row.metric_name, row.calendar_month)
+        for key, row in zip(seasonality_keys, seasonality_tuple, strict=True)
+    }
+    if len(seasonality_identities) != len(seasonality_tuple):
+        raise StorageValidationError("seasonality profiles must have unique identities")
+    if any(key not in target_key_set for key in seasonality_keys):
+        raise StorageValidationError("seasonality profiles must belong to target periods")
+    if any(
+        _model_theme_identity(key, row.game_theme) not in summary_by_identity
+        for key, row in zip(seasonality_keys, seasonality_tuple, strict=True)
+    ):
+        raise StorageValidationError("seasonality profiles must reference a model summary")
+    seasonality_groups: defaultdict[
+        tuple[SnapshotPeriodKey, str, str], list[ThemeSeasonalityProfile]
+    ] = defaultdict(list)
+    for key, seasonality_row in zip(seasonality_keys, seasonality_tuple, strict=True):
+        seasonality_groups[
+            (key, seasonality_row.game_theme, seasonality_row.metric_name)
+        ].append(seasonality_row)
+    for seasonality_group_rows in seasonality_groups.values():
+        if len(seasonality_group_rows) != 12:
+            raise StorageValidationError("each seasonality profile must contain twelve rows")
+        if sum(row.is_peak_month for row in seasonality_group_rows) != 1:
+            raise StorageValidationError("each seasonality profile must have one peak month")
+        if sum(row.is_trough_month for row in seasonality_group_rows) != 1:
+            raise StorageValidationError("each seasonality profile must have one trough month")
+
+    score_keys = tuple(_period_key_from_trend_score(row) for row in scores_tuple)
+    score_identities = {
+        _model_theme_identity(key, row.game_theme)
+        for key, row in zip(score_keys, scores_tuple, strict=True)
+    }
+    if len(score_identities) != len(scores_tuple):
+        raise StorageValidationError("trend scores must have unique identities")
+    if any(key not in target_key_set for key in score_keys):
+        raise StorageValidationError("trend scores must belong to target periods")
+    for key, score_row in zip(score_keys, scores_tuple, strict=True):
+        summary = summary_by_identity.get(_model_theme_identity(key, score_row.game_theme))
+        if summary is None or not summary.has_6m_history:
+            raise StorageValidationError("legacy trend scores require a summary with 6M history")
+
+    score_target_keys = (
+        _validate_target_periods(trend_target_periods)
+        if trend_target_periods is not None
+        else tuple(dict.fromkeys(score_keys))
+    )
+    if any(key not in target_key_set for key in score_target_keys):
+        raise StorageValidationError("trend target periods must belong to model target periods")
+    if any(
+        not any(
+            key == summary_key and summary.has_6m_history
+            for summary_key, summary in zip(summary_keys, summaries_tuple, strict=True)
+        )
+        for key in score_target_keys
+    ):
+        raise StorageValidationError("trend target periods require 6M summary history")
+
+    timestamps = [
+        row.calculated_at
+        for rows in (scores_tuple, horizons_tuple, summaries_tuple, seasonality_tuple)
+        for row in rows
+    ]
+    if timestamps and len(set(timestamps)) != 1:
+        raise StorageValidationError("all MODEL-002 rows must use one calculated_at timestamp")
+    return (
+        scores_tuple,
+        horizons_tuple,
+        summaries_tuple,
+        seasonality_tuple,
+        target_keys,
+        score_target_keys,
+    )
+
+
+def _verify_model_summary_source_identities(
+    connection: duckdb.DuckDBPyConnection,
+    target_keys: Sequence[SnapshotPeriodKey],
+    summaries: Sequence[ThemeModelSummary],
+) -> None:
+    expected: set[tuple[str, str, date, date, str]] = set()
+    for key in target_keys:
+        rows = connection.execute(
+            "SELECT scope_name, cadence, period_start, period_end, game_theme "
+            "FROM theme_market_structure_metrics "
+            "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ?",
+            [key.scope_name, key.cadence, key.period_start, key.period_end],
+        ).fetchall()
+        expected.update(
+            (str(row[0]), str(row[1]), row[2], row[3], str(row[4]))
+            for row in rows
+        )
+    actual = {
+        (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
+        for row in summaries
+    }
+    if actual != expected:
+        raise StorageValidationError("model summaries must match AGG-002 theme identities")
+
+
 def _period_key_from_theme_metric(row: ThemeMonthlyMetric) -> SnapshotPeriodKey:
     return SnapshotPeriodKey(
         scope_name=row.scope_name,
@@ -1310,6 +1771,49 @@ def _period_key_from_theme_metric(row: ThemeMonthlyMetric) -> SnapshotPeriodKey:
         period_start=row.period_start,
         period_end=row.period_end,
     )
+
+
+def _period_key_from_trend_score(row: ThemeTrendScore) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _period_key_from_model_summary(row: ThemeModelSummary) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _period_key_from_model_horizon(row: ThemeHorizonMetric) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _period_key_from_model_seasonality(row: ThemeSeasonalityProfile) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _model_theme_identity(
+    key: SnapshotPeriodKey,
+    game_theme: str,
+) -> tuple[str, str, date, date, str]:
+    return (key.scope_name, key.cadence, key.period_start, key.period_end, game_theme)
 
 
 def _period_key_from_total(row: MonthlyMarketTotal) -> SnapshotPeriodKey:
@@ -1394,6 +1898,9 @@ def _derived_filter_sql(
     dimension_type: str | None = None,
     dimension_value: str | None = None,
     evidence_type: str | None = None,
+    horizon_month_count: int | None = None,
+    metric_name: str | None = None,
+    calendar_month: int | None = None,
 ) -> tuple[str, list[object]]:
     if cadence != "monthly":
         raise StorageValidationError("derived tables only support monthly cadence")
@@ -1420,6 +1927,15 @@ def _derived_filter_sql(
     if evidence_type is not None:
         clauses.append("evidence_type = ?")
         parameters.append(evidence_type)
+    if horizon_month_count is not None:
+        clauses.append("horizon_month_count = ?")
+        parameters.append(horizon_month_count)
+    if metric_name is not None:
+        clauses.append("metric_name = ?")
+        parameters.append(metric_name)
+    if calendar_month is not None:
+        clauses.append("calendar_month = ?")
+        parameters.append(calendar_month)
     return "WHERE " + " AND ".join(clauses), parameters
 
 

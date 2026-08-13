@@ -17,6 +17,14 @@ class WorkflowMetadataIntegrityError(WorkflowError):
     """Raised when cached and newly fetched metadata cannot be joined safely."""
 
 
+class ModelThemesError(WorkflowError):
+    """Raised when the MODEL-002 workflow cannot complete safely."""
+
+
+class ModelReadbackVerificationError(ModelThemesError):
+    """Raised when committed MODEL-002 rows do not match the calculated payload."""
+
+
 type BackfillFailureKind = Literal[
     "configuration",
     "sensor_tower",

@@ -42,9 +42,10 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 4 contains nine business tables plus the `schema_migrations` control
-table. Version 4 adds four V2 evidence tables without changing the source
-tables, schema-v2 monthly aggregation rows, or schema-v3 trend scores:
+version 5 contains twelve business tables plus the `schema_migrations` control
+table. Version 4 adds four V2 evidence tables and version 5 adds three
+MODEL-002 evidence tables without changing source tables, schema-v2 monthly
+aggregation rows, schema-v3 trend scores, or schema-v4 rows:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -60,6 +61,23 @@ tables, schema-v2 monthly aggregation rows, or schema-v3 trend scores:
   Every verified source metric is nullable because the live market response
   may omit the current/comparison and generic fields. Omitted values are
   stored as SQL `NULL`, not zero or a substitute from another source field.
+
+Version 5 adds:
+
+- `theme_horizon_metrics`: long-form 6M, 12M, and 36M descriptive and trend
+  evidence for six approved metrics;
+- `theme_model_summaries`: one explainable policy-versioned summary per
+  current AGG-002 theme-month identity, including direction, stability,
+  lifecycle, active-history, and absolute-metric seasonality evidence; and
+- `theme_seasonality_profiles`: twelve-row calendar-month profiles built from
+  recent complete 12-month blocks with per-block normalization.
+
+MODEL-002 uses only normalized internal rows and one injected timezone-aware
+calculation timestamp. It preserves raw theme labels, zero-fills absent
+historical theme rows, keeps present-but-NULL metrics unavailable, and never
+uses later months when producing an earlier target. See
+[`MODEL_V2.md`](MODEL_V2.md) for formulas, policy order, readers, replacement,
+readback, and export contracts.
 
 The composite market-period identity is:
 
@@ -86,7 +104,8 @@ aggregation, Trend Score, or Feishu synchronization. Live single-period
 collection is deferred to DB-002. AGG-001 adds the two derived tables described
 below without changing the source-table columns. AGG-002 adds the separate
 schema-v4 evidence tables described after the AGG-001 contract. TREND-001 adds
-the schema-v3 score table described after the V2 evidence contract.
+the schema-v3 score table, and MODEL-002 adds the schema-v5 evidence tables,
+without changing earlier table contracts.
 
 ## AGG-001 schema-v2 derived storage contract
 
@@ -241,6 +260,37 @@ replacement. Source tables and both schema-v2 aggregation tables are not
 modified. `theme_trend_scores.parquet` is a deterministic archive export with
 explicit columns, stable rank ordering, ZSTD compression, and atomic sibling
 replacement.
+
+## MODEL-002 schema-v5 evidence storage contract
+
+MODEL-002 consumes the stored monthly totals and matching
+`theme_market_structure_metrics` identities. It adds three long-form/evidence
+tables: `theme_horizon_metrics`, `theme_model_summaries`, and
+`theme_seasonality_profiles`. The pure calculation is prefix-safe: a target
+month can use only itself and earlier complete market months. Target themes are
+the raw labels present in that target month's AGG-002 structure rows; absent
+historical labels are zero-filled, while present-but-NULL metrics remain
+unavailable.
+
+`theme_horizon_metrics` stores six approved metric names over 6M, 12M, and 36M
+windows. It retains coverage, descriptive statistics, OLS trend evidence,
+transition categories, coefficient of variation, drawdown, and latest-peak
+distance. Complete-series-only fields remain `NULL` when a metric has missing
+observations. `theme_model_summaries` stores the fixed policy version,
+available-history and first-active evidence, share-only direction and
+stability summaries, provisional lifecycle stage, and absolute Downloads and
+Revenue (USD) seasonality summaries. `theme_seasonality_profiles` stores
+twelve calendar-month rows only when at least two valid normalized 12-month
+blocks exist.
+
+The repository validates all typed rows and identities before one transaction,
+checks that summaries exactly match AGG-002 structure identities, replaces
+only requested model periods plus 6M-scorable legacy score periods, rereads
+counts and identities, and exports deterministic ZSTD Parquet. An export
+failure does not invalidate committed DuckDB rows. MODEL-002 is evidence only;
+recommendations, forecasts, backtesting, Feishu output, and automation remain
+later issue boundaries. See [`MODEL_V2.md`](MODEL_V2.md) for the full model
+contract.
 
 ## Model overview
 

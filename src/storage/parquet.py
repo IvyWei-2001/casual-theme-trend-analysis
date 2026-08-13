@@ -16,9 +16,12 @@ from .schema import (
     MONTHLY_MARKET_TOTALS_COLUMNS,
     THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
+    THEME_HORIZON_METRICS_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
+    THEME_MODEL_SUMMARIES_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_REPRESENTATIVE_GAMES_COLUMNS,
+    THEME_SEASONALITY_PROFILES_COLUMNS,
     THEME_TREND_SCORES_COLUMNS,
 )
 
@@ -176,6 +179,65 @@ def export_theme_trend_scores_to_parquet(
         table_name="theme_trend_scores",
         columns=THEME_TREND_SCORES_COLUMNS,
         order_by=("scope_name", "period_start", "trend_rank NULLS LAST", "game_theme"),
+    )
+
+
+def export_theme_horizon_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export long-form horizon evidence with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_horizon_metrics",
+        columns=THEME_HORIZON_METRICS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "horizon_month_count",
+            "metric_name",
+        ),
+    )
+
+
+def export_theme_model_summaries_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export model summaries with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_model_summaries",
+        columns=THEME_MODEL_SUMMARIES_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_seasonality_profiles_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export leakage-safe seasonality profiles with stable ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_seasonality_profiles",
+        columns=THEME_SEASONALITY_PROFILES_COLUMNS,
+        order_by=(
+            "scope_name",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "metric_name",
+            "calendar_month",
+        ),
     )
 
 

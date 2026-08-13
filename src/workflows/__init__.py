@@ -12,6 +12,8 @@ from .collect_month import (
 from .errors import (
     BackfillMonthsError,
     InvalidMonthError,
+    ModelReadbackVerificationError,
+    ModelThemesError,
     WorkflowError,
     WorkflowMetadataIntegrityError,
 )
@@ -23,6 +25,7 @@ from .history_inspection import (
     format_history_inspection_summary,
     inspect_history,
 )
+from .model_themes import format_model_themes_summary, model_themes
 from .models import (
     AggregateThemesRequest,
     AggregateThemesSummary,
@@ -32,6 +35,8 @@ from .models import (
     BackfillMonthsSummary,
     CollectMonthRequest,
     CollectMonthSummary,
+    ModelThemesRequest,
+    ModelThemesSummary,
     MonthlyPeriod,
     ScoreThemesRequest,
     ScoreThemesSummary,
@@ -61,7 +66,11 @@ __all__ = [
     "HistoryInspectionSummary",
     "HistoryMonthQuality",
     "InvalidMonthError",
+    "ModelReadbackVerificationError",
+    "ModelThemesError",
     "MonthlyPeriod",
+    "ModelThemesRequest",
+    "ModelThemesSummary",
     "ScoreThemesRequest",
     "ScoreThemesSummary",
     "SyncFeishuTrendsRequest",
@@ -73,9 +82,11 @@ __all__ = [
     "backfill_months",
     "collect_month",
     "inspect_history",
+    "model_themes",
     "format_backfill_summary",
     "format_history_inspection_plan",
     "format_history_inspection_summary",
+    "format_model_themes_summary",
     "format_aggregate_themes_summary",
     "format_collection_summary",
     "format_score_themes_summary",

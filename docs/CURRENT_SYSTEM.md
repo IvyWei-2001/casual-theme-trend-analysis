@@ -1,6 +1,6 @@
 # Current System
 
-This document records the audited state of the repository as of AGG-002.
+This document records the audited state of the repository as of MODEL-002.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -88,6 +88,26 @@ atomically, rereads identities and counts, and exports deterministic ZSTD
 Parquet files unless export is skipped. No real Sensor Tower, Feishu, DuckDB,
 or Parquet operation is part of development validation.
 
+The sanitized accepted AGG-002 evidence is 36 completed months, 35,525 source
+snapshots, 2,153 theme-month evidence rows, 20,880 observed-dimension rows,
+21,528 representative-game evidence rows, and `verification=passed`.
+
+## MODEL-002 implementation status
+
+The local `model-themes` workflow reads only stored monthly totals and matching
+AGG-001/AGG-002 rows. It validates consecutive history, preserves raw theme
+labels, zero-fills absent historical theme rows, keeps present-but-NULL metrics
+unavailable, and calculates only prefix-safe target outputs. Schema version 5
+adds `theme_horizon_metrics`, `theme_model_summaries`, and
+`theme_seasonality_profiles` without changing existing tables or columns.
+
+The workflow recomputes the unchanged `calculate_theme_trend_scores(...)`
+baseline, atomically replaces the four model output sets, rereads exact
+identities/counts, and exports deterministic ZSTD Parquet unless export is
+skipped. Development validation is synthetic and uses temporary DuckDB and
+Parquet files; no real Sensor Tower, Feishu, or production database operation
+is claimed here.
+
 ## Confirmed metric terminology
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
@@ -108,7 +128,6 @@ The following V2 capabilities are not yet implemented:
 - a Growth Quality score or recommendation layer;
 - competitive white-space metrics;
 - business category-fit or migration decisions;
-- lifecycle and seasonality;
 - leakage-safe T+1 / T+2 / T+3 launch-window backtesting;
 - investment recommendation;
 - final business tables and dashboards; and

@@ -115,7 +115,7 @@ def test_fresh_schema_has_version_four_tables_and_exact_columns(tmp_path: Path) 
     connection = repository.open()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,)]
     assert tuple(row[1] for row in connection.execute(
         "PRAGMA table_info('monthly_market_totals')"
     ).fetchall()) == schema_module.MONTHLY_MARKET_TOTALS_COLUMNS
@@ -150,7 +150,7 @@ def test_existing_version_one_rows_survive_sequential_upgrade(tmp_path: Path) ->
     repository.initialize_schema()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,)]
     assert connection.execute("SELECT count(*) FROM app_metadata").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM market_snapshots").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM monthly_market_totals").fetchone() == (0,)

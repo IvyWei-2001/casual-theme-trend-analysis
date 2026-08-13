@@ -232,6 +232,33 @@ class ScoreThemesRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelThemesRequest:
+    """Validated inputs for the local MODEL-002 evidence workflow."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class SyncFeishuTrendsRequest:
     """Validated inputs for complete DuckDB-to-Feishu trend synchronization."""
 
@@ -369,6 +396,45 @@ class ScoreThemesSummary:
     completed_at: datetime
     top_n: int
     latest_scores: tuple[ThemeTrendScore, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ModelThemesSummary:
+    """Sanitized result of a validated or completed MODEL-002 run."""
+
+    start_month: str
+    end_month: str
+    history_month_count: int
+    source_market_structure_row_count: int
+    horizon_6m_target_month_count: int
+    horizon_12m_target_month_count: int
+    horizon_36m_target_month_count: int
+    seasonality_target_month_count: int
+    legacy_6m_score_row_count: int
+    horizon_metric_row_count: int
+    horizon_6m_row_count: int
+    horizon_12m_row_count: int
+    horizon_36m_row_count: int
+    model_summary_row_count: int
+    seasonality_profile_row_count: int
+    seasonality_profile_group_count: int
+    lifecycle_insufficient_history_count: int
+    lifecycle_emerging_count: int
+    lifecycle_accelerating_count: int
+    lifecycle_growing_count: int
+    lifecycle_mature_count: int
+    lifecycle_recovering_count: int
+    lifecycle_declining_count: int
+    lifecycle_mixed_count: int
+    verification_passed: bool
+    database_path: Path
+    trend_parquet_path: Path | None
+    horizon_parquet_path: Path | None
+    summaries_parquet_path: Path | None
+    seasonality_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
 
 
 def _next_month(year: int, month: int) -> str:

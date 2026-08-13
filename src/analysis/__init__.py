@@ -1,5 +1,22 @@
 """Pure analytical functions over normalized DuckDB source rows."""
 
+from .model_v2 import (
+    ACCELERATION_NORMALIZED_SLOPE_MARGIN,
+    DIRECTION_MIN_R_SQUARED,
+    DIRECTION_NORMALIZED_SLOPE_THRESHOLD,
+    MODEL_POLICY_VERSION,
+    SEASONALITY_MAX_HISTORY_MONTHS,
+    SEASONALITY_MIN_HISTORY_MONTHS,
+    STABILITY_STABLE_CV_MAX,
+    STABILITY_VARIABLE_CV_MAX,
+    calculate_theme_model_metrics,
+)
+from .model_v2_models import (
+    ThemeHorizonMetric,
+    ThemeModelResult,
+    ThemeModelSummary,
+    ThemeSeasonalityProfile,
+)
 from .opportunity_aggregation import aggregate_theme_opportunity_metrics
 from .opportunity_models import (
     DEFAULT_REPRESENTATIVE_GAME_LIMIT,
@@ -34,4 +51,17 @@ __all__ = [
     "ThemeMarketStructureMetric",
     "ThemeRepresentativeGame",
     "aggregate_theme_opportunity_metrics",
+    "ACCELERATION_NORMALIZED_SLOPE_MARGIN",
+    "DIRECTION_MIN_R_SQUARED",
+    "DIRECTION_NORMALIZED_SLOPE_THRESHOLD",
+    "MODEL_POLICY_VERSION",
+    "SEASONALITY_MAX_HISTORY_MONTHS",
+    "SEASONALITY_MIN_HISTORY_MONTHS",
+    "STABILITY_STABLE_CV_MAX",
+    "STABILITY_VARIABLE_CV_MAX",
+    "ThemeHorizonMetric",
+    "ThemeModelResult",
+    "ThemeModelSummary",
+    "ThemeSeasonalityProfile",
+    "calculate_theme_model_metrics",
 ]
