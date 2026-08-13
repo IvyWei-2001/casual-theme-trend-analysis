@@ -847,6 +847,8 @@ CREATE TABLE IF NOT EXISTS theme_growth_source_metrics (
     CHECK (top_500_current_count <= current_product_count),
     CHECK (downloads_top_10_current_count <= current_product_count),
     CHECK (revenue_usd_top_10_current_count <= current_product_count),
+    CHECK (downloads_current_coverage_count <= current_product_count),
+    CHECK (revenue_usd_current_coverage_count <= current_product_count),
     CHECK ((downloads_current_coverage_count = 0 AND downloads_current_sum IS NULL) OR (downloads_current_coverage_count > 0 AND downloads_current_sum IS NOT NULL)),
     CHECK ((revenue_usd_current_coverage_count = 0 AND revenue_usd_current_sum IS NULL) OR (revenue_usd_current_coverage_count > 0 AND revenue_usd_current_sum IS NOT NULL))
 )
@@ -914,7 +916,7 @@ CREATE TABLE IF NOT EXISTS theme_representative_games (
     period_end DATE NOT NULL,
     game_theme VARCHAR NOT NULL,
     evidence_type VARCHAR NOT NULL CHECK (evidence_type IN ('downloads_leader', 'revenue_leader', 'market_new_entry_downloads_leader', 'market_new_entry_revenue_leader', 'downloads_growth_leader', 'revenue_growth_leader')),
-    evidence_rank INTEGER NOT NULL CHECK (evidence_rank > 0),
+    evidence_rank INTEGER NOT NULL CHECK (evidence_rank BETWEEN 1 AND 3),
     source_app_id VARCHAR NOT NULL,
     unified_app_id VARCHAR NOT NULL,
     game_name VARCHAR NULL,

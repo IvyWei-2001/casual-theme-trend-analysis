@@ -1008,6 +1008,10 @@ class ThemeGrowthSourceMetric:
                     getattr(self, f"{prefix}_current_coverage_count"),
                     field_name=f"{prefix}_current_coverage_count",
                 )
+                if current_coverage > current_count:
+                    raise AggregationValidationError(
+                        f"{prefix}_current_coverage_count exceeds current_product_count"
+                    )
                 previous_coverage = normalized_counts[f"{prefix}_previous_coverage_count"]
                 if previous_coverage is None:
                     raise AggregationValidationError(
@@ -1453,6 +1457,10 @@ class ThemeRepresentativeGame:
             field_name="evidence_rank",
             minimum=1,
         )
+        if evidence_rank > DEFAULT_REPRESENTATIVE_GAME_LIMIT:
+            raise AggregationValidationError(
+                f"evidence_rank must not exceed {DEFAULT_REPRESENTATIVE_GAME_LIMIT}"
+            )
         try:
             source_app_id = normalize_storage_opaque_id(
                 self.source_app_id,

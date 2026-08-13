@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.analysis.errors import MissingSourcePeriodError
+from src.analysis.errors import AggregationError, MissingSourcePeriodError
+from src.analysis.opportunity_models import ThemeMarketStructureMetric
 from src.config import AppConfig
 from src.storage import AppMetadataRow, DuckDBRepository, MarketSnapshotRow, ParquetExportError
 from src.workflows import (
@@ -87,6 +88,25 @@ def _metadata(app_id: str) -> AppMetadataRow:
     )
 
 
+class _MismatchedReadbackRepository(DuckDBRepository):
+    def get_theme_market_structure_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMarketStructureMetric]:
+        rows = super().get_theme_market_structure_metrics(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        return rows[:-1]
+
+
 def _request(
     tmp_path: Path,
     *,
@@ -109,8 +129,11 @@ def _config() -> AppConfig:
     return AppConfig()
 
 
-def _seed_source(database_path: Path) -> DuckDBRepository:
-    repository = DuckDBRepository(database_path)
+def _seed_source(
+    database_path: Path,
+    repository_type: type[DuckDBRepository] = DuckDBRepository,
+) -> DuckDBRepository:
+    repository = repository_type(database_path)
     repository.open()
     repository.initialize_schema()
     june = [_row("app-1", 1, "2026-06", "Decoration"), _row("app-old", 2, "2026-06", "Decoration")]
@@ -259,4 +282,31 @@ def test_derived_export_failure_leaves_committed_duckdb_rows(tmp_path: Path) -> 
     assert len(repository.get_theme_market_structure_metrics()) == 2
     assert len(repository.get_theme_growth_source_metrics()) == 2
     assert len(repository.get_theme_representative_games()) > 0
+    repository.close()
+
+
+def test_readback_mismatch_is_mandatory_and_public_error_is_sanitized(tmp_path: Path) -> None:
+    request = _request(tmp_path, skip_export=True)
+    repository = _seed_source(
+        request.database_path,
+        repository_type=_MismatchedReadbackRepository,
+    )
+    with pytest.raises(AggregationError, match="readback verification failed") as error:
+        aggregate_themes(
+            request,
+            _config(),
+            current_utc=NOW,
+            repository=repository,
+        )
+    message = str(error.value)
+    for forbidden in (
+        "app-1",
+        "app-old",
+        "Decoration",
+        "Unknown",
+        "Publisher",
+        "https://",
+        "auth_token",
+    ):
+        assert forbidden not in message
     repository.close()

@@ -15,6 +15,7 @@ import duckdb
 
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
 from ..analysis.opportunity_models import (
+    DEFAULT_REPRESENTATIVE_GAME_LIMIT,
     ThemeDimensionMonthlyMetric,
     ThemeGrowthSourceMetric,
     ThemeMarketStructureMetric,
@@ -1203,6 +1204,14 @@ def _validate_theme_opportunity_range(
     for values, expected_type, label in expected_types:
         if any(not isinstance(row, expected_type) for row in values):
             raise StorageValidationError(f"{label} contain an invalid typed row")
+    if any(
+        row.evidence_rank > DEFAULT_REPRESENTATIVE_GAME_LIMIT
+        for row in representative_tuple
+    ):
+        raise StorageValidationError(
+            "representative evidence ranks must not exceed "
+            f"{DEFAULT_REPRESENTATIVE_GAME_LIMIT}"
+        )
     try:
         totals_tuple = tuple(replace(row) for row in totals_tuple)
         metrics_tuple = tuple(replace(row) for row in metrics_tuple)

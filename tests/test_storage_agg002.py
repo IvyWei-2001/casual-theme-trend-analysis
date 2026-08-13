@@ -7,10 +7,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pytest
 from test_analysis_theme_monthly import CALCULATED_AT, _metadata, _row
 from test_storage_trend001 import _score
 
+from src.analysis.errors import AggregationValidationError
 from src.analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
 from src.analysis.theme_monthly import aggregate_monthly_theme_metrics
 from src.storage import DuckDBRepository, SnapshotPeriodKey, StorageValidationError
@@ -240,6 +242,105 @@ def test_v2_payload_round_trips_idempotently_and_exports_all_four_tables(tmp_pat
             .execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)])
             .fetchall()
         ) == getattr(schema_module, f"{table_name.upper()}_COLUMNS")
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "coverage_field_name"),
+    (
+        ("downloads_current_coverage_count", "downloads_current_coverage_count"),
+        ("revenue_usd_current_coverage_count", "revenue_usd_current_coverage_count"),
+    ),
+)
+def test_growth_current_coverage_accepts_partial_or_full_but_not_above_product_count(
+    field_name: str,
+    coverage_field_name: str,
+) -> None:
+    result = _payload()
+    growth = result.theme_growth_source_metrics[0]
+    assert getattr(growth, coverage_field_name) == growth.current_product_count
+    assert (
+        replace(growth, **{field_name: 1}).current_product_count
+        == growth.current_product_count
+    )
+    with pytest.raises(AggregationValidationError, match=field_name):
+        replace(growth, **{field_name: growth.current_product_count + 1})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    (
+        "downloads_current_coverage_count",
+        "revenue_usd_current_coverage_count",
+    ),
+)
+def test_duckdb_rejects_growth_current_coverage_above_product_count(
+    tmp_path: Path,
+    field_name: str,
+) -> None:
+    repository = _initialized(tmp_path / f"invalid-{field_name}.duckdb")
+    result = _payload()
+    row = result.theme_growth_source_metrics[0]
+    values = [getattr(row, column) for column in schema_module.THEME_GROWTH_SOURCE_METRICS_COLUMNS]
+    values[schema_module.THEME_GROWTH_SOURCE_METRICS_COLUMNS.index(field_name)] = (
+        row.current_product_count + 1
+    )
+    with pytest.raises(duckdb.ConstraintException):
+        repository.open().execute(
+            f"INSERT INTO {schema_module.THEME_GROWTH_SOURCE_METRICS_TABLE} "
+            f"({', '.join(schema_module.THEME_GROWTH_SOURCE_METRICS_COLUMNS)}) "
+            f"VALUES ({', '.join('?' for _ in values)})",
+            values,
+        )
+    repository.close()
+
+
+def test_representative_rank_limit_is_enforced_by_repository_and_duckdb(tmp_path: Path) -> None:
+    repository = _initialized(tmp_path / "representative-ranks.duckdb")
+    result = _payload()
+    representative = result.theme_representative_games[0]
+    valid_ranks = tuple(replace(representative, evidence_rank=rank) for rank in (1, 2, 3))
+    assert [row.evidence_rank for row in valid_ranks] == [1, 2, 3]
+
+    sparse = tuple(
+        row
+        for row in result.theme_representative_games
+        if not (row.evidence_type == representative.evidence_type and row.evidence_rank == 2)
+    ) + (replace(representative, evidence_rank=3),)
+    with pytest.raises(StorageValidationError, match="contiguous"):
+        repository.replace_theme_opportunity_range(
+            result.monthly_totals,
+            result.theme_metrics,
+            result.theme_market_structure_metrics,
+            result.theme_growth_source_metrics,
+            result.theme_dimension_monthly_metrics,
+            sparse,
+        )
+
+    invalid = replace(representative, evidence_rank=3)
+    object.__setattr__(invalid, "evidence_rank", 4)
+    with pytest.raises(StorageValidationError, match="must not exceed"):
+        repository.replace_theme_opportunity_range(
+            result.monthly_totals,
+            result.theme_metrics,
+            result.theme_market_structure_metrics,
+            result.theme_growth_source_metrics,
+            result.theme_dimension_monthly_metrics,
+            (*result.theme_representative_games, invalid),
+        )
+
+    values = [
+        getattr(representative, column)
+        for column in schema_module.THEME_REPRESENTATIVE_GAMES_COLUMNS
+    ]
+    values[schema_module.THEME_REPRESENTATIVE_GAMES_COLUMNS.index("evidence_rank")] = 4
+    with pytest.raises(duckdb.ConstraintException):
+        repository.open().execute(
+            f"INSERT INTO {schema_module.THEME_REPRESENTATIVE_GAMES_TABLE} "
+            f"({', '.join(schema_module.THEME_REPRESENTATIVE_GAMES_COLUMNS)}) "
+            f"VALUES ({', '.join('?' for _ in values)})",
+            values,
+        )
     repository.close()
 
 

@@ -41,8 +41,9 @@ SQL `NULL` means unavailable. An observed numeric zero remains zero and
 participates in coverage, sums, means, medians, sorting, and leader selection.
 A zero denominator produces a `NULL` share or rate; no infinity is returned.
 Raw Game Theme and dimension labels are not trimmed, merged, translated,
-classified, or inferred. SQL `NULL` creates no group. `Unknown`, `N/A`, and an
-empty string remain distinct observed labels.
+classified, or inferred. SQL `NULL` creates no group. `Unknown`, `N/A`, and
+empty strings are preserved as distinct literal source-value groups and are
+never merged or rewritten.
 
 Each month may use only itself, the immediately preceding natural calendar
 month, current cached metadata, and current-row release dates. AGG-002 does
@@ -85,12 +86,15 @@ product_hhi = sum((value / sum) ** 2)
 theme_metric_share = theme_sum / compatible_month_market_sum
 ```
 
-Top-1, Top-3, Top-10 shares and HHI are `NULL` when the theme sum is
-unavailable or non-positive. Publisher product shares use only rows with a
-current cached publisher. Publisher Downloads and Revenue (USD) groups use
-only rows where both the publisher and the corresponding metric are available.
-There is no artificial Unknown Publisher bucket. Coverage counts and ratios
-remain visible when metadata is incomplete.
+For `downloads_share` and `revenue_usd_share`, a `NULL` numerator or denominator
+produces `NULL`, a non-positive denominator produces `NULL`, and an observed
+zero numerator with a positive denominator produces numeric `0`. Top-1, Top-3,
+Top-10 shares and HHI remain `NULL` when the theme sum is unavailable or
+non-positive. Publisher product shares use only rows with a current cached
+publisher. Publisher Downloads and Revenue (USD) groups use only rows where
+both the publisher and the corresponding metric are available. There is no
+artificial Unknown Publisher bucket. Coverage counts and ratios remain visible
+when metadata is incomplete.
 
 Product age uses only `release_date_ww`:
 

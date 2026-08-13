@@ -1143,9 +1143,12 @@ def _hhi(values: Sequence[float]) -> float | None:
 
 
 def _positive_market_share(value: float | None, denominator: float | None) -> float | None:
-    if value is None or value <= 0 or denominator is None or denominator <= 0:
+    if value is None or denominator is None or denominator <= 0:
         return None
-    return value / denominator
+    share = value / denominator
+    if not isfinite(share):
+        raise AggregationValidationError("calculated market share is not finite")
+    return share
 
 
 def _ratio(
