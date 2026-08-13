@@ -7,11 +7,12 @@ import logging
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pydantic import ValidationError
 
 from .analysis.errors import AggregationError
-from .config import load_config
+from .config import DEFAULT_DATABASE_PATH, DEFAULT_EXPORT_DIRECTORY, AppConfig, load_config
 from .feishu.errors import (
     FeishuConfigurationError,
     FeishuError,
@@ -266,6 +267,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (FeishuConfigurationError, FeishuSyncIntegrityError) as error:
             _print_error(str(error))
             return 2
+        return 0
+    if args.command == "aggregate-themes" and args.plan_only:
+        try:
+            aggregate_plan_summary = aggregate_themes(
+                AggregateThemesRequest(
+                    start_month=args.start,
+                    end_month=args.end,
+                    database_path=Path(DEFAULT_DATABASE_PATH),
+                    export_directory=Path(DEFAULT_EXPORT_DIRECTORY),
+                    plan_only=True,
+                ),
+                AppConfig.model_construct(),
+                current_utc=datetime.now(UTC),
+            )
+        except (InvalidMonthError, WorkflowError) as error:
+            _print_error(str(error))
+            return 2
+        print(format_aggregate_themes_summary(aggregate_plan_summary))
         return 0
     if args.command == "inspect-history" and args.plan_only:
         try:

@@ -14,7 +14,11 @@ from .schema import (
     APP_METADATA_COLUMNS,
     MARKET_SNAPSHOT_COLUMNS,
     MONTHLY_MARKET_TOTALS_COLUMNS,
+    THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
+    THEME_GROWTH_SOURCE_METRICS_COLUMNS,
+    THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
+    THEME_REPRESENTATIVE_GAMES_COLUMNS,
     THEME_TREND_SCORES_COLUMNS,
 )
 
@@ -83,6 +87,80 @@ def export_theme_monthly_metrics_to_parquet(
         table_name="theme_monthly_metrics",
         columns=THEME_MONTHLY_METRICS_COLUMNS,
         order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_market_structure_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export V2 market-structure metrics with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_market_structure_metrics",
+        columns=THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_growth_source_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export V2 growth-source metrics with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_growth_source_metrics",
+        columns=THEME_GROWTH_SOURCE_METRICS_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_dimension_monthly_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export V2 observed dimension metrics with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_dimension_monthly_metrics",
+        columns=THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "dimension_type",
+            "dimension_value",
+        ),
+    )
+
+
+def export_theme_representative_games_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export V2 representative-game evidence with stable identity ordering."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_representative_games",
+        columns=THEME_REPRESENTATIVE_GAMES_COLUMNS,
+        order_by=(
+            "scope_name",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "evidence_type",
+            "evidence_rank",
+        ),
     )
 
 

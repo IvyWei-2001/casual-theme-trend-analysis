@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added AGG-002 V2 opportunity evidence aggregation. Schema version 4 adds
+  market-structure, growth-source, observed-dimension, and representative-game
+  tables while preserving AGG-001 and TREND-001. The implementation keeps
+  Downloads and Revenue (USD) source semantics, NULL/zero behavior, actual
+  sample denominators, current-cache metadata limitations, atomic six-table
+  replacement, readback verification, and deterministic ZSTD Parquet exports.
+  It does not calculate scores or recommendations and automated coverage uses
+  only synthetic source rows and temporary storage.
 - Added HIST-002 read-only 36-month history inspection, structural quality
   evidence, and documented safe resumable backfill acceptance.
 - Added CONTRACT-002 as a documentation and contract milestone. It confirms

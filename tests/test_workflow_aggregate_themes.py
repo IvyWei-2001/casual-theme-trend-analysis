@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.analysis.errors import MissingSourcePeriodError
+from src.analysis.errors import AggregationError, MissingSourcePeriodError
+from src.analysis.opportunity_models import ThemeMarketStructureMetric
 from src.config import AppConfig
 from src.storage import AppMetadataRow, DuckDBRepository, MarketSnapshotRow, ParquetExportError
 from src.workflows import (
@@ -87,6 +88,25 @@ def _metadata(app_id: str) -> AppMetadataRow:
     )
 
 
+class _MismatchedReadbackRepository(DuckDBRepository):
+    def get_theme_market_structure_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMarketStructureMetric]:
+        rows = super().get_theme_market_structure_metrics(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        return rows[:-1]
+
+
 def _request(
     tmp_path: Path,
     *,
@@ -109,8 +129,11 @@ def _config() -> AppConfig:
     return AppConfig()
 
 
-def _seed_source(database_path: Path) -> DuckDBRepository:
-    repository = DuckDBRepository(database_path)
+def _seed_source(
+    database_path: Path,
+    repository_type: type[DuckDBRepository] = DuckDBRepository,
+) -> DuckDBRepository:
+    repository = repository_type(database_path)
     repository.open()
     repository.initialize_schema()
     june = [_row("app-1", 1, "2026-06", "Decoration"), _row("app-old", 2, "2026-06", "Decoration")]
@@ -141,6 +164,11 @@ def test_aggregate_workflow_uses_previous_month_outside_requested_range_and_skip
     assert summary.source_missing_theme_count == 0
     assert summary.monthly_totals_parquet_path is None
     assert summary.theme_metrics_parquet_path is None
+    assert summary.market_structure_row_count == 2
+    assert summary.growth_source_row_count == 2
+    assert summary.dimension_row_count == 0
+    assert summary.representative_game_row_count > 0
+    assert summary.verification == "passed"
     assert not request.export_directory.exists()
     metrics = repository.get_theme_monthly_metrics()
     decoration = next(row for row in metrics if row.game_theme == "Decoration")
@@ -150,6 +178,9 @@ def test_aggregate_workflow_uses_previous_month_outside_requested_range_and_skip
     unknown = next(row for row in metrics if row.game_theme == "Unknown")
     assert unknown.new_entry_count == 1
     assert unknown.returning_product_count == 0
+    assert len(repository.get_theme_market_structure_metrics()) == 2
+    assert len(repository.get_theme_growth_source_metrics()) == 2
+    assert len(repository.get_theme_representative_games()) == summary.representative_game_row_count
     rendered = format_aggregate_themes_summary(summary)
     assert "app-1" not in rendered
     assert "auth_token" not in rendered
@@ -217,6 +248,14 @@ def test_default_export_writes_both_derived_parquet_files(tmp_path: Path) -> Non
     )
     assert summary.monthly_totals_parquet_path.exists()
     assert summary.theme_metrics_parquet_path.exists()
+    assert summary.market_structure_parquet_path is not None
+    assert summary.growth_source_parquet_path is not None
+    assert summary.dimension_parquet_path is not None
+    assert summary.representative_games_parquet_path is not None
+    assert summary.market_structure_parquet_path.exists()
+    assert summary.growth_source_parquet_path.exists()
+    assert summary.dimension_parquet_path.exists()
+    assert summary.representative_games_parquet_path.exists()
 
 
 def test_derived_export_failure_leaves_committed_duckdb_rows(tmp_path: Path) -> None:
@@ -240,4 +279,34 @@ def test_derived_export_failure_leaves_committed_duckdb_rows(tmp_path: Path) -> 
     repository.initialize_schema()
     assert len(repository.get_monthly_market_totals()) == 1
     assert len(repository.get_theme_monthly_metrics()) == 2
+    assert len(repository.get_theme_market_structure_metrics()) == 2
+    assert len(repository.get_theme_growth_source_metrics()) == 2
+    assert len(repository.get_theme_representative_games()) > 0
+    repository.close()
+
+
+def test_readback_mismatch_is_mandatory_and_public_error_is_sanitized(tmp_path: Path) -> None:
+    request = _request(tmp_path, skip_export=True)
+    repository = _seed_source(
+        request.database_path,
+        repository_type=_MismatchedReadbackRepository,
+    )
+    with pytest.raises(AggregationError, match="readback verification failed") as error:
+        aggregate_themes(
+            request,
+            _config(),
+            current_utc=NOW,
+            repository=repository,
+        )
+    message = str(error.value)
+    for forbidden in (
+        "app-1",
+        "app-old",
+        "Decoration",
+        "Unknown",
+        "Publisher",
+        "https://",
+        "auth_token",
+    ):
+        assert forbidden not in message
     repository.close()

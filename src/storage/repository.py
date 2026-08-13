@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -13,6 +14,13 @@ from typing import Any, Literal, Self, cast
 import duckdb
 
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
+from ..analysis.opportunity_models import (
+    DEFAULT_REPRESENTATIVE_GAME_LIMIT,
+    ThemeDimensionMonthlyMetric,
+    ThemeGrowthSourceMetric,
+    ThemeMarketStructureMetric,
+    ThemeRepresentativeGame,
+)
 from ..analysis.trend_models import ThemeTrendScore
 from .connection import open_duckdb_connection, open_duckdb_read_only_connection
 from .errors import (
@@ -36,8 +44,16 @@ from .schema import (
     MARKET_SNAPSHOTS_TABLE,
     MONTHLY_MARKET_TOTALS_COLUMNS,
     MONTHLY_MARKET_TOTALS_TABLE,
+    THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
+    THEME_DIMENSION_MONTHLY_METRICS_TABLE,
+    THEME_GROWTH_SOURCE_METRICS_COLUMNS,
+    THEME_GROWTH_SOURCE_METRICS_TABLE,
+    THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
+    THEME_MARKET_STRUCTURE_METRICS_TABLE,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_TABLE,
+    THEME_REPRESENTATIVE_GAMES_COLUMNS,
+    THEME_REPRESENTATIVE_GAMES_TABLE,
     THEME_TREND_SCORES_COLUMNS,
     THEME_TREND_SCORES_TABLE,
     initialize_schema,
@@ -52,6 +68,22 @@ _MONTHLY_MARKET_TOTALS_COLUMNS_SQL = ", ".join(MONTHLY_MARKET_TOTALS_COLUMNS)
 _MONTHLY_MARKET_TOTALS_PLACEHOLDERS_SQL = ", ".join("?" for _ in MONTHLY_MARKET_TOTALS_COLUMNS)
 _THEME_MONTHLY_METRICS_COLUMNS_SQL = ", ".join(THEME_MONTHLY_METRICS_COLUMNS)
 _THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_MONTHLY_METRICS_COLUMNS)
+_THEME_MARKET_STRUCTURE_METRICS_COLUMNS_SQL = ", ".join(THEME_MARKET_STRUCTURE_METRICS_COLUMNS)
+_THEME_MARKET_STRUCTURE_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_MARKET_STRUCTURE_METRICS_COLUMNS
+)
+_THEME_GROWTH_SOURCE_METRICS_COLUMNS_SQL = ", ".join(THEME_GROWTH_SOURCE_METRICS_COLUMNS)
+_THEME_GROWTH_SOURCE_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_GROWTH_SOURCE_METRICS_COLUMNS
+)
+_THEME_DIMENSION_MONTHLY_METRICS_COLUMNS_SQL = ", ".join(THEME_DIMENSION_MONTHLY_METRICS_COLUMNS)
+_THEME_DIMENSION_MONTHLY_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_DIMENSION_MONTHLY_METRICS_COLUMNS
+)
+_THEME_REPRESENTATIVE_GAMES_COLUMNS_SQL = ", ".join(THEME_REPRESENTATIVE_GAMES_COLUMNS)
+_THEME_REPRESENTATIVE_GAMES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_REPRESENTATIVE_GAMES_COLUMNS
+)
 _THEME_TREND_SCORES_COLUMNS_SQL = ", ".join(THEME_TREND_SCORES_COLUMNS)
 _THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_TREND_SCORES_COLUMNS)
 
@@ -106,6 +138,59 @@ _INSERT_THEME_MONTHLY_METRIC_SQL = (
     f"VALUES ({_THEME_MONTHLY_METRICS_PLACEHOLDERS_SQL})"
 )
 
+_DELETE_THEME_MARKET_STRUCTURE_METRICS_SQL = """
+DELETE FROM theme_market_structure_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_DELETE_THEME_GROWTH_SOURCE_METRICS_SQL = """
+DELETE FROM theme_growth_source_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_DELETE_THEME_DIMENSION_MONTHLY_METRICS_SQL = """
+DELETE FROM theme_dimension_monthly_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_DELETE_THEME_REPRESENTATIVE_GAMES_SQL = """
+DELETE FROM theme_representative_games
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+
+_INSERT_THEME_MARKET_STRUCTURE_METRIC_SQL = (
+    f"INSERT INTO {THEME_MARKET_STRUCTURE_METRICS_TABLE} "
+    f"({_THEME_MARKET_STRUCTURE_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_MARKET_STRUCTURE_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_GROWTH_SOURCE_METRIC_SQL = (
+    f"INSERT INTO {THEME_GROWTH_SOURCE_METRICS_TABLE} "
+    f"({_THEME_GROWTH_SOURCE_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_GROWTH_SOURCE_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_DIMENSION_MONTHLY_METRIC_SQL = (
+    f"INSERT INTO {THEME_DIMENSION_MONTHLY_METRICS_TABLE} "
+    f"({_THEME_DIMENSION_MONTHLY_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_DIMENSION_MONTHLY_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_REPRESENTATIVE_GAME_SQL = (
+    f"INSERT INTO {THEME_REPRESENTATIVE_GAMES_TABLE} "
+    f"({_THEME_REPRESENTATIVE_GAMES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_REPRESENTATIVE_GAMES_PLACEHOLDERS_SQL})"
+)
+
 _DELETE_THEME_TREND_SCORES_SQL = """
 DELETE FROM theme_trend_scores
 WHERE scope_name = ?
@@ -148,9 +233,7 @@ class DuckDBRepository:
 
         if self._connection is not None:
             if self._connection_mode != "read-only":
-                raise RepositoryConnectionModeError(
-                    "read-only", self._connection_mode or "unknown"
-                )
+                raise RepositoryConnectionModeError("read-only", self._connection_mode or "unknown")
             return self._connection
         self._connection = open_duckdb_read_only_connection(self.database_path)
         self._connection_mode = "read-only"
@@ -281,6 +364,122 @@ class DuckDBRepository:
         ).fetchall()
         return [_theme_monthly_metric_from_database_row(row) for row in rows]
 
+    def get_theme_market_structure_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMarketStructureMetric]:
+        """Read V2 market-structure rows in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_MARKET_STRUCTURE_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_MARKET_STRUCTURE_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_market_structure_metric_from_database_row(row) for row in rows]
+
+    def get_theme_growth_source_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeGrowthSourceMetric]:
+        """Read V2 growth-source rows in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_GROWTH_SOURCE_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_GROWTH_SOURCE_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_growth_source_metric_from_database_row(row) for row in rows]
+
+    def get_theme_dimension_monthly_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        dimension_type: str | None = None,
+        dimension_value: str | None = None,
+    ) -> list[ThemeDimensionMonthlyMetric]:
+        """Read observed V2 dimension rows in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            dimension_type=dimension_type,
+            dimension_value=dimension_value,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_DIMENSION_MONTHLY_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_DIMENSION_MONTHLY_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, "
+            "dimension_type, dimension_value, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_dimension_monthly_metric_from_database_row(row) for row in rows]
+
+    def get_theme_representative_games(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        evidence_type: str | None = None,
+    ) -> list[ThemeRepresentativeGame]:
+        """Read representative-game evidence in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _derived_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            evidence_type=evidence_type,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_REPRESENTATIVE_GAMES_COLUMNS_SQL} "
+            f"FROM {THEME_REPRESENTATIVE_GAMES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, "
+            "evidence_type, evidence_rank, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_representative_game_from_database_row(row) for row in rows]
+
     def get_theme_trend_scores(
         self,
         scope_name: str | None = None,
@@ -340,6 +539,84 @@ class DuckDBRepository:
                 connection.executemany(
                     _INSERT_THEME_MONTHLY_METRIC_SQL,
                     [_theme_monthly_metric_parameters(row) for row in metrics_tuple],
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            _rollback(connection)
+            raise
+
+    def replace_theme_opportunity_range(
+        self,
+        monthly_totals: Sequence[MonthlyMarketTotal],
+        theme_metrics: Sequence[ThemeMonthlyMetric],
+        theme_market_structure_metrics: Sequence[ThemeMarketStructureMetric],
+        theme_growth_source_metrics: Sequence[ThemeGrowthSourceMetric],
+        theme_dimension_monthly_metrics: Sequence[ThemeDimensionMonthlyMetric],
+        theme_representative_games: Sequence[ThemeRepresentativeGame],
+    ) -> None:
+        """Atomically replace the six AGG-001/AGG-002 derived output sets."""
+
+        payload = _validate_theme_opportunity_range(
+            monthly_totals,
+            theme_metrics,
+            theme_market_structure_metrics,
+            theme_growth_source_metrics,
+            theme_dimension_monthly_metrics,
+            theme_representative_games,
+        )
+        (
+            totals_tuple,
+            metrics_tuple,
+            structures_tuple,
+            growth_tuple,
+            dimensions_tuple,
+            representative_tuple,
+            period_keys,
+        ) = payload
+        connection = self._require_initialized_connection()
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for key in period_keys:
+                parameters = [
+                    key.scope_name,
+                    key.cadence,
+                    key.period_start,
+                    key.period_end,
+                ]
+                connection.execute(_DELETE_MONTHLY_MARKET_TOTALS_SQL, parameters)
+                connection.execute(_DELETE_THEME_MONTHLY_METRICS_SQL, parameters)
+                connection.execute(_DELETE_THEME_MARKET_STRUCTURE_METRICS_SQL, parameters)
+                connection.execute(_DELETE_THEME_GROWTH_SOURCE_METRICS_SQL, parameters)
+                connection.execute(_DELETE_THEME_DIMENSION_MONTHLY_METRICS_SQL, parameters)
+                connection.execute(_DELETE_THEME_REPRESENTATIVE_GAMES_SQL, parameters)
+            connection.executemany(
+                _INSERT_MONTHLY_MARKET_TOTAL_SQL,
+                [_monthly_market_total_parameters(row) for row in totals_tuple],
+            )
+            if metrics_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MONTHLY_METRIC_SQL,
+                    [_theme_monthly_metric_parameters(row) for row in metrics_tuple],
+                )
+            if structures_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MARKET_STRUCTURE_METRIC_SQL,
+                    [_theme_market_structure_metric_parameters(row) for row in structures_tuple],
+                )
+            if growth_tuple:
+                connection.executemany(
+                    _INSERT_THEME_GROWTH_SOURCE_METRIC_SQL,
+                    [_theme_growth_source_metric_parameters(row) for row in growth_tuple],
+                )
+            if dimensions_tuple:
+                connection.executemany(
+                    _INSERT_THEME_DIMENSION_MONTHLY_METRIC_SQL,
+                    [_theme_dimension_monthly_metric_parameters(row) for row in dimensions_tuple],
+                )
+            if representative_tuple:
+                connection.executemany(
+                    _INSERT_THEME_REPRESENTATIVE_GAME_SQL,
+                    [_theme_representative_game_parameters(row) for row in representative_tuple],
                 )
             connection.execute("COMMIT")
         except Exception:
@@ -511,6 +788,34 @@ class DuckDBRepository:
 
         export_theme_monthly_metrics_to_parquet(self, path)
 
+    def export_theme_market_structure_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export V2 market-structure metrics to Parquet."""
+
+        from .parquet import export_theme_market_structure_metrics_to_parquet
+
+        export_theme_market_structure_metrics_to_parquet(self, path)
+
+    def export_theme_growth_source_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export V2 growth-source metrics to Parquet."""
+
+        from .parquet import export_theme_growth_source_metrics_to_parquet
+
+        export_theme_growth_source_metrics_to_parquet(self, path)
+
+    def export_theme_dimension_monthly_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export V2 dimension metrics to Parquet."""
+
+        from .parquet import export_theme_dimension_monthly_metrics_to_parquet
+
+        export_theme_dimension_monthly_metrics_to_parquet(self, path)
+
+    def export_theme_representative_games_to_parquet(self, path: str | Path) -> None:
+        """Atomically export V2 representative-game evidence to Parquet."""
+
+        from .parquet import export_theme_representative_games_to_parquet
+
+        export_theme_representative_games_to_parquet(self, path)
+
     def export_theme_trend_scores_to_parquet(self, path: str | Path) -> None:
         """Atomically export trend scores to deterministic Parquet."""
 
@@ -528,15 +833,11 @@ class DuckDBRepository:
             raise RepositoryNotOpenError()
         return self._connection
 
-    def _require_connection_mode(
-        self, expected: Literal["read-write", "read-only"]
-    ) -> None:
+    def _require_connection_mode(self, expected: Literal["read-write", "read-only"]) -> None:
         if self._connection is None:
             raise RepositoryNotOpenError()
         if self._connection_mode != expected:
-            raise RepositoryConnectionModeError(
-                expected, self._connection_mode or "unknown"
-            )
+            raise RepositoryConnectionModeError(expected, self._connection_mode or "unknown")
 
     def _require_initialized_connection(self) -> duckdb.DuckDBPyConnection:
         connection = self._require_open_connection()
@@ -692,6 +993,30 @@ def _theme_monthly_metric_parameters(row: ThemeMonthlyMetric) -> tuple[object, .
     )
 
 
+def _theme_market_structure_metric_parameters(
+    row: ThemeMarketStructureMetric,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_MARKET_STRUCTURE_METRICS_COLUMNS)
+
+
+def _theme_growth_source_metric_parameters(
+    row: ThemeGrowthSourceMetric,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_GROWTH_SOURCE_METRICS_COLUMNS)
+
+
+def _theme_dimension_monthly_metric_parameters(
+    row: ThemeDimensionMonthlyMetric,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_DIMENSION_MONTHLY_METRICS_COLUMNS)
+
+
+def _theme_representative_game_parameters(
+    row: ThemeRepresentativeGame,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_REPRESENTATIVE_GAMES_COLUMNS)
+
+
 def _theme_trend_score_parameters(row: ThemeTrendScore) -> tuple[object, ...]:
     return (
         row.scope_name,
@@ -758,6 +1083,34 @@ def _theme_monthly_metric_from_database_row(row: Sequence[object]) -> ThemeMonth
     return ThemeMonthlyMetric(**cast(Any, values))
 
 
+def _theme_market_structure_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeMarketStructureMetric:
+    values = dict(zip(THEME_MARKET_STRUCTURE_METRICS_COLUMNS, row, strict=True))
+    return ThemeMarketStructureMetric(**cast(Any, values))
+
+
+def _theme_growth_source_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeGrowthSourceMetric:
+    values = dict(zip(THEME_GROWTH_SOURCE_METRICS_COLUMNS, row, strict=True))
+    return ThemeGrowthSourceMetric(**cast(Any, values))
+
+
+def _theme_dimension_monthly_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeDimensionMonthlyMetric:
+    values = dict(zip(THEME_DIMENSION_MONTHLY_METRICS_COLUMNS, row, strict=True))
+    return ThemeDimensionMonthlyMetric(**cast(Any, values))
+
+
+def _theme_representative_game_from_database_row(
+    row: Sequence[object],
+) -> ThemeRepresentativeGame:
+    values = dict(zip(THEME_REPRESENTATIVE_GAMES_COLUMNS, row, strict=True))
+    return ThemeRepresentativeGame(**cast(Any, values))
+
+
 def _theme_trend_score_from_database_row(row: Sequence[object]) -> ThemeTrendScore:
     values = dict(zip(THEME_TREND_SCORES_COLUMNS, row, strict=True))
     return ThemeTrendScore(**cast(Any, values))
@@ -816,6 +1169,172 @@ def _validate_theme_monthly_range(
     return totals_tuple, metrics_tuple, period_keys
 
 
+def _validate_theme_opportunity_range(
+    monthly_totals: Sequence[MonthlyMarketTotal],
+    theme_metrics: Sequence[ThemeMonthlyMetric],
+    structures: Sequence[ThemeMarketStructureMetric],
+    growth_sources: Sequence[ThemeGrowthSourceMetric],
+    dimensions: Sequence[ThemeDimensionMonthlyMetric],
+    representative_games: Sequence[ThemeRepresentativeGame],
+) -> tuple[
+    tuple[MonthlyMarketTotal, ...],
+    tuple[ThemeMonthlyMetric, ...],
+    tuple[ThemeMarketStructureMetric, ...],
+    tuple[ThemeGrowthSourceMetric, ...],
+    tuple[ThemeDimensionMonthlyMetric, ...],
+    tuple[ThemeRepresentativeGame, ...],
+    tuple[SnapshotPeriodKey, ...],
+]:
+    totals_tuple = tuple(monthly_totals)
+    metrics_tuple = tuple(theme_metrics)
+    structures_tuple = tuple(structures)
+    growth_tuple = tuple(growth_sources)
+    dimensions_tuple = tuple(dimensions)
+    representative_tuple = tuple(representative_games)
+    if not totals_tuple:
+        raise StorageValidationError("opportunity replacement must contain monthly totals")
+    expected_types = (
+        (totals_tuple, MonthlyMarketTotal, "monthly totals"),
+        (metrics_tuple, ThemeMonthlyMetric, "theme metrics"),
+        (structures_tuple, ThemeMarketStructureMetric, "market structure metrics"),
+        (growth_tuple, ThemeGrowthSourceMetric, "growth-source metrics"),
+        (dimensions_tuple, ThemeDimensionMonthlyMetric, "dimension metrics"),
+        (representative_tuple, ThemeRepresentativeGame, "representative games"),
+    )
+    for values, expected_type, label in expected_types:
+        if any(not isinstance(row, expected_type) for row in values):
+            raise StorageValidationError(f"{label} contain an invalid typed row")
+    if any(
+        row.evidence_rank > DEFAULT_REPRESENTATIVE_GAME_LIMIT
+        for row in representative_tuple
+    ):
+        raise StorageValidationError(
+            "representative evidence ranks must not exceed "
+            f"{DEFAULT_REPRESENTATIVE_GAME_LIMIT}"
+        )
+    try:
+        totals_tuple = tuple(replace(row) for row in totals_tuple)
+        metrics_tuple = tuple(replace(row) for row in metrics_tuple)
+        structures_tuple = tuple(replace(row) for row in structures_tuple)
+        growth_tuple = tuple(replace(row) for row in growth_tuple)
+        dimensions_tuple = tuple(replace(row) for row in dimensions_tuple)
+        representative_tuple = tuple(replace(row) for row in representative_tuple)
+    except Exception as error:
+        raise StorageValidationError("opportunity rows failed validation") from error
+
+    period_keys = tuple(_period_key_from_total(row) for row in totals_tuple)
+    if len(set(period_keys)) != len(period_keys):
+        raise StorageValidationError("opportunity totals must have unique period identities")
+    period_key_set = set(period_keys)
+    metric_keys = tuple(_period_key_from_theme_metric(row) for row in metrics_tuple)
+    theme_identities = {
+        (key, row.game_theme) for key, row in zip(metric_keys, metrics_tuple, strict=True)
+    }
+    if len(theme_identities) != len(metrics_tuple):
+        raise StorageValidationError("theme metrics must have unique identities")
+    if any(key not in period_key_set for key in metric_keys):
+        raise StorageValidationError("theme metrics must belong to replacement periods")
+
+    structure_keys = tuple(_period_key_from_opportunity_row(row) for row in structures_tuple)
+    structure_identities = {
+        (key, row.game_theme) for key, row in zip(structure_keys, structures_tuple, strict=True)
+    }
+    if len(structure_identities) != len(structures_tuple):
+        raise StorageValidationError("market structure metrics must have unique identities")
+    growth_keys = tuple(_period_key_from_opportunity_row(row) for row in growth_tuple)
+    growth_identities = {
+        (key, row.game_theme) for key, row in zip(growth_keys, growth_tuple, strict=True)
+    }
+    if len(growth_identities) != len(growth_tuple):
+        raise StorageValidationError("growth-source metrics must have unique identities")
+    if structure_identities != theme_identities or growth_identities != theme_identities:
+        raise StorageValidationError("V2 theme identities must match AGG-001 theme identities")
+
+    dimension_keys = tuple(_period_key_from_opportunity_row(row) for row in dimensions_tuple)
+    dimension_identities = {
+        (key, row.game_theme, row.dimension_type, row.dimension_value)
+        for key, row in zip(dimension_keys, dimensions_tuple, strict=True)
+    }
+    if len(dimension_identities) != len(dimensions_tuple):
+        raise StorageValidationError("dimension metrics must have unique identities")
+    if any(
+        (key, row.game_theme) not in theme_identities
+        for key, row in zip(dimension_keys, dimensions_tuple, strict=True)
+    ):
+        raise StorageValidationError("dimension metrics must match AGG-001 theme identities")
+
+    representative_keys = tuple(
+        _period_key_from_opportunity_row(row) for row in representative_tuple
+    )
+    representative_identities = {
+        (key, row.game_theme, row.evidence_type, row.evidence_rank)
+        for key, row in zip(representative_keys, representative_tuple, strict=True)
+    }
+    if len(representative_identities) != len(representative_tuple):
+        raise StorageValidationError("representative games must have unique identities")
+    if any(
+        (key, row.game_theme) not in theme_identities
+        for key, row in zip(representative_keys, representative_tuple, strict=True)
+    ):
+        raise StorageValidationError("representative games must match AGG-001 theme identities")
+    evidence_groups: dict[tuple[SnapshotPeriodKey, str, str], list[int]] = defaultdict(list)
+    for key, row in zip(representative_keys, representative_tuple, strict=True):
+        evidence_groups[(key, row.game_theme, row.evidence_type)].append(row.evidence_rank)
+    for ranks in evidence_groups.values():
+        if sorted(ranks) != list(range(1, len(ranks) + 1)):
+            raise StorageValidationError("representative evidence ranks must be contiguous")
+
+    for _values, keys in (
+        (structures_tuple, structure_keys),
+        (growth_tuple, growth_keys),
+        (dimensions_tuple, dimension_keys),
+        (representative_tuple, representative_keys),
+    ):
+        if any(key not in period_key_set for key in keys):
+            raise StorageValidationError("opportunity rows must belong to replacement periods")
+    return (
+        totals_tuple,
+        metrics_tuple,
+        structures_tuple,
+        growth_tuple,
+        dimensions_tuple,
+        representative_tuple,
+        period_keys,
+    )
+
+
+def _period_key_from_theme_metric(row: ThemeMonthlyMetric) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _period_key_from_total(row: MonthlyMarketTotal) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
+def _period_key_from_opportunity_row(
+    row: ThemeMarketStructureMetric
+    | ThemeGrowthSourceMetric
+    | ThemeDimensionMonthlyMetric
+    | ThemeRepresentativeGame,
+) -> SnapshotPeriodKey:
+    return SnapshotPeriodKey(
+        scope_name=row.scope_name,
+        cadence="monthly",
+        period_start=row.period_start,
+        period_end=row.period_end,
+    )
+
+
 def _validate_theme_trend_score_range(
     rows: Sequence[ThemeTrendScore],
     *,
@@ -872,6 +1391,9 @@ def _derived_filter_sql(
     period_start: date | None,
     period_end: date | None,
     game_theme: str | None = None,
+    dimension_type: str | None = None,
+    dimension_value: str | None = None,
+    evidence_type: str | None = None,
 ) -> tuple[str, list[object]]:
     if cadence != "monthly":
         raise StorageValidationError("derived tables only support monthly cadence")
@@ -889,6 +1411,15 @@ def _derived_filter_sql(
     if game_theme is not None:
         clauses.append("game_theme = ?")
         parameters.append(game_theme)
+    if dimension_type is not None:
+        clauses.append("dimension_type = ?")
+        parameters.append(dimension_type)
+    if dimension_value is not None:
+        clauses.append("dimension_value = ?")
+        parameters.append(dimension_value)
+    if evidence_type is not None:
+        clauses.append("evidence_type = ?")
+        parameters.append(evidence_type)
     return "WHERE " + " AND ".join(clauses), parameters
 
 

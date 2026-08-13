@@ -24,9 +24,11 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002 is complete. The next sequence is HIST-002, AGG-002, MODEL-002, BACKTEST-001,
-DECISION-001, FEISHU-004, and AUTOMATION-001. Automation is intentionally
-deferred until FEISHU-004 and cross-functional V2 acceptance.
+CONTRACT-002 is complete. HIST-002 is complete and its real-environment
+prerequisite evidence is recorded; AGG-002 is the current issue. The next
+sequence is MODEL-002, BACKTEST-001, DECISION-001, FEISHU-004, and
+AUTOMATION-001. Automation is intentionally deferred until FEISHU-004 and
+cross-functional V2 acceptance.
 
 ## Requirements
 
@@ -279,9 +281,12 @@ python -m src inspect-history --start 2023-08 --end 2026-07 --require-complete
 ```
 
 The first V2 acceptance range is 36 months, `2023-08` through `2026-07`.
-Inspection opens only an existing DuckDB file in read-only mode and reports
-aggregate structural, metric, custom-field, metadata, and release-date quality.
-It makes no network request, export, or data change. See
+The recorded acceptance evidence is 36 completed months, 35,525 source
+snapshots, monthly `snapshot_count` minimum 964 and maximum 1,000,
+`structural_issue_count=0`, and `structurally_complete=true`. Inspection opens
+only an existing DuckDB file in read-only mode and reports aggregate
+structural, metric, custom-field, metadata, and release-date quality. It makes
+no network request, export, or data change. See
 [`docs/HISTORY_QUALITY.md`](docs/HISTORY_QUALITY.md) for the safe pre- and
 post-backfill sequence and the current non-versioned-metadata limitation.
 
@@ -339,6 +344,34 @@ deterministic exports only:
 
 Trend Score, weekly aggregation, lifecycle labels, opportunity ranking,
 Feishu, scheduling, and AI summaries are not part of AGG-001.
+
+## V2 opportunity evidence aggregation (AGG-002)
+
+AGG-002 extends the existing local command without changing AGG-001 or
+TREND-001:
+
+```powershell
+python -m src aggregate-themes --start 2023-08 --end 2026-07 --plan-only
+python -m src aggregate-themes --start 2023-08 --end 2026-07 --skip-export
+python -m src aggregate-themes --start 2023-08 --end 2026-07
+```
+
+Schema version 4 adds four separate raw-evidence tables:
+`theme_market_structure_metrics`, `theme_growth_source_metrics`,
+`theme_dimension_monthly_metrics`, and `theme_representative_games`. They
+cover market structure, membership and growth-source decomposition, observed
+Game Sub-genre / Product Model / Art Style / Setting dimensions, and six fixed
+representative-game evidence types. AGG-002 uses the actual monthly
+`snapshot_count`, keeps `NULL` distinct from observed zero, preserves raw
+labels, uses `release_date_ww` for age evidence, and never performs cents
+conversion or display rounding. Details and formulas are in
+[`docs/AGGREGATION_V2.md`](docs/AGGREGATION_V2.md).
+
+The workflow reads at most the current and immediately preceding stored month,
+atomically replaces all six derived output sets, verifies identities and exact
+row counts after commit, and exports six deterministic ZSTD Parquet files
+unless `--skip-export` is supplied. AGG-002 does not calculate scores,
+recommendations, forecasts, dashboards, or Feishu output.
 
 ## Explainable monthly Game Theme trend score (TREND-001)
 
