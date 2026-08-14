@@ -35,8 +35,9 @@ The current score is:
 - an explainable technical signal over the selected project sample.
 
 It is not Market Size, not a 12M or 36M trend score, not an investment
-recommendation, and not a forecast. MODEL-002 will add 12M and 36M dimensions
-rather than silently changing the meaning of existing historical values.
+recommendation, and not a forecast. MODEL-002 adds 12M and 36M evidence
+dimensions rather than silently changing the meaning of existing historical
+values.
 
 ## Six-month window
 
@@ -243,7 +244,8 @@ file, and atomic replacement.
 
 This score does not merge taxonomy labels, infer animal families or other
 parent themes, detect seasonality or cycles, forecast, use machine learning,
-produce lifecycle labels beyond actionability, or generate AI conclusions. It
+or generate AI conclusions. MODEL-002 owns the separate provisional lifecycle
+and seasonality evidence layer; it does not change this baseline. It
 does not implement weekly scoring, Feishu synchronization, scheduling, or
 GitHub automation. A twelve-month history supports a transparent momentum
 comparison, but cannot prove a long-term theme cycle or durable market trend.

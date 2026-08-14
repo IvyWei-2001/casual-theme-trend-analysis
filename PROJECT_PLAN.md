@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: V2 opportunity evidence aggregation
+Current focus: multi-horizon trend, lifecycle, stability, and seasonality evidence
 
 ## Development principles
 
@@ -43,17 +43,19 @@ Implement the next issues in exactly this order:
 2. **HIST-002 - 36-month historical backfill and data-quality validation
    (completed and real-environment accepted)**
 3. **AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
-   and representative-game aggregates (current)**
+   and representative-game aggregates (completed and real-environment
+   accepted)**
 4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-   seasonality**
+   seasonality (current)**
 5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation**
 6. **DECISION-001 - recommendation, risk, confidence, category fit, and
    migration evidence**
 7. **FEISHU-004 - business tables, role views, and dashboards**
 8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002 and HIST-002 are complete; AGG-002 is the current focus. The
-recorded HIST-002 evidence is 36 completed months, 35,525 source snapshots,
+CONTRACT-002 and HIST-002 are complete; AGG-002 is completed and
+real-environment accepted; MODEL-002 is the current
+focus. The recorded HIST-002 evidence is 36 completed months, 35,525 source snapshots,
 monthly `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
 structural completeness. Final model weights are not selected in
 CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
@@ -62,10 +64,12 @@ acceptance. The one-issue/one-PR rule continues throughout this sequence.
 ## Scope guard
 
 AGG-002 adds only raw evidence aggregates and their local storage/export
-workflow. It does not add model weights, forecasting, machine learning, AI
-recommendations, CPI or retention integration, Feishu fields/records/views/
-dashboards, GitHub Actions, or scheduling. MODEL-002 and later issues remain
-responsible for longer-horizon dimensions and decisions.
+workflow. MODEL-002 adds descriptive multi-horizon evidence and provisional
+lifecycle/stability/seasonality labels without changing the legacy 6M
+Momentum formula. Neither issue adds forecasting, recommendations, CPI or
+retention integration, Feishu fields/records/views/dashboards, GitHub Actions,
+or scheduling. BACKTEST-001 and later issues remain responsible for outcomes
+and business decisions.
 
 The V2 product must keep theme opportunity separate from Product Greenlight.
 The latter additionally requires product quality, marketability, creative

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added MODEL-002 multi-horizon trend, lifecycle, stability, and seasonality
+  evidence. Schema version 5 adds `theme_horizon_metrics`,
+  `theme_model_summaries`, and `theme_seasonality_profiles` without changing
+  prior tables or the legacy 6M Momentum formula. The local `model-themes`
+  workflow is prefix-safe, preserves raw labels and NULL/zero semantics,
+  validates atomic replacement/readback, and exports deterministic ZSTD
+  Parquet. Development coverage uses only synthetic rows, mock repositories,
+  temporary DuckDB, and temporary Parquet outputs; recommendations,
+  forecasts, backtesting, Feishu, and real-data acceptance remain out of scope.
 - Added AGG-002 V2 opportunity evidence aggregation. Schema version 4 adds
   market-structure, growth-source, observed-dimension, and representative-game
   tables while preserving AGG-001 and TREND-001. The implementation keeps

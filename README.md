@@ -25,8 +25,8 @@ future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
 CONTRACT-002 is complete. HIST-002 is complete and its real-environment
-prerequisite evidence is recorded; AGG-002 is the current issue. The next
-sequence is MODEL-002, BACKTEST-001, DECISION-001, FEISHU-004, and
+prerequisite evidence is recorded; AGG-002 is complete and MODEL-002 is the
+current issue. The next sequence is BACKTEST-001, DECISION-001, FEISHU-004, and
 AUTOMATION-001. Automation is intentionally deferred until FEISHU-004 and
 cross-functional V2 acceptance.
 
@@ -373,6 +373,10 @@ row counts after commit, and exports six deterministic ZSTD Parquet files
 unless `--skip-export` is supplied. AGG-002 does not calculate scores,
 recommendations, forecasts, dashboards, or Feishu output.
 
+The sanitized accepted AGG-002 evidence is 36 completed months, 35,525 source
+snapshots, 2,153 theme-month evidence rows, 20,880 observed-dimension rows,
+21,528 representative-game evidence rows, and `verification=passed`.
+
 ## Explainable monthly Game Theme trend score (TREND-001)
 
 TREND-001 reads only the stored `monthly_market_totals` and
@@ -419,6 +423,34 @@ percentile method, confidence calculation, and interpretation limits.
 Exit codes are `0` for success or plan validation, `2` for CLI/month/local
 configuration errors, `3` for Sensor Tower or workflow-data failures, and `4`
 for DuckDB or Parquet failures.
+
+## Multi-horizon trend, lifecycle, and seasonality evidence (MODEL-002)
+
+MODEL-002 reads stored AGG-001/AGG-002 rows only and adds explainable 6M, 12M,
+and 36M horizon metrics, provisional lifecycle/stability evidence, and
+leakage-safe seasonality profiles:
+
+```powershell
+python -m src model-themes --start 2023-08 --end 2026-07 --plan-only
+python -m src model-themes --start 2023-08 --end 2026-07 --skip-export
+python -m src model-themes --start 2023-08 --end 2026-07
+```
+
+The 36-month range produces 31 6M targets, 25 12M targets, 1 36M target, and
+13 seasonality targets. Plan-only runs before configuration loading and has no
+environment, credential, network, DuckDB, or file-write side effects. A real
+run requires the requested stored monthly totals and matching AGG-001/AGG-002
+identities. Raw theme labels remain unchanged; absent historical themes are
+zero-filled and present-but-NULL metrics remain unavailable.
+
+Schema version 5 adds `theme_horizon_metrics`, `theme_model_summaries`, and
+`theme_seasonality_profiles` without changing existing tables or columns. The
+workflow refreshes the unchanged `theme_trend_scores` 6M Momentum baseline,
+atomically replaces the four model output sets, rereads them, and exports four
+deterministic ZSTD Parquet files unless `--skip-export` is used. MODEL-002 is
+not a recommendation, forecast, backtest, dashboard, or Feishu workflow. See
+[`docs/MODEL_V2.md`](docs/MODEL_V2.md) for formulas, policy constants,
+lifecycle order, storage fields, and acceptance boundaries.
 
 ## FEISHU-001 read-only field inspection
 

@@ -12,7 +12,7 @@ import duckdb
 
 from .errors import SchemaInitializationError, UnsupportedSchemaVersionError
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 APP_METADATA_TABLE = "app_metadata"
@@ -24,6 +24,9 @@ THEME_MARKET_STRUCTURE_METRICS_TABLE = "theme_market_structure_metrics"
 THEME_GROWTH_SOURCE_METRICS_TABLE = "theme_growth_source_metrics"
 THEME_DIMENSION_MONTHLY_METRICS_TABLE = "theme_dimension_monthly_metrics"
 THEME_REPRESENTATIVE_GAMES_TABLE = "theme_representative_games"
+THEME_HORIZON_METRICS_TABLE = "theme_horizon_metrics"
+THEME_MODEL_SUMMARIES_TABLE = "theme_model_summaries"
+THEME_SEASONALITY_PROFILES_TABLE = "theme_seasonality_profiles"
 
 SCHEMA_MIGRATIONS_COLUMNS: tuple[str, ...] = ("version", "applied_at")
 APP_METADATA_COLUMNS: tuple[str, ...] = (
@@ -158,6 +161,109 @@ THEME_TREND_SCORES_COLUMNS: tuple[str, ...] = (
     "confidence_score",
     "trend_score",
     "trend_rank",
+    "calculated_at",
+)
+THEME_HORIZON_METRICS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "horizon_month_count",
+    "metric_name",
+    "window_start",
+    "expected_month_count",
+    "metric_coverage_count",
+    "active_month_count",
+    "is_complete",
+    "first_value",
+    "latest_value",
+    "mean_value",
+    "median_value",
+    "minimum_value",
+    "maximum_value",
+    "absolute_change",
+    "relative_change",
+    "linear_slope",
+    "normalized_slope",
+    "r_squared",
+    "latest_to_mean_ratio",
+    "transition_count",
+    "transition_coverage_count",
+    "positive_change_count",
+    "negative_change_count",
+    "unchanged_change_count",
+    "positive_change_ratio",
+    "standard_deviation",
+    "coefficient_of_variation",
+    "maximum_drawdown",
+    "months_since_peak",
+    "calculated_at",
+)
+THEME_MODEL_SUMMARIES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "model_policy_version",
+    "history_start",
+    "history_month_count",
+    "first_active_month",
+    "first_active_left_censored",
+    "months_since_first_active",
+    "active_months_to_date",
+    "has_6m_history",
+    "has_12m_history",
+    "has_36m_history",
+    "active_months_6m",
+    "active_months_12m",
+    "active_months_36m",
+    "direction_6m",
+    "direction_12m",
+    "direction_36m",
+    "direction_evidence_count_6m",
+    "direction_evidence_count_12m",
+    "direction_evidence_count_36m",
+    "median_normalized_slope_6m",
+    "median_normalized_slope_12m",
+    "median_normalized_slope_36m",
+    "median_r_squared_6m",
+    "median_r_squared_12m",
+    "median_r_squared_36m",
+    "stability_cv_median_6m",
+    "stability_cv_median_12m",
+    "stability_cv_median_36m",
+    "stability_band_6m",
+    "stability_band_12m",
+    "stability_band_36m",
+    "lifecycle_stage",
+    "seasonality_history_month_count",
+    "seasonality_complete_year_count",
+    "downloads_peak_calendar_month",
+    "downloads_trough_calendar_month",
+    "downloads_seasonality_amplitude",
+    "revenue_usd_peak_calendar_month",
+    "revenue_usd_trough_calendar_month",
+    "revenue_usd_seasonality_amplitude",
+    "calculated_at",
+)
+THEME_SEASONALITY_PROFILES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "metric_name",
+    "calendar_month",
+    "history_start",
+    "history_month_count",
+    "complete_year_count",
+    "observation_count",
+    "seasonal_index",
+    "index_deviation",
+    "is_peak_month",
+    "is_trough_month",
     "calculated_at",
 )
 THEME_MARKET_STRUCTURE_METRICS_COLUMNS: tuple[str, ...] = (
@@ -943,6 +1049,190 @@ CREATE TABLE IF NOT EXISTS theme_representative_games (
 )
 """
 
+_CREATE_THEME_HORIZON_METRICS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_horizon_metrics (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    horizon_month_count INTEGER NOT NULL CHECK (horizon_month_count IN (6, 12, 36)),
+    metric_name VARCHAR NOT NULL CHECK (
+        metric_name IN (
+            'product_count',
+            'product_share',
+            'downloads_sum',
+            'downloads_share',
+            'revenue_usd_sum',
+            'revenue_usd_share'
+        )
+    ),
+    window_start DATE NOT NULL,
+    expected_month_count INTEGER NOT NULL CHECK (expected_month_count = horizon_month_count),
+    metric_coverage_count INTEGER NOT NULL CHECK (
+        metric_coverage_count >= 0 AND metric_coverage_count <= horizon_month_count
+    ),
+    active_month_count INTEGER NOT NULL CHECK (
+        active_month_count >= 0 AND active_month_count <= horizon_month_count
+    ),
+    is_complete BOOLEAN NOT NULL CHECK (is_complete = (metric_coverage_count = expected_month_count)),
+    first_value DOUBLE NULL,
+    latest_value DOUBLE NULL,
+    mean_value DOUBLE NULL,
+    median_value DOUBLE NULL,
+    minimum_value DOUBLE NULL,
+    maximum_value DOUBLE NULL,
+    absolute_change DOUBLE NULL,
+    relative_change DOUBLE NULL,
+    linear_slope DOUBLE NULL,
+    normalized_slope DOUBLE NULL,
+    r_squared DOUBLE NULL,
+    latest_to_mean_ratio DOUBLE NULL,
+    transition_count INTEGER NOT NULL CHECK (transition_count = horizon_month_count - 1),
+    transition_coverage_count INTEGER NOT NULL CHECK (
+        transition_coverage_count >= 0 AND transition_coverage_count <= transition_count
+    ),
+    positive_change_count INTEGER NOT NULL CHECK (positive_change_count >= 0),
+    negative_change_count INTEGER NOT NULL CHECK (negative_change_count >= 0),
+    unchanged_change_count INTEGER NOT NULL CHECK (unchanged_change_count >= 0),
+    positive_change_ratio DOUBLE NULL CHECK (
+        positive_change_ratio IS NULL OR (positive_change_ratio >= 0 AND positive_change_ratio <= 1)
+    ),
+    standard_deviation DOUBLE NULL CHECK (standard_deviation IS NULL OR standard_deviation >= 0),
+    coefficient_of_variation DOUBLE NULL CHECK (
+        coefficient_of_variation IS NULL OR coefficient_of_variation >= 0
+    ),
+    maximum_drawdown DOUBLE NULL CHECK (
+        maximum_drawdown IS NULL OR (maximum_drawdown >= 0 AND maximum_drawdown <= 1)
+    ),
+    months_since_peak INTEGER NULL CHECK (
+        months_since_peak IS NULL
+        OR (months_since_peak >= 0 AND months_since_peak <= horizon_month_count - 1)
+    ),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (
+        scope_name,
+        cadence,
+        period_start,
+        period_end,
+        game_theme,
+        horizon_month_count,
+        metric_name
+    ),
+    CHECK (period_start <= period_end),
+    CHECK (
+        positive_change_count + negative_change_count + unchanged_change_count
+        = transition_coverage_count
+    )
+)
+"""
+
+_CREATE_THEME_MODEL_SUMMARIES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_model_summaries (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    model_policy_version VARCHAR NOT NULL CHECK (model_policy_version = 'MODEL002_V1'),
+    history_start DATE NOT NULL,
+    history_month_count INTEGER NOT NULL CHECK (history_month_count >= 1),
+    first_active_month DATE NULL,
+    first_active_left_censored BOOLEAN NOT NULL,
+    months_since_first_active INTEGER NULL CHECK (months_since_first_active >= 0),
+    active_months_to_date INTEGER NOT NULL CHECK (
+        active_months_to_date >= 0 AND active_months_to_date <= history_month_count
+    ),
+    has_6m_history BOOLEAN NOT NULL,
+    has_12m_history BOOLEAN NOT NULL,
+    has_36m_history BOOLEAN NOT NULL,
+    active_months_6m INTEGER NULL CHECK (active_months_6m IS NULL OR (active_months_6m >= 0 AND active_months_6m <= 6)),
+    active_months_12m INTEGER NULL CHECK (active_months_12m IS NULL OR (active_months_12m >= 0 AND active_months_12m <= 12)),
+    active_months_36m INTEGER NULL CHECK (active_months_36m IS NULL OR (active_months_36m >= 0 AND active_months_36m <= 36)),
+    direction_6m VARCHAR NOT NULL CHECK (direction_6m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_12m VARCHAR NOT NULL CHECK (direction_12m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_36m VARCHAR NOT NULL CHECK (direction_36m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_evidence_count_6m INTEGER NOT NULL CHECK (direction_evidence_count_6m BETWEEN 0 AND 3),
+    direction_evidence_count_12m INTEGER NOT NULL CHECK (direction_evidence_count_12m BETWEEN 0 AND 3),
+    direction_evidence_count_36m INTEGER NOT NULL CHECK (direction_evidence_count_36m BETWEEN 0 AND 3),
+    median_normalized_slope_6m DOUBLE NULL,
+    median_normalized_slope_12m DOUBLE NULL,
+    median_normalized_slope_36m DOUBLE NULL,
+    median_r_squared_6m DOUBLE NULL,
+    median_r_squared_12m DOUBLE NULL,
+    median_r_squared_36m DOUBLE NULL,
+    stability_cv_median_6m DOUBLE NULL CHECK (stability_cv_median_6m IS NULL OR stability_cv_median_6m >= 0),
+    stability_cv_median_12m DOUBLE NULL CHECK (stability_cv_median_12m IS NULL OR stability_cv_median_12m >= 0),
+    stability_cv_median_36m DOUBLE NULL CHECK (stability_cv_median_36m IS NULL OR stability_cv_median_36m >= 0),
+    stability_band_6m VARCHAR NOT NULL CHECK (stability_band_6m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    stability_band_12m VARCHAR NOT NULL CHECK (stability_band_12m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    stability_band_36m VARCHAR NOT NULL CHECK (stability_band_36m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    lifecycle_stage VARCHAR NOT NULL CHECK (lifecycle_stage IN ('insufficient_history', 'emerging', 'accelerating', 'growing', 'mature', 'recovering', 'declining', 'mixed')),
+    seasonality_history_month_count INTEGER NULL CHECK (seasonality_history_month_count IN (24, 36)),
+    seasonality_complete_year_count INTEGER NULL CHECK (seasonality_complete_year_count BETWEEN 2 AND 3),
+    downloads_peak_calendar_month INTEGER NULL CHECK (downloads_peak_calendar_month BETWEEN 1 AND 12),
+    downloads_trough_calendar_month INTEGER NULL CHECK (downloads_trough_calendar_month BETWEEN 1 AND 12),
+    downloads_seasonality_amplitude DOUBLE NULL CHECK (downloads_seasonality_amplitude IS NULL OR downloads_seasonality_amplitude >= 0),
+    revenue_usd_peak_calendar_month INTEGER NULL CHECK (revenue_usd_peak_calendar_month BETWEEN 1 AND 12),
+    revenue_usd_trough_calendar_month INTEGER NULL CHECK (revenue_usd_trough_calendar_month BETWEEN 1 AND 12),
+    revenue_usd_seasonality_amplitude DOUBLE NULL CHECK (revenue_usd_seasonality_amplitude IS NULL OR revenue_usd_seasonality_amplitude >= 0),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),
+    CHECK (period_start <= period_end),
+    CHECK (seasonality_history_month_count IS NULL OR seasonality_complete_year_count IS NOT NULL),
+    CHECK (seasonality_history_month_count IS NOT NULL OR seasonality_complete_year_count IS NULL),
+    CHECK (
+        seasonality_history_month_count IS NULL
+        OR seasonality_complete_year_count * 12 = seasonality_history_month_count
+    )
+)
+"""
+
+_CREATE_THEME_SEASONALITY_PROFILES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_seasonality_profiles (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    metric_name VARCHAR NOT NULL CHECK (
+        metric_name IN (
+            'product_count',
+            'product_share',
+            'downloads_sum',
+            'downloads_share',
+            'revenue_usd_sum',
+            'revenue_usd_share'
+        )
+    ),
+    calendar_month INTEGER NOT NULL CHECK (calendar_month BETWEEN 1 AND 12),
+    history_start DATE NOT NULL,
+    history_month_count INTEGER NOT NULL CHECK (history_month_count IN (24, 36)),
+    complete_year_count INTEGER NOT NULL CHECK (
+        complete_year_count BETWEEN 2 AND 3
+        AND complete_year_count * 12 = history_month_count
+    ),
+    observation_count INTEGER NOT NULL CHECK (
+        observation_count >= 2 AND observation_count <= complete_year_count
+    ),
+    seasonal_index DOUBLE NOT NULL CHECK (seasonal_index >= 0),
+    index_deviation DOUBLE NOT NULL,
+    is_peak_month BOOLEAN NOT NULL,
+    is_trough_month BOOLEAN NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (
+        scope_name,
+        cadence,
+        period_start,
+        period_end,
+        game_theme,
+        metric_name,
+        calendar_month
+    ),
+    CHECK (period_start <= period_end)
+)
+"""
+
 _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (SCHEMA_MIGRATIONS_TABLE, _CREATE_SCHEMA_MIGRATIONS_SQL, SCHEMA_MIGRATIONS_COLUMNS),
     (APP_METADATA_TABLE, _CREATE_APP_METADATA_SQL, APP_METADATA_COLUMNS),
@@ -993,10 +1283,28 @@ _V4_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         THEME_REPRESENTATIVE_GAMES_COLUMNS,
     ),
 )
+_V5_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        THEME_HORIZON_METRICS_TABLE,
+        _CREATE_THEME_HORIZON_METRICS_SQL,
+        THEME_HORIZON_METRICS_COLUMNS,
+    ),
+    (
+        THEME_MODEL_SUMMARIES_TABLE,
+        _CREATE_THEME_MODEL_SUMMARIES_SQL,
+        THEME_MODEL_SUMMARIES_COLUMNS,
+    ),
+    (
+        THEME_SEASONALITY_PROFILES_TABLE,
+        _CREATE_THEME_SEASONALITY_PROFILES_SQL,
+        THEME_SEASONALITY_PROFILES_COLUMNS,
+    ),
+)
 _TABLE_DEFINITIONS = (
     *_TABLE_DEFINITIONS,
     *_V3_TABLE_DEFINITIONS,
     *_V4_TABLE_DEFINITIONS,
+    *_V5_TABLE_DEFINITIONS,
 )
 
 
@@ -1046,6 +1354,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                 [4],
             )
 
+        _assert_table_definitions(connection, _V4_TABLE_DEFINITIONS)
+
+        if newest_version < 5:
+            _apply_version_five(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                [5],
+            )
+
         _assert_required_tables(connection)
 
         connection.execute("COMMIT")
@@ -1066,7 +1383,7 @@ def verify_read_only_schema(connection: duckdb.DuckDBPyConnection) -> None:
         raise UnsupportedSchemaVersionError(newest_version, CURRENT_SCHEMA_VERSION)
     if newest_version < 1:
         raise SchemaInitializationError("database schema has no supported migrations")
-    _assert_table_definitions(connection, _V1_TABLE_DEFINITIONS)
+    _assert_table_definitions(connection, _table_definitions_for_version(newest_version))
 
 
 def _get_newest_schema_version(connection: duckdb.DuckDBPyConnection) -> int:
@@ -1097,8 +1414,31 @@ def _apply_version_four(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(create_sql)
 
 
+def _apply_version_five(connection: duckdb.DuckDBPyConnection) -> None:
+    for _table_name, create_sql, _columns in _V5_TABLE_DEFINITIONS:
+        connection.execute(create_sql)
+
+
 def _assert_required_tables(connection: duckdb.DuckDBPyConnection) -> None:
     _assert_table_definitions(connection, _TABLE_DEFINITIONS)
+
+
+def _table_definitions_for_version(
+    schema_version: int,
+) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """Return only tables guaranteed by an existing schema version."""
+
+    definitions: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    for minimum_version, version_definitions in (
+        (1, _V1_TABLE_DEFINITIONS),
+        (2, _V2_TABLE_DEFINITIONS),
+        (3, _V3_TABLE_DEFINITIONS),
+        (4, _V4_TABLE_DEFINITIONS),
+        (5, _V5_TABLE_DEFINITIONS),
+    ):
+        if schema_version >= minimum_version:
+            definitions += version_definitions
+    return definitions
 
 
 def _assert_table_definitions(

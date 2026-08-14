@@ -53,7 +53,7 @@ monthly `snapshot_count` minimum 964 and maximum 1,000,
 `structural_issue_count=0`, and `structurally_complete=true`.
 
 ### 3. AGG-002 - market size, growth-source, competition, Theme x Sub-genre,
- and representative-game aggregates (current)
+ and representative-game aggregates (completed)
 
 Add raw internal aggregates for market structure, growth-source decomposition,
 publisher/product concentration, observed product dimensions, and
@@ -63,11 +63,15 @@ metadata limitations, and the existing AGG-001/TREND-001 baseline. Scores,
 recommendations, and business dashboards remain later-issue work.
 
 ### 4. MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-seasonality
+seasonality (current)
 
 Add longer-horizon dimensions and lifecycle/stability/seasonality evidence.
-Keep the current 6M Momentum Score as a baseline; do not silently reinterpret
-existing stored values. Final weights require evidence and review.
+The local implementation now uses schema version 5, pure normalized-row
+calculation, atomic model-output replacement, deterministic Parquet export,
+and the `model-themes` command. Keep the current 6M Momentum Score as a
+baseline; do not silently reinterpret existing stored values. The provisional
+policy labels are evidence only and require BACKTEST-001 validation before any
+business decision layer.
 
 ### 5. BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
 
