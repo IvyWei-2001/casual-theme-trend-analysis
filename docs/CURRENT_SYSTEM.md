@@ -93,7 +93,7 @@ The sanitized accepted AGG-002 evidence is 36 completed months, 35,525 source
 snapshots, 2,153 theme-month evidence rows, 20,880 observed-dimension rows,
 21,528 representative-game evidence rows, and `verification=passed`.
 
-## MODEL-002 implementation status
+## MODEL-002 completed and real-environment accepted
 
 The local `model-themes` workflow reads only stored monthly totals and matching
 AGG-001/AGG-002 rows. It validates consecutive history, preserves raw theme
@@ -105,9 +105,13 @@ adds `theme_horizon_metrics`, `theme_model_summaries`, and
 The workflow recomputes the unchanged `calculate_theme_trend_scores(...)`
 baseline, atomically replaces the four model output sets, rereads exact
 identities/counts, and exports deterministic ZSTD Parquet unless export is
-skipped. Development validation is synthetic and uses temporary DuckDB and
-Parquet files; no real Sensor Tower, Feishu, or production database operation
-is claimed here.
+skipped. Sanitized real-environment acceptance evidence is
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`.
+Automated development validation remains synthetic and uses temporary DuckDB
+and Parquet files; no new real operation is part of BACKTEST-001 development.
 
 ## BACKTEST-001 implementation status
 

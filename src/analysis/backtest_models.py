@@ -408,7 +408,10 @@ class ThemeLaunchWindowOutcome:
             "future_revenue_usd_sum",
             "future_revenue_usd_share",
         ):
-            _optional_number(getattr(self, field_name), field_name=field_name)
+            if field_name.endswith("_share"):
+                _optional_ratio(getattr(self, field_name), field_name=field_name)
+            else:
+                _optional_number(getattr(self, field_name), field_name=field_name)
         if not self.future_theme_present:
             if any(
                 getattr(self, field_name) != 0
@@ -494,12 +497,20 @@ class ThemeLaunchWindowOutcome:
             value not in {"up", "down", "unchanged", "unavailable"} for value in directions.values()
         ):
             raise AggregationValidationError("change direction is not approved")
-        for field_name in (
-            "future_product_share_percentile",
-            "future_downloads_share_percentile",
-            "future_revenue_usd_share_percentile",
+        for metric_name, percentile_name in (
+            ("future_product_share", "future_product_share_percentile"),
+            ("future_downloads_share", "future_downloads_share_percentile"),
+            ("future_revenue_usd_share", "future_revenue_usd_share_percentile"),
         ):
-            _optional_ratio(getattr(self, field_name), field_name=field_name)
+            metric_value = getattr(self, metric_name)
+            percentile_value = _optional_ratio(
+                getattr(self, percentile_name),
+                field_name=percentile_name,
+            )
+            if (metric_value is None) != (percentile_value is None):
+                raise AggregationValidationError(
+                    f"{percentile_name} availability does not match {metric_name}"
+                )
         for field_name in (
             "future_product_share_top_quintile",
             "future_downloads_share_top_quintile",
@@ -792,6 +803,12 @@ class ThemeBacktestFeatureMetric:
             )
         if not isinstance(self.low_sample_warning, bool):
             raise AggregationValidationError("low_sample_warning must be a boolean")
+        expected_low_sample_warning = (
+            self.eligible_row_count < BACKTEST_LOW_SAMPLE_ROW_COUNT
+            or self.decision_month_count < BACKTEST_LOW_SAMPLE_COHORT_COUNT
+        )
+        if self.low_sample_warning != expected_low_sample_warning:
+            raise AggregationValidationError("low_sample_warning does not reconcile")
         _require_timestamp(self.calculated_at, field_name="calculated_at")
 
 
@@ -817,7 +834,8 @@ class ThemeBacktestSegmentMetric:
     outcome_median: float | None
     outcome_p25: float | None
     outcome_p75: float | None
-    future_top_quintile_count: int | None
+    future_top_quintile_eligible_count: int
+    future_top_quintile_count: int
     future_top_quintile_rate: float | None
     future_top_quintile_ci_low: float | None
     future_top_quintile_ci_high: float | None
@@ -883,18 +901,50 @@ class ThemeBacktestSegmentMetric:
             raise AggregationValidationError("segment_row_share must be positive with candidates")
         for field_name in ("outcome_mean", "outcome_median", "outcome_p25", "outcome_p75"):
             _optional_number(getattr(self, field_name), field_name=field_name)
-        _validate_count_rate(
-            self.future_top_quintile_count,
-            self.future_top_quintile_rate,
-            denominator=self.eligible_row_count,
-            count_name="future_top_quintile_count",
-            rate_name="future_top_quintile_rate",
+        top_quintile_eligible_count = _require_count(
+            self.future_top_quintile_eligible_count,
+            field_name="future_top_quintile_eligible_count",
         )
+        if top_quintile_eligible_count > self.eligible_row_count:
+            raise AggregationValidationError(
+                "future_top_quintile_eligible_count exceeds eligible_row_count"
+            )
+        top_quintile_count = _require_count(
+            self.future_top_quintile_count,
+            field_name="future_top_quintile_count",
+        )
+        if top_quintile_eligible_count == 0:
+            if top_quintile_count != 0 or self.future_top_quintile_rate is not None:
+                raise AggregationValidationError(
+                    "future Top-Quintile count/rate must be zero/NULL without valid cohorts"
+                )
+        else:
+            _validate_count_rate(
+                top_quintile_count,
+                self.future_top_quintile_rate,
+                denominator=top_quintile_eligible_count,
+                count_name="future_top_quintile_count",
+                rate_name="future_top_quintile_rate",
+            )
         _validate_interval(
             self.future_top_quintile_ci_low,
             self.future_top_quintile_ci_high,
             field_name="future_top_quintile_ci",
         )
+        if top_quintile_eligible_count == 0 and (
+            self.future_top_quintile_ci_low is not None
+            or self.future_top_quintile_ci_high is not None
+        ):
+            raise AggregationValidationError(
+                "future Top-Quintile Wilson interval requires valid cohorts"
+            )
+        if top_quintile_eligible_count > 0 and (
+            self.future_top_quintile_ci_low is None
+            or self.future_top_quintile_ci_high is None
+        ):
+            raise AggregationValidationError(
+                "future Top-Quintile Wilson interval requires a positive denominator"
+            )
         _optional_ratio(
             self.future_top_quintile_base_rate, field_name="future_top_quintile_base_rate"
         )
@@ -927,6 +977,12 @@ class ThemeBacktestSegmentMetric:
             )
         if not isinstance(self.low_sample_warning, bool):
             raise AggregationValidationError("low_sample_warning must be a boolean")
+        expected_low_sample_warning = (
+            self.eligible_row_count < BACKTEST_LOW_SAMPLE_ROW_COUNT
+            or self.decision_month_count < BACKTEST_LOW_SAMPLE_COHORT_COUNT
+        )
+        if self.low_sample_warning != expected_low_sample_warning:
+            raise AggregationValidationError("low_sample_warning does not reconcile")
         _require_timestamp(self.calculated_at, field_name="calculated_at")
 
 

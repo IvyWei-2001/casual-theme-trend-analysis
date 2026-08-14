@@ -9,8 +9,15 @@ from typing import Any
 import pytest
 from test_analysis_theme_monthly import _metadata, _row
 
-from src.analysis.backtest_v1 import calculate_theme_launch_window_backtest
-from src.analysis.errors import BacktestValidationError
+from src.analysis.backtest_v1 import (
+    _calculate_segment_metrics,
+    _feature_metric,
+    _percentile_or_none,
+    _spearman,
+    _wilson_interval,
+    calculate_theme_launch_window_backtest,
+)
+from src.analysis.errors import AggregationValidationError, BacktestValidationError
 from src.analysis.model_v2 import calculate_theme_model_metrics
 from src.analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
 from src.analysis.trend_score import calculate_theme_trend_scores
@@ -111,6 +118,34 @@ def test_emits_fixed_registry_and_valid_cohort_statistics(five_theme_result: Any
     assert feature_metric.top_quintile_selected_count == 30
     assert feature_metric.top_quintile_hit_count == 30
     assert feature_metric.top_quintile_hit_rate == 1.0
+    selected_outcomes = [
+        row.future_downloads_share
+        for row in result.outcomes
+        if row.outcome_horizon_months == 1 and row.game_theme == "Theme-4"
+    ]
+    all_outcomes = [
+        row.future_downloads_share
+        for row in result.outcomes
+        if row.outcome_horizon_months == 1
+    ]
+    assert feature_metric.future_top_quintile_base_rate == pytest.approx(0.2)
+    assert feature_metric.top_quintile_lift == pytest.approx(5.0)
+    assert feature_metric.top_quintile_outcome_mean == pytest.approx(sum(selected_outcomes) / 30)
+    assert feature_metric.top_quintile_outcome_median == pytest.approx(selected_outcomes[14])
+    assert feature_metric.all_eligible_outcome_mean == pytest.approx(sum(all_outcomes) / 150)
+    assert feature_metric.all_eligible_outcome_median == pytest.approx(sorted(all_outcomes)[74])
+
+    change_metric = next(
+        row
+        for row in result.feature_metrics
+        if row.outcome_horizon_months == 1
+        and row.feature_name == "decision_downloads_share"
+        and row.outcome_name == "downloads_share_absolute_change"
+    )
+    assert change_metric.top_quintile_positive_change_count == 0
+    assert change_metric.top_quintile_positive_change_rate == 0.0
+    assert change_metric.all_positive_change_count == 0
+    assert change_metric.all_positive_change_rate == 0.0
 
 
 def test_36m_features_are_explicitly_unavailable(five_theme_result: Any) -> None:
@@ -134,7 +169,10 @@ def test_36m_features_are_explicitly_unavailable(five_theme_result: Any) -> None
 def test_absent_future_theme_is_zero_filled() -> None:
     payload = _build_payload()
     result, model, scores = _calculate(payload)
-    first_outcome = result.outcomes[0]
+    first_outcome = max(
+        (row for row in result.outcomes if row.outcome_horizon_months == 1),
+        key=lambda row: row.decision_period_start,
+    )
     structures = tuple(
         row
         for row in payload.theme_market_structure_metrics
@@ -189,35 +227,33 @@ def test_missing_decision_source_identity_fails_before_output(
     source_name: str,
 ) -> None:
     payload = _build_payload()
-    _baseline, model, scores = _calculate(payload)
+    baseline, model, scores = _calculate(payload)
+    assert baseline.outcomes
     sources: dict[str, Any] = {
         "structures": payload.theme_market_structure_metrics,
         "growth_sources": payload.theme_growth_source_metrics,
         "scores": scores,
         "summaries": model.model_summaries,
     }
-    if source_name == "structures":
-        missing_identity = (
-            scores[0].scope_name,
-            scores[0].cadence,
-            scores[0].period_start,
-            scores[0].period_end,
-            scores[0].game_theme,
+    missing_identity = (
+        "casual_puzzle_tabletop",
+        "monthly",
+        date(2024, 6, 1),
+        date(2024, 6, 30),
+        "Theme-0",
+    )
+    sources[source_name] = tuple(
+        row
+        for row in sources[source_name]
+        if (
+            row.scope_name,
+            row.cadence,
+            row.period_start,
+            row.period_end,
+            row.game_theme,
         )
-        sources[source_name] = tuple(
-            row
-            for row in sources[source_name]
-            if (
-                row.scope_name,
-                row.cadence,
-                row.period_start,
-                row.period_end,
-                row.game_theme,
-            )
-            != missing_identity
-        )
-    else:
-        sources[source_name] = tuple(sources[source_name][1:])
+        != missing_identity
+    )
 
     with pytest.raises(BacktestValidationError, match="identities"):
         calculate_theme_launch_window_backtest(
@@ -229,6 +265,53 @@ def test_missing_decision_source_identity_fails_before_output(
             model.seasonality_profiles,
             calculated_at=CALCULATED_AT,
         )
+
+
+def test_seasonality_uses_decision_month_absolute_metric_profiles_only() -> None:
+    payload = _build_payload()
+    baseline, model, scores = _calculate(payload)
+    target = next(
+        row
+        for row in baseline.outcomes
+        if row.decision_downloads_expected_seasonal_index is not None
+    )
+    target_month = target.outcome_period_start.month
+    mutated_profiles = []
+    for profile in model.seasonality_profiles:
+        if (
+            profile.period_start == target.decision_period_start
+            and profile.calendar_month == target_month
+        ):
+            if profile.metric_name == "downloads_sum":
+                profile = replace(profile, seasonal_index=1.7, index_deviation=1.7 - 1)
+            elif profile.metric_name == "downloads_share":
+                profile = replace(profile, seasonal_index=0.2, index_deviation=0.2 - 1)
+            elif profile.metric_name == "revenue_usd_sum":
+                profile = replace(profile, seasonal_index=2.3, index_deviation=2.3 - 1)
+            elif profile.metric_name == "revenue_usd_share":
+                profile = replace(profile, seasonal_index=0.4, index_deviation=0.4 - 1)
+        elif (
+            profile.period_start == target.outcome_period_start
+            and profile.calendar_month == target_month
+        ):
+            profile = replace(profile, seasonal_index=9.0, index_deviation=9.0 - 1)
+        mutated_profiles.append(profile)
+
+    result = calculate_theme_launch_window_backtest(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        payload.theme_growth_source_metrics,
+        scores,
+        model.model_summaries,
+        tuple(mutated_profiles),
+        calculated_at=CALCULATED_AT,
+    )
+    mutated = next(row for row in result.outcomes if row.identity == target.identity)
+
+    assert mutated.decision_downloads_expected_seasonal_index == pytest.approx(1.7)
+    assert mutated.decision_revenue_usd_expected_seasonal_index == pytest.approx(2.3)
+    assert mutated.decision_downloads_expected_seasonal_index != pytest.approx(0.2)
+    assert mutated.decision_revenue_usd_expected_seasonal_index != pytest.approx(0.4)
 
 
 def test_future_model_and_seasonality_rows_cannot_leak_into_prior_outcome() -> None:
@@ -260,3 +343,193 @@ def test_future_model_and_seasonality_rows_cannot_leak_into_prior_outcome() -> N
 
     assert next(row for row in leaked_check.outcomes if row.identity == target.identity) == target
     assert mutated.outcomes[0] == baseline.outcomes[0]
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    (
+        ([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], 1.0),
+        ([1.0, 2.0, 3.0], [3.0, 2.0, 1.0], -1.0),
+        ([1.0, 1.0, 2.0, 3.0], [1.0, 2.0, 2.0, 3.0], 5 / 6),
+        ([1.0, 1.0, 1.0], [1.0, 2.0, 3.0], None),
+        ([1.0, 2.0, 3.0], [2.0, 2.0, 2.0], None),
+    ),
+)
+def test_spearman_handles_orientation_ties_and_constant_series(
+    first: list[float],
+    second: list[float],
+    expected: float | None,
+) -> None:
+    result = _spearman(first, second)
+    if expected is None:
+        assert result is None
+    else:
+        assert result == pytest.approx(expected)
+
+
+def test_spearman_excludes_null_pairs_and_weights_decision_months_equally(
+    five_theme_result: Any,
+) -> None:
+    baseline = five_theme_result[0]
+    first_month = min(row.decision_period_start for row in baseline.outcomes)
+    first_rows = [
+        row
+        for row in baseline.outcomes
+        if row.decision_period_start == first_month and row.outcome_horizon_months == 1
+    ]
+    null_metric = _feature_metric(
+        (
+            replace(first_rows[0], legacy_6m_momentum_score=0.25),
+            replace(first_rows[1], legacy_6m_momentum_score=None),
+        ),
+        "legacy_6m_momentum_score",
+        "future_downloads_share",
+        "higher_better",
+        "legacy_baseline",
+        start=date(2023, 8, 1),
+        end=date(2026, 7, 1),
+        horizon=1,
+        calculated_at=CALCULATED_AT,
+        scope_name=first_rows[0].scope_name,
+    )
+    assert null_metric.candidate_row_count == 2
+    assert null_metric.eligible_row_count == 1
+
+    six_result, _model, _scores = _calculate(_build_payload(theme_count=6))
+    horizon_rows = [row for row in six_result.outcomes if row.outcome_horizon_months == 1]
+    months = sorted({row.decision_period_start for row in horizon_rows})
+    first_cohort = [row for row in horizon_rows if row.decision_period_start == months[0]][:5]
+    second_cohort = [row for row in horizon_rows if row.decision_period_start == months[1]]
+    def _rewrite(row: Any, feature_value: float, outcome_value: float) -> Any:
+        absolute_change = outcome_value - row.decision_downloads_share
+        relative_change = absolute_change / row.decision_downloads_share
+        direction = (
+            "unchanged"
+            if absolute_change == 0
+            else "up"
+            if absolute_change > 0
+            else "down"
+        )
+        return replace(
+            row,
+            legacy_6m_momentum_score=feature_value,
+            future_downloads_share=outcome_value,
+            downloads_share_absolute_change=absolute_change,
+            downloads_share_relative_change=relative_change,
+            downloads_share_change_direction=direction,
+            future_downloads_share_percentile=0.5,
+            future_downloads_share_top_quintile=False,
+        )
+
+    rewritten = [
+        _rewrite(row, float(index + 1), 0.10 + index * 0.05)
+        for index, row in enumerate(first_cohort)
+    ]
+    rewritten.extend(
+        _rewrite(row, float(index + 1), 0.60 - index * 0.05)
+        for index, row in enumerate(second_cohort)
+    )
+    equal_month_metric = _feature_metric(
+        tuple(rewritten),
+        "legacy_6m_momentum_score",
+        "future_downloads_share",
+        "higher_better",
+        "legacy_baseline",
+        start=date(2023, 8, 1),
+        end=date(2026, 7, 1),
+        horizon=1,
+        calculated_at=CALCULATED_AT,
+        scope_name=first_rows[0].scope_name,
+    )
+    assert equal_month_metric.correlation_cohort_count == 2
+    assert equal_month_metric.mean_spearman == pytest.approx(0.0)
+
+
+def test_lower_better_feature_is_oriented_before_correlation(five_theme_result: Any) -> None:
+    baseline = five_theme_result[0]
+    first_month = min(row.decision_period_start for row in baseline.outcomes)
+    rows = [
+        replace(
+            row,
+            decision_downloads_product_hhi=(index + 1) / 10,
+        )
+        for index, row in enumerate(
+            row
+            for row in baseline.outcomes
+            if row.decision_period_start == first_month and row.outcome_horizon_months == 1
+        )
+    ]
+    metric = _feature_metric(
+        tuple(rows),
+        "downloads_product_hhi",
+        "future_downloads_share",
+        "lower_better",
+        "competition",
+        start=date(2023, 8, 1),
+        end=date(2026, 7, 1),
+        horizon=1,
+        calculated_at=CALCULATED_AT,
+        scope_name=rows[0].scope_name,
+    )
+    assert metric.mean_spearman == pytest.approx(-1.0)
+
+
+def test_distribution_and_wilson_statistics_cover_edge_cases() -> None:
+    assert _percentile_or_none([1.0, 2.0, 3.0, 4.0], 0.25) == pytest.approx(1.75)
+    assert _percentile_or_none([1.0, 2.0, 3.0, 4.0], 0.5) == pytest.approx(2.5)
+    assert _percentile_or_none([1.0, 2.0, 3.0, 4.0], 0.75) == pytest.approx(3.25)
+
+    zero_success = _wilson_interval(0, 5)
+    all_success = _wilson_interval(5, 5)
+    partial_success = _wilson_interval(2, 5)
+    assert zero_success[0] == 0.0 and zero_success[1] < 1.0
+    assert all_success[1] == 1.0 and all_success[0] > 0.0
+    assert partial_success[0] < 0.4 < partial_success[1]
+    assert _wilson_interval(0, 0) == (None, None)
+
+
+def test_segment_top_quintile_uses_only_valid_decision_cohorts(five_theme_result: Any) -> None:
+    baseline = five_theme_result[0]
+    horizon_rows = [row for row in baseline.outcomes if row.outcome_horizon_months == 1]
+    months = sorted({row.decision_period_start for row in horizon_rows})
+    valid_rows = [row for row in horizon_rows if row.decision_period_start == months[0]]
+    invalid_rows = [row for row in horizon_rows if row.decision_period_start == months[1]][:4]
+    rows = tuple(replace(row, legacy_is_actionable=True) for row in (*valid_rows, *invalid_rows))
+    segments = _calculate_segment_metrics(
+        rows,
+        start=date(2023, 8, 1),
+        end=date(2026, 7, 1),
+        calculated_at=CALCULATED_AT,
+    )
+    metric = next(
+        row
+        for row in segments
+        if row.segment_name == "legacy_actionability"
+        and row.segment_value == "actionable"
+        and row.outcome_name == "future_downloads_share"
+    )
+    assert metric.eligible_row_count == 9
+    assert metric.future_top_quintile_eligible_count == 5
+    assert metric.future_top_quintile_count == 1
+    assert metric.future_top_quintile_rate == pytest.approx(0.2)
+    assert metric.future_top_quintile_base_rate == pytest.approx(0.2)
+    assert metric.future_top_quintile_lift == pytest.approx(1.0)
+
+
+def test_typed_aggregate_integrity_rejects_unreconciled_new_fields(
+    five_theme_result: Any,
+) -> None:
+    outcome = five_theme_result[0].outcomes[0]
+    with pytest.raises(AggregationValidationError, match="between 0 and 1"):
+        replace(outcome, future_downloads_share=1.1)
+
+    feature = five_theme_result[0].feature_metrics[0]
+    with pytest.raises(AggregationValidationError, match="low_sample_warning"):
+        replace(feature, low_sample_warning=not feature.low_sample_warning)
+
+    segment = five_theme_result[0].segment_metrics[0]
+    with pytest.raises(AggregationValidationError, match="future_top_quintile_eligible_count"):
+        replace(
+            segment,
+            future_top_quintile_eligible_count=segment.eligible_row_count + 1,
+        )

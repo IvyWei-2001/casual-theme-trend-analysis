@@ -46,7 +46,7 @@ Implement the next issues in exactly this order:
    and representative-game aggregates (completed and real-environment
    accepted)**
 4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-   seasonality (implemented)**
+   seasonality (completed and real-environment accepted)**
 5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
    (implemented; real-data acceptance remains pending)**
 6. **DECISION-001 - recommendation, risk, confidence, category fit, and
@@ -54,12 +54,20 @@ Implement the next issues in exactly this order:
 7. **FEISHU-004 - business tables, role views, and dashboards**
 8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002, HIST-002, AGG-002, and MODEL-002 are implemented; BACKTEST-001 is
-the current focus. The recorded HIST-002 evidence is 36 completed months, 35,525 source snapshots,
-monthly `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
-structural completeness. Final model weights are not selected in
-CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
-acceptance. The one-issue/one-PR rule continues throughout this sequence.
+CONTRACT-002, HIST-002, AGG-002, and MODEL-002 are completed and
+real-environment accepted; BACKTEST-001 is the current focus. The recorded
+HIST-002 evidence is 36 completed months, 35,525 source snapshots, monthly
+`snapshot_count` bounds of 964 and 1,000, zero structural issues, and
+structural completeness. Sanitized MODEL-002 acceptance evidence is
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`.
+BACKTEST-001 remains implemented and synthetic/temporary-DuckDB verified;
+real-environment acceptance remains pending. Final model weights are not
+selected in CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and
+cross-functional acceptance. The one-issue/one-PR rule continues throughout
+this sequence.
 
 ## Scope guard
 

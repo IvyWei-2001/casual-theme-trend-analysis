@@ -63,7 +63,7 @@ metadata limitations, and the existing AGG-001/TREND-001 baseline. Scores,
 recommendations, and business dashboards remain later-issue work.
 
 ### 4. MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-seasonality (implemented)
+seasonality (completed and real-environment accepted)
 
 Add longer-horizon dimensions and lifecycle/stability/seasonality evidence.
 The local implementation now uses schema version 5, pure normalized-row
@@ -73,6 +73,12 @@ baseline; do not silently reinterpret existing stored values. The provisional
 policy labels remain evidence only and require BACKTEST-001 validation before
 any business decision layer.
 
+Sanitized real-environment acceptance evidence is
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`.
+
 ### 5. BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
 
 The local implementation reads accepted AGG-002 and MODEL-002 rows only. It
@@ -81,8 +87,8 @@ categorical-segment metrics; preserves NULL/zero semantics; validates exact
 future-month identities; and atomically replaces/readbacks the three output
 tables. The credential-free plan-only path reports the 36-month registry
 counts without storage or file access. Synthetic/mock validation is complete;
-real production-data acceptance and the decision/recommendation layer remain
-out of scope.
+BACKTEST-001 real-environment acceptance and the decision/recommendation layer
+remain out of scope.
 
 ### 6. DECISION-001 - recommendation, risk, confidence, category fit, and
 migration evidence

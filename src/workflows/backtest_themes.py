@@ -18,7 +18,10 @@ from ..analysis.backtest_models import (
     ThemeLaunchWindowBacktestResult,
     ThemeLaunchWindowOutcome,
 )
-from ..analysis.backtest_v1 import calculate_theme_launch_window_backtest
+from ..analysis.backtest_v1 import (
+    calculate_theme_launch_window_backtest,
+    validate_backtest_source_identity_compatibility,
+)
 from ..analysis.errors import BacktestValidationError, MissingSourcePeriodError
 from ..analysis.model_v2_models import ThemeModelSummary, ThemeSeasonalityProfile
 from ..analysis.models import MonthlyMarketTotal
@@ -262,7 +265,13 @@ def backtest_themes(
             period_end=end,
         )
         _require_requested_history(month_range, scope_name, monthly_totals)
-        _require_source_compatibility(structures, growth_sources, trend_scores, summaries)
+        _require_source_compatibility(
+            monthly_totals,
+            structures,
+            growth_sources,
+            trend_scores,
+            summaries,
+        )
         result = calculate_theme_launch_window_backtest(
             monthly_totals,
             structures,
@@ -499,26 +508,22 @@ def _require_requested_history(
 
 
 def _require_source_compatibility(
+    monthly_totals: Sequence[MonthlyMarketTotal],
     structures: Sequence[ThemeMarketStructureMetric],
     growth_sources: Sequence[ThemeGrowthSourceMetric],
     trend_scores: Sequence[ThemeTrendScore],
     summaries: Sequence[ThemeModelSummary],
 ) -> None:
-    structure_ids = {_theme_identity(row) for row in structures}
-    growth_ids = {_theme_identity(row) for row in growth_sources}
-    summary_ids = {_theme_identity(row) for row in summaries}
-    score_ids = {_theme_identity(row) for row in trend_scores}
-    if len(structure_ids) != len(structures) or len(growth_ids) != len(growth_sources):
-        raise BacktestThemesError("BACKTEST-001 source identities are duplicated")
-    if not structure_ids.issubset(growth_ids) or not structure_ids.issubset(summary_ids):
-        raise BacktestThemesError("BACKTEST-001 source identities are incompatible")
-    summary_6m_ids = {
-        _theme_identity(row)
-        for row in summaries
-        if row.has_6m_history and _theme_identity(row) in structure_ids
-    }
-    if not summary_6m_ids.issubset(score_ids):
-        raise BacktestThemesError("BACKTEST-001 legacy score identities are incompatible")
+    try:
+        validate_backtest_source_identity_compatibility(
+            monthly_totals,
+            structures,
+            growth_sources,
+            trend_scores,
+            summaries,
+        )
+    except BacktestValidationError as error:
+        raise BacktestThemesError("BACKTEST-001 source identities are incompatible") from error
 
 
 def _verify_readback(
@@ -556,16 +561,6 @@ def _verify_readback(
         or set(actual_segments) != set(result.segment_metrics)
     ):
         raise BacktestReadbackVerificationError("BACKTEST-001 readback verification failed")
-
-
-def _theme_identity(row: object) -> tuple[str, str, date, date, str]:
-    return (
-        str(row.scope_name),  # type: ignore[attr-defined]
-        str(row.cadence),  # type: ignore[attr-defined]
-        row.period_start,  # type: ignore[attr-defined]
-        row.period_end,  # type: ignore[attr-defined]
-        str(row.game_theme),  # type: ignore[attr-defined]
-    )
 
 
 def _export_outcomes(repository: BacktestThemesRepository, path: Path) -> None:

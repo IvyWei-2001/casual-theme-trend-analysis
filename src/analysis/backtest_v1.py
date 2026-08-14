@@ -81,7 +81,7 @@ def calculate_theme_launch_window_backtest(
     trend_scores = tuple(theme_trend_scores)
     summaries = tuple(theme_model_summaries)
     seasonality = tuple(theme_seasonality_profiles)
-    start, end, periods = _validate_input_range(totals)
+    start, end, _periods = _validate_input_range(totals)
     scope_name = totals[0].scope_name
 
     structure_by_identity = _index_rows(
@@ -134,59 +134,54 @@ def calculate_theme_launch_window_backtest(
     )
 
     raw_rows: list[ThemeLaunchWindowOutcome] = []
-    for decision_period in periods:
-        decision_key = (scope_name, "monthly", decision_period, natural_month_end(decision_period))
-        decision_structures = sorted(
-            (
-                row
-                for identity, row in structure_by_identity.items()
-                if identity[:4] == decision_key
-            ),
-            key=lambda row: row.game_theme,
-        )
-        for decision_structure in decision_structures:
-            theme = decision_structure.game_theme
-            identity = (*decision_key, theme)
-            summary = summary_by_identity.get(identity)
-            if summary is None or not summary.has_6m_history:
+    expected_decision_ids = _expected_decision_identities(
+        summary_by_identity,
+        score_by_identity,
+        total_by_period,
+    )
+    for identity in sorted(
+        expected_decision_ids,
+        key=lambda value: (value[2], value[3], str(value[4])),
+    ):
+        decision_period = identity[2]
+        if not isinstance(decision_period, date):
+            raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
+        decision_structure = structure_by_identity[identity]
+        summary = summary_by_identity[identity]
+        trend_score = score_by_identity[identity]
+        growth_source = growth_by_identity[identity]
+        theme = decision_structure.game_theme
+        for horizon in BACKTEST_OUTCOME_HORIZONS:
+            outcome_period = month_shift(decision_period, horizon)
+            if (
+                scope_name,
+                outcome_period,
+                natural_month_end(outcome_period),
+            ) not in total_by_period:
                 continue
-            trend_score = score_by_identity.get(identity)
-            if trend_score is None:
-                raise BacktestValidationError("a decision theme is missing its legacy score")
-            growth_source = growth_by_identity.get(identity)
-            if growth_source is None:
-                raise BacktestValidationError("a decision theme is missing growth-source evidence")
-            for horizon in BACKTEST_OUTCOME_HORIZONS:
-                outcome_period = month_shift(decision_period, horizon)
-                if (
-                    scope_name,
-                    outcome_period,
-                    natural_month_end(outcome_period),
-                ) not in total_by_period:
-                    continue
-                future_identity = (
-                    scope_name,
-                    "monthly",
-                    outcome_period,
-                    natural_month_end(outcome_period),
-                    theme,
+            future_identity = (
+                scope_name,
+                "monthly",
+                outcome_period,
+                natural_month_end(outcome_period),
+                theme,
+            )
+            future_structure = structure_by_identity.get(future_identity)
+            raw_rows.append(
+                _build_outcome(
+                    decision_structure,
+                    growth_source,
+                    trend_score,
+                    summary,
+                    future_structure,
+                    seasonality_by_identity,
+                    outcome_period=outcome_period,
+                    horizon=horizon,
+                    backtest_policy_version=BACKTEST_POLICY_VERSION,
+                    model_policy_version=MODEL_POLICY_VERSION,
+                    calculated_at=calculated_at,
                 )
-                future_structure = structure_by_identity.get(future_identity)
-                raw_rows.append(
-                    _build_outcome(
-                        decision_structure,
-                        growth_source,
-                        trend_score,
-                        summary,
-                        future_structure,
-                        seasonality_by_identity,
-                        outcome_period=outcome_period,
-                        horizon=horizon,
-                        backtest_policy_version=BACKTEST_POLICY_VERSION,
-                        model_policy_version=MODEL_POLICY_VERSION,
-                        calculated_at=calculated_at,
-                    )
-                )
+            )
 
     ranked_rows = _assign_future_ranks(tuple(raw_rows))
     feature_metrics = _calculate_feature_metrics(
@@ -206,6 +201,65 @@ def calculate_theme_launch_window_backtest(
         outcomes=ranked_rows,
         feature_metrics=feature_metrics,
         segment_metrics=segment_metrics,
+    )
+
+
+def validate_backtest_source_identity_compatibility(
+    monthly_market_totals: Sequence[MonthlyMarketTotal],
+    theme_market_structure_metrics: Sequence[ThemeMarketStructureMetric],
+    theme_growth_source_metrics: Sequence[ThemeGrowthSourceMetric],
+    theme_trend_scores: Sequence[ThemeTrendScore],
+    theme_model_summaries: Sequence[ThemeModelSummary],
+) -> None:
+    """Validate the exact decision population without reading storage.
+
+    The workflow uses this same implementation before invoking the pure
+    calculation.  Scores and 6M model summaries jointly establish expected
+    decision identities, while the exact future total range excludes pre-6M
+    rows and final months without a reachable outcome.
+    """
+
+    totals = tuple(monthly_market_totals)
+    structures = tuple(theme_market_structure_metrics)
+    growth_sources = tuple(theme_growth_source_metrics)
+    trend_scores = tuple(theme_trend_scores)
+    summaries = tuple(theme_model_summaries)
+    start, end, _periods = _validate_input_range(totals)
+    scope_name = totals[0].scope_name
+    _validate_source_identity_compatibility(
+        _index_rows(
+            structures,
+            label="market structure",
+            scope_name=scope_name,
+            start=start,
+            end=end,
+            identity=lambda row: _theme_identity(row),
+        ),
+        _index_rows(
+            growth_sources,
+            label="growth source",
+            scope_name=scope_name,
+            start=start,
+            end=end,
+            identity=lambda row: _theme_identity(row),
+        ),
+        _index_rows(
+            trend_scores,
+            label="legacy trend score",
+            scope_name=scope_name,
+            start=start,
+            end=end,
+            identity=lambda row: _theme_identity(row),
+        ),
+        _index_rows(
+            summaries,
+            label="model summary",
+            scope_name=scope_name,
+            start=start,
+            end=end,
+            identity=lambda row: _theme_identity(row),
+        ),
+        {_period_identity(row): row for row in totals},
     )
 
 
@@ -297,40 +351,49 @@ def _validate_source_identity_compatibility(
 ) -> None:
     """Require complete stored decision evidence before building outcomes."""
 
-    structure_ids = set(structures)
-    if not structure_ids.issubset(growth_sources) or not structure_ids.issubset(summaries):
+    expected_decision_ids = _expected_decision_identities(summaries, scores, totals)
+    if (
+        not expected_decision_ids.issubset(structures)
+        or not expected_decision_ids.issubset(growth_sources)
+        or not expected_decision_ids.issubset(scores)
+        or not expected_decision_ids.issubset(summaries)
+    ):
         raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
-    summary_6m_ids = {
-        identity
-        for identity, summary in summaries.items()
-        if identity in structure_ids and summary.has_6m_history
-    }
-    if not summary_6m_ids.issubset(scores):
-        raise BacktestValidationError("BACKTEST-001 legacy score identities are incompatible")
 
-    future_structure_ids: set[tuple[object, ...]] = set()
-    for identity, structure in structures.items():
-        summary = summaries[identity]
-        if not summary.has_6m_history:
-            continue
+
+def _expected_decision_identities(
+    summaries: Mapping[tuple[object, ...], ThemeModelSummary],
+    scores: Mapping[tuple[object, ...], ThemeTrendScore],
+    totals: Mapping[tuple[str, date, date], MonthlyMarketTotal],
+) -> set[tuple[object, ...]]:
+    """Return expected decision identities independently of structures."""
+
+    candidate_ids = set(scores) | {
+        identity for identity, summary in summaries.items() if summary.has_6m_history
+    }
+    expected: set[tuple[object, ...]] = set()
+    for identity in candidate_ids:
+        if len(identity) != 5:
+            raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
+        scope_name, cadence, period_start, period_end, _theme = identity
+        if not isinstance(scope_name, str) or cadence != "monthly":
+            raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
+        if not isinstance(period_start, date) or not isinstance(period_end, date):
+            raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
         for horizon in BACKTEST_OUTCOME_HORIZONS:
-            future_period = month_shift(structure.period_start, horizon)
-            if (structure.scope_name, future_period, natural_month_end(future_period)) in totals:
-                future_structure_ids.add(
-                    (
-                        structure.scope_name,
-                        structure.cadence,
-                        future_period,
-                        natural_month_end(future_period),
-                        structure.game_theme,
-                    )
-                )
-    missing_structure_ids = (
-        {identity for identity, summary in summaries.items() if summary.has_6m_history}
-        | set(scores)
-    ) - structure_ids
-    if any(identity not in future_structure_ids for identity in missing_structure_ids):
-        raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
+            future_period = month_shift(period_start, horizon)
+            if (
+                scope_name,
+                future_period,
+                natural_month_end(future_period),
+            ) in totals:
+                expected.add(identity)
+                break
+    for identity in expected:
+        summary = summaries.get(identity)
+        if summary is None or not summary.has_6m_history:
+            raise BacktestValidationError("BACKTEST-001 source identities are incompatible")
+    return expected
 
 
 def _build_outcome(
@@ -375,10 +438,10 @@ def _build_outcome(
     future_calendar_month = outcome_period.month
     decision_identity = _theme_identity(decision_structure)
     downloads_profile = seasonality_by_identity.get(
-        (*decision_identity, "downloads_share", future_calendar_month)
+        (*decision_identity, "downloads_sum", future_calendar_month)
     )
     revenue_profile = seasonality_by_identity.get(
-        (*decision_identity, "revenue_usd_share", future_calendar_month)
+        (*decision_identity, "revenue_usd_sum", future_calendar_month)
     )
     downloads_seasonal_index = (
         None if downloads_profile is None else downloads_profile.seasonal_index
@@ -505,8 +568,12 @@ def _build_outcome(
             _as_float_or_none(future_values["revenue_usd_share"]),
         ),
         future_product_share_percentile=0.5,
-        future_downloads_share_percentile=None,
-        future_revenue_usd_share_percentile=None,
+        future_downloads_share_percentile=(
+            0.5 if future_values["downloads_share"] is not None else None
+        ),
+        future_revenue_usd_share_percentile=(
+            0.5 if future_values["revenue_usd_share"] is not None else None
+        ),
         future_product_share_top_quintile=None,
         future_downloads_share_top_quintile=None,
         future_revenue_usd_share_top_quintile=None,
@@ -876,15 +943,20 @@ def _segment_metric(
             if _is_numeric(_outcome_value(row, outcome_name))
         }
     )
-    all_numeric_rows = [row for row in all_rows if _is_numeric(_outcome_value(row, outcome_name))]
-    top_flags_available = bool(all_numeric_rows) and all(
-        outcome_top_flags.get(row.identity) is not None for row in all_numeric_rows
+    valid_cohort_rows = [
+        row
+        for row in all_rows
+        if _is_numeric(_outcome_value(row, outcome_name))
+        and row.identity in outcome_top_flags
+    ]
+    valid_segment_rows = [row for row in segment_rows if row.identity in outcome_top_flags]
+    top_eligible_count = len(valid_segment_rows)
+    top_count = sum(outcome_top_flags[row.identity] is True for row in valid_segment_rows)
+    top_rate = (
+        None if top_eligible_count == 0 else top_count / top_eligible_count
     )
-    top_values = [row for row in segment_rows if outcome_top_flags.get(row.identity) is True]
-    top_count = len(top_values) if top_flags_available else None
-    top_rate = None if top_count is None or eligible_count == 0 else top_count / eligible_count
-    all_top_count = sum(outcome_top_flags.get(row.identity) is True for row in all_numeric_rows)
-    all_top_population = len(all_numeric_rows) if top_flags_available else 0
+    all_top_count = sum(outcome_top_flags[row.identity] is True for row in valid_cohort_rows)
+    all_top_population = len(valid_cohort_rows)
     base_rate = None if all_top_population == 0 else all_top_count / all_top_population
     lift = None if base_rate is None or base_rate == 0 or top_rate is None else top_rate / base_rate
     positive_change = outcome_name in {
@@ -893,8 +965,8 @@ def _segment_metric(
     }
     positive_count, positive_rate = _positive_rate(outcome_values if positive_change else ())
     top_ci = (
-        _wilson_interval(top_count, eligible_count)
-        if top_count is not None and eligible_count
+        _wilson_interval(top_count, top_eligible_count)
+        if top_eligible_count
         else (None, None)
     )
     positive_ci = (
@@ -921,6 +993,7 @@ def _segment_metric(
         outcome_median=_median_or_none(outcome_values),
         outcome_p25=_percentile_or_none(outcome_values, 0.25),
         outcome_p75=_percentile_or_none(outcome_values, 0.75),
+        future_top_quintile_eligible_count=top_eligible_count,
         future_top_quintile_count=top_count,
         future_top_quintile_rate=top_rate,
         future_top_quintile_ci_low=top_ci[0],
@@ -949,6 +1022,8 @@ def _outcome_top_flags(
             by_month[row.decision_period_start].append(row)
     flags: dict[tuple[object, ...], bool | None] = {}
     for month_rows in by_month.values():
+        if len(month_rows) < BACKTEST_MIN_COHORT_SIZE:
+            continue
         value_name = _outcome_name_to_field(outcome_name)
         flags.update(_top_flags_for_rows(month_rows, value_name))
     return flags
@@ -1097,4 +1172,7 @@ def _require_timestamp(value: datetime) -> None:
         raise BacktestValidationError("calculated_at must be timezone-aware")
 
 
-__all__ = ["calculate_theme_launch_window_backtest"]
+__all__ = [
+    "calculate_theme_launch_window_backtest",
+    "validate_backtest_source_identity_compatibility",
+]

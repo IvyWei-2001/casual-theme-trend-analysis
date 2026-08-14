@@ -91,6 +91,12 @@ Version 6 adds:
 - `theme_backtest_segment_metrics`: observed rows for the fixed actionability,
   direction, stability, and lifecycle segment registry.
 
+Segment Top-Quintile fields include the explicit
+`future_top_quintile_eligible_count` denominator. It counts only numeric
+segment rows in decision-month cohorts with at least five numeric outcome
+rows; the general `eligible_row_count` remains the coverage and distribution
+denominator.
+
 BACKTEST-001 preserves NULL as unavailable and observed zero as numeric. It
 zero-fills only the six future core values when a future theme is absent. Its
 decision features use the exact decision month; future outcome evidence uses

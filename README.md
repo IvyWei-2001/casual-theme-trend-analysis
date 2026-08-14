@@ -24,8 +24,9 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002, HIST-002, AGG-002, and MODEL-002 are implemented. BACKTEST-001 is
-the current implementation boundary; DECISION-001, FEISHU-004, and
+CONTRACT-002, HIST-002, and AGG-002 are completed and real-environment
+accepted. MODEL-002 is completed and real-environment accepted; BACKTEST-001 is
+the current implementation boundary. DECISION-001, FEISHU-004, and
 AUTOMATION-001 remain later issues. Automation is intentionally deferred until
 FEISHU-004 and cross-functional V2 acceptance.
 
@@ -447,7 +448,12 @@ Schema version 5 adds `theme_horizon_metrics`, `theme_model_summaries`, and
 workflow refreshes the unchanged `theme_trend_scores` 6M Momentum baseline,
 atomically replaces the four model output sets, rereads them, and exports four
 deterministic ZSTD Parquet files unless `--skip-export` is used. MODEL-002 is
-not a recommendation, forecast, backtest, dashboard, or Feishu workflow. See
+completed and real-environment accepted with sanitized evidence:
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`. It is not a
+recommendation, forecast, backtest, dashboard, or Feishu workflow. See
 [`docs/MODEL_V2.md`](docs/MODEL_V2.md) for formulas, policy constants,
 lifecycle order, storage fields, and acceptance boundaries.
 

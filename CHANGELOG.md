@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Corrected BACKTEST-001 acceptance boundaries: expected decision identities now
+  fail on missing middle-month structure, growth, legacy-score, or model-summary
+  evidence; seasonality indices use decision-month absolute Downloads and Revenue
+  (USD) profiles; raw replacement clears the complete range and verifies all
+  three tables before commit; segment Top-Quintile metrics expose valid-cohort
+  denominators; and statistical, migration, stale-row, idempotency, and rollback
+  regressions were added. MODEL-002 status is recorded as completed and
+  real-environment accepted using sanitized evidence; BACKTEST-001 remains
+  synthetic/temporary-DuckDB verified with real acceptance pending.
 - Added BACKTEST-001 leakage-safe T+1/T+2/T+3 launch-window validation. The
   schema-v6 implementation adds exactly three tables for raw outcomes,
   continuous-feature metrics, and categorical-segment metrics; uses a fixed

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from test_storage_model002 import _payload, _store_agg002, _store_model
 
 from src.config import AppConfig
 from src.storage import DuckDBRepository
 from src.workflows import (
+    BacktestReadbackVerificationError,
     BacktestThemesRequest,
     backtest_themes,
     format_backtest_themes_summary,
@@ -104,4 +107,39 @@ def test_complete_workflow_replaces_backtest_outputs_and_exports_them(tmp_path: 
     assert "verification=passed" in rendered
     assert "game_theme=" not in rendered
     assert "app-" not in rendered
+    repository.close()
+
+
+class _PublicReadbackMismatchRepository(DuckDBRepository):
+    corrupt_feature_readback = False
+
+    def get_theme_backtest_feature_metrics(self, *args: object, **kwargs: object):
+        rows = super().get_theme_backtest_feature_metrics(*args, **kwargs)  # type: ignore[arg-type]
+        if self.corrupt_feature_readback and rows:
+            self.corrupt_feature_readback = False
+            return [
+                replace(rows[0], calculated_at=rows[0].calculated_at + timedelta(seconds=1)),
+                *rows[1:],
+            ]
+        return rows
+
+
+def test_public_workflow_readback_mismatch_is_sanitized(tmp_path: Path) -> None:
+    request = _request(tmp_path, skip_export=True)
+    repository = _PublicReadbackMismatchRepository(request.database_path)
+    repository.open()
+    repository.initialize_schema()
+    payload = _payload()
+    _store_agg002(repository, payload)
+    _store_model(repository, payload, calculated_at=payload.monthly_totals[0].calculated_at)
+    repository.corrupt_feature_readback = True
+
+    with pytest.raises(
+        BacktestReadbackVerificationError,
+        match="BACKTEST-001 readback verification failed",
+    ) as error:
+        backtest_themes(request, AppConfig(), current_utc=NOW, repository=repository)
+
+    assert "Theme" not in str(error.value)
+    assert "app-" not in str(error.value)
     repository.close()

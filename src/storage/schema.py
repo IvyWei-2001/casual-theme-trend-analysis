@@ -422,6 +422,7 @@ THEME_BACKTEST_SEGMENT_METRICS_COLUMNS: tuple[str, ...] = (
     "outcome_median",
     "outcome_p25",
     "outcome_p75",
+    "future_top_quintile_eligible_count",
     "future_top_quintile_count",
     "future_top_quintile_rate",
     "future_top_quintile_ci_low",
@@ -1568,7 +1569,8 @@ CREATE TABLE IF NOT EXISTS theme_backtest_segment_metrics (
     outcome_median DOUBLE NULL,
     outcome_p25 DOUBLE NULL,
     outcome_p75 DOUBLE NULL,
-    future_top_quintile_count INTEGER NULL CHECK (future_top_quintile_count IS NULL OR future_top_quintile_count <= eligible_row_count),
+    future_top_quintile_eligible_count INTEGER NOT NULL CHECK (future_top_quintile_eligible_count >= 0 AND future_top_quintile_eligible_count <= eligible_row_count),
+    future_top_quintile_count INTEGER NOT NULL CHECK (future_top_quintile_count >= 0 AND future_top_quintile_count <= future_top_quintile_eligible_count),
     future_top_quintile_rate DOUBLE NULL CHECK (future_top_quintile_rate IS NULL OR future_top_quintile_rate BETWEEN 0 AND 1),
     future_top_quintile_ci_low DOUBLE NULL CHECK (future_top_quintile_ci_low IS NULL OR future_top_quintile_ci_low BETWEEN 0 AND 1),
     future_top_quintile_ci_high DOUBLE NULL CHECK (future_top_quintile_ci_high IS NULL OR future_top_quintile_ci_high BETWEEN 0 AND 1),
@@ -1581,7 +1583,11 @@ CREATE TABLE IF NOT EXISTS theme_backtest_segment_metrics (
     low_sample_warning BOOLEAN NOT NULL,
     calculated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (scope_name, cadence, backtest_start, backtest_end, outcome_horizon_months, segment_name, segment_value, outcome_name, backtest_policy_version),
-    CHECK (backtest_start <= backtest_end)
+    CHECK (backtest_start <= backtest_end),
+    CHECK (
+        (future_top_quintile_eligible_count = 0 AND future_top_quintile_rate IS NULL)
+        OR (future_top_quintile_eligible_count > 0 AND future_top_quintile_rate IS NOT NULL)
+    )
 )
 """
 

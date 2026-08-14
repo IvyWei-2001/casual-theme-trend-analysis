@@ -22,12 +22,6 @@ from ..analysis.backtest_models import (
     ThemeBacktestSegmentMetric,
     ThemeLaunchWindowOutcome,
 )
-from ..analysis.backtest_models import (
-    month_shift as month_shift_for_storage,
-)
-from ..analysis.backtest_models import (
-    natural_month_end as natural_month_end_for_storage,
-)
 from ..analysis.model_v2_models import (
     ThemeHorizonMetric,
     ThemeModelSummary,
@@ -1060,26 +1054,20 @@ class DuckDBRepository:
         connection = self._require_initialized_connection()
         _verify_backtest_source_identities(connection, outcomes_tuple)
         _verify_backtest_outcome_periods(connection, outcomes_tuple)
-        decision_periods = {
-            (row.decision_period_start, row.decision_period_end) for row in outcomes_tuple
-        }
-        if not decision_periods:
-            decision_period = backtest_start
-            while decision_period <= backtest_end:
-                decision_periods.add(
-                    (decision_period, natural_month_end_for_storage(decision_period))
-                )
-                decision_period = month_shift_for_storage(decision_period, 1)
-
         try:
             connection.execute("BEGIN TRANSACTION")
-            for period_start, period_end in sorted(decision_periods):
-                connection.execute(
-                    f"DELETE FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
-                    "WHERE scope_name = ? AND cadence = 'monthly' "
-                    "AND decision_period_start = ? AND decision_period_end = ?",
-                    [features_tuple[0].scope_name, period_start, period_end],
-                )
+            connection.execute(
+                f"DELETE FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
+                "WHERE scope_name = ? AND cadence = 'monthly' "
+                "AND decision_period_start >= ? AND decision_period_start <= ? "
+                "AND decision_period_end <= ?",
+                [
+                    features_tuple[0].scope_name,
+                    backtest_start,
+                    backtest_end,
+                    backtest_end,
+                ],
+            )
             connection.execute(
                 f"DELETE FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
                 "WHERE scope_name = ? AND cadence = 'monthly' "
@@ -1116,20 +1104,19 @@ class DuckDBRepository:
                     _INSERT_THEME_BACKTEST_SEGMENT_METRIC_SQL,
                     [_theme_backtest_segment_metric_parameters(row) for row in segments_tuple],
                 )
+            _verify_backtest_readback(
+                connection,
+                outcomes_tuple,
+                features_tuple,
+                segments_tuple,
+                scope_name=features_tuple[0].scope_name,
+                backtest_start=backtest_start,
+                backtest_end=backtest_end,
+            )
             connection.execute("COMMIT")
         except Exception:
             _rollback(connection)
             raise
-
-        _verify_backtest_readback(
-            connection,
-            outcomes_tuple,
-            features_tuple,
-            segments_tuple,
-            scope_name=features_tuple[0].scope_name,
-            backtest_start=backtest_start,
-            backtest_end=backtest_end,
-        )
 
     def upsert_app_metadata(self, rows: Sequence[AppMetadataRow]) -> None:
         """Transaction-safely upsert normalized metadata rows by unified ID."""

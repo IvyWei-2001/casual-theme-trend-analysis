@@ -6,6 +6,14 @@ future theme outcomes at T+1, T+2, and T+3. It is descriptive validation, not a
 forecast, final score, investment recommendation, Product Greenlight,
 Feishu workflow, or automation trigger.
 
+MODEL-002 is completed and real-environment accepted. Sanitized evidence is
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`.
+BACKTEST-001 itself is implemented and synthetic/temporary-DuckDB verified;
+real-environment acceptance remains pending.
+
 ## Command boundary
 
 ```powershell
@@ -68,6 +76,10 @@ The raw population includes actionable and non-actionable legacy rows and keeps
 raw theme labels, including empty or otherwise non-NULL labels. A raw outcome
 requires a matching MODEL-002 summary with 6M history. Missing decision-side
 source identities are validation errors rather than silently excluded rows.
+The two expected seasonal-index features use the decision-month absolute
+Downloads (`downloads_sum`) and Revenue (USD) (`revenue_usd_sum`) seasonality
+profiles for the future calendar month. Share profiles and future-month
+seasonality profiles are not read.
 
 ## Missingness and outcomes
 
@@ -162,7 +174,12 @@ The segment registry is exactly:
 MODEL-002 enum values are preserved exactly. Segment metrics are emitted for
 observed values only and store coverage, distribution percentiles, future
 top-quintile evidence, positive-change evidence where applicable, and the
-same low-sample warning rule.
+same low-sample warning rule. `future_top_quintile_eligible_count` is the
+number of numeric segment rows belonging to decision-month cohorts with at
+least five numeric outcome rows. Only those valid-cohort rows contribute to
+`future_top_quintile_count`, its rate and Wilson interval, base rate, or lift;
+the general `eligible_row_count` remains the denominator for coverage and
+distribution statistics.
 
 ## Schema version 6
 
@@ -195,10 +212,12 @@ to version 6 without rebuilding or rewriting prior rows.
 `replace_theme_backtest_range(...)` validates every typed row, the exact feature
 registry, source references, natural-month shifts, future total availability,
 counts, rates, intervals, policies, and common timestamps before opening a
-transaction. It deletes only the requested range/policy, inserts all three
-output sets in one DuckDB transaction, rolls back on failure, and rereads exact
-identities, counts, range, horizons, outcomes, source references, rates, and
-timestamps.
+transaction. It deletes every raw outcome in the complete requested natural
+decision-month range, even when that month has no new outcome rows, then
+inserts all three output sets in one DuckDB transaction. Exact inserted-row
+readback occurs before COMMIT; an insert or readback mismatch rolls back all
+three tables and preserves the prior committed result. The workflow performs
+a second sanitized post-commit readback.
 
 Readers support range, horizon, feature, outcome, and segment filters and use
 deterministic identity ordering. The three Parquet exports use explicit schema
