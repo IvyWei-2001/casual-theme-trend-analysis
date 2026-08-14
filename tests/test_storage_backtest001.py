@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
-from test_storage_model002 import _payload, _store_agg002, _store_model
+from test_analysis_theme_monthly import _metadata, _row
+from test_storage_model002 import (
+    CALCULATED_AT,
+    _month_start,
+    _payload,
+    _store_agg002,
+    _store_model,
+)
 
 from src.analysis.backtest_v1 import calculate_theme_launch_window_backtest
+from src.analysis.model_v2 import calculate_theme_model_metrics
+from src.analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
+from src.analysis.trend_score import calculate_theme_trend_scores
 from src.storage import DuckDBRepository, StorageValidationError
 from src.storage import repository as repository_module
 from src.storage import schema as schema_module
@@ -31,6 +41,51 @@ def _calculate_and_seed(repository: DuckDBRepository):
         calculated_at=payload.monthly_totals[0].calculated_at,
     )
     return result
+
+
+def _payload_with_month_count(month_count: int):
+    source_periods = []
+    metadata = {}
+    for index in range(month_count):
+        month = _month_start(index)
+        row = _row(
+            f"app-{index}",
+            1,
+            month=f"{month.year:04d}-{month.month:02d}",
+            theme="Theme",
+            units=100.0,
+            revenue=100.0,
+        )
+        source_periods.append([row])
+        metadata[row.unified_app_id] = _metadata(row.unified_app_id, "Publisher")
+    return aggregate_theme_opportunity_metrics(
+        source_periods,
+        metadata,
+        calculated_at=CALCULATED_AT,
+    )
+
+
+def _calculate_backtest(payload: Any):
+    calculated_at = payload.monthly_totals[0].calculated_at
+    model = calculate_theme_model_metrics(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        calculated_at,
+    )
+    scores = calculate_theme_trend_scores(
+        payload.monthly_totals,
+        payload.theme_metrics,
+        calculated_at=calculated_at,
+    )
+    return calculate_theme_launch_window_backtest(
+        payload.monthly_totals,
+        payload.theme_market_structure_metrics,
+        payload.theme_growth_source_metrics,
+        scores,
+        model.model_summaries,
+        model.seasonality_profiles,
+        calculated_at=calculated_at,
+    )
 
 
 def test_backtest_tables_round_trip_and_export_with_exact_columns(tmp_path: Path) -> None:
@@ -138,6 +193,74 @@ def test_replacement_cleans_stale_raw_period_and_is_idempotent(tmp_path: Path) -
     repository.close()
 
 
+def test_wider_to_narrower_replacement_cleans_end_boundary_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    repository = DuckDBRepository(tmp_path / "wider-to-narrower.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    wide_payload = _payload_with_month_count(37)
+    narrow_payload = _payload_with_month_count(36)
+    wide_result = _calculate_backtest(wide_payload)
+    narrow_result = _calculate_backtest(narrow_payload)
+    _store_agg002(repository, wide_payload)
+    _store_model(
+        repository,
+        wide_payload,
+        calculated_at=wide_payload.monthly_totals[0].calculated_at,
+    )
+
+    repository.replace_theme_backtest_range(
+        wide_result.outcomes,
+        wide_result.feature_metrics,
+        wide_result.segment_metrics,
+    )
+    end_decision_month = _month_start(35)
+    end_decision_rows = repository.get_theme_launch_window_outcomes(
+        decision_period_start=end_decision_month,
+    )
+    assert end_decision_rows
+    assert {row.outcome_horizon_months for row in end_decision_rows} == {1}
+    assert {row.outcome_period_start for row in end_decision_rows} == {_month_start(36)}
+
+    repository.replace_theme_backtest_range(
+        narrow_result.outcomes,
+        narrow_result.feature_metrics,
+        narrow_result.segment_metrics,
+    )
+    assert not repository.get_theme_launch_window_outcomes(
+        decision_period_start=end_decision_month,
+    )
+    assert set(
+        repository.get_theme_backtest_feature_metrics(
+            backtest_start=narrow_result.feature_metrics[0].backtest_start,
+            backtest_end=narrow_result.feature_metrics[0].backtest_end,
+        )
+    ) == set(narrow_result.feature_metrics)
+    assert set(
+        repository.get_theme_backtest_segment_metrics(
+            backtest_start=narrow_result.segment_metrics[0].backtest_start,
+            backtest_end=narrow_result.segment_metrics[0].backtest_end,
+        )
+    ) == set(narrow_result.segment_metrics)
+    snapshot = (
+        repository.get_theme_launch_window_outcomes(),
+        repository.get_theme_backtest_feature_metrics(),
+        repository.get_theme_backtest_segment_metrics(),
+    )
+    repository.replace_theme_backtest_range(
+        narrow_result.outcomes,
+        narrow_result.feature_metrics,
+        narrow_result.segment_metrics,
+    )
+    assert (
+        repository.get_theme_launch_window_outcomes(),
+        repository.get_theme_backtest_feature_metrics(),
+        repository.get_theme_backtest_segment_metrics(),
+    ) == snapshot
+    repository.close()
+
+
 class _LateBacktestInsertFailureConnection:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
@@ -161,6 +284,38 @@ class _LateBacktestInsertFailureRepository(DuckDBRepository):
         if self.fail_late_insert:
             return _LateBacktestInsertFailureConnection(connection)
         return connection
+
+
+class _EndBoundaryReadbackConnection:
+    def __init__(self, connection: Any, injected_row: Any) -> None:
+        self._connection = connection
+        self._injected_row = injected_row
+        self._injected = False
+
+    def execute(self, query: str, parameters: Any = None) -> Any:
+        if parameters is None:
+            return self._connection.execute(query)
+        return self._connection.execute(query, parameters)
+
+    def executemany(self, query: str, parameters: Any) -> Any:
+        result = self._connection.executemany(query, parameters)
+        if "INSERT INTO theme_backtest_segment_metrics" in query and not self._injected:
+            self._connection.execute(
+                repository_module._INSERT_THEME_LAUNCH_WINDOW_OUTCOME_SQL,
+                repository_module._theme_launch_window_outcome_parameters(self._injected_row),
+            )
+            self._injected = True
+        return result
+
+
+class _EndBoundaryReadbackRepository(DuckDBRepository):
+    injected_row: Any | None = None
+
+    def _require_initialized_connection(self) -> Any:
+        connection = super()._require_initialized_connection()
+        if self.injected_row is None:
+            return connection
+        return _EndBoundaryReadbackConnection(connection, self.injected_row)
 
 
 def test_late_insert_failure_preserves_all_three_prior_tables(tmp_path: Path) -> None:
@@ -235,6 +390,49 @@ def test_internal_readback_mismatch_rolls_back_all_three_tables(
     finally:
         repository_module._theme_backtest_feature_metric_from_database_row = original_mapper
 
+    assert (
+        repository.get_theme_launch_window_outcomes(),
+        repository.get_theme_backtest_feature_metrics(),
+        repository.get_theme_backtest_segment_metrics(),
+    ) == original
+    repository.close()
+
+
+def test_internal_readback_includes_end_boundary_and_rolls_back_all_three_tables(
+    tmp_path: Path,
+) -> None:
+    repository = _EndBoundaryReadbackRepository(tmp_path / "end-boundary-readback.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    result = _calculate_and_seed(repository)
+    original = (
+        repository.get_theme_launch_window_outcomes(),
+        repository.get_theme_backtest_feature_metrics(),
+        repository.get_theme_backtest_segment_metrics(),
+    )
+    wider_result = _calculate_backtest(_payload_with_month_count(37))
+    end_decision_month = _month_start(35)
+    injected_row = next(
+        row
+        for row in wider_result.outcomes
+        if row.decision_period_start == end_decision_month
+    )
+    assert injected_row.decision_period_end == date(2026, 7, 31)
+    repository.injected_row = injected_row
+    try:
+        with pytest.raises(
+            StorageValidationError,
+            match="backtest outcome readback verification failed",
+        ) as error:
+            repository.replace_theme_backtest_range(
+                result.outcomes,
+                result.feature_metrics,
+                result.segment_metrics,
+            )
+    finally:
+        repository.injected_row = None
+
+    assert str(error.value) == "backtest outcome readback verification failed"
     assert (
         repository.get_theme_launch_window_outcomes(),
         repository.get_theme_backtest_feature_metrics(),

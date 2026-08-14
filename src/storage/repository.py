@@ -1059,12 +1059,10 @@ class DuckDBRepository:
             connection.execute(
                 f"DELETE FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
                 "WHERE scope_name = ? AND cadence = 'monthly' "
-                "AND decision_period_start >= ? AND decision_period_start <= ? "
-                "AND decision_period_end <= ?",
+                "AND decision_period_start >= ? AND decision_period_start <= ?",
                 [
                     features_tuple[0].scope_name,
                     backtest_start,
-                    backtest_end,
                     backtest_end,
                 ],
             )
@@ -2234,7 +2232,7 @@ def _verify_backtest_readback(
         f"SELECT {_THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS_SQL} "
         f"FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
         "WHERE scope_name = ? AND cadence = 'monthly' "
-        "AND decision_period_start >= ? AND decision_period_end <= ? "
+        "AND decision_period_start >= ? AND decision_period_start <= ? "
         "ORDER BY decision_period_start, decision_period_end, game_theme, outcome_horizon_months",
         [scope_name, backtest_start, backtest_end],
     ).fetchall()

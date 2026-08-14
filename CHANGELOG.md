@@ -5,7 +5,8 @@
 - Corrected BACKTEST-001 acceptance boundaries: expected decision identities now
   fail on missing middle-month structure, growth, legacy-score, or model-summary
   evidence; seasonality indices use decision-month absolute Downloads and Revenue
-  (USD) profiles; raw replacement clears the complete range and verifies all
+  (USD) profiles; raw replacement clears the complete range by decision-month
+  start identity, including the month-start end boundary, and verifies all
   three tables before commit; segment Top-Quintile metrics expose valid-cohort
   denominators; and statistical, migration, stale-row, idempotency, and rollback
   regressions were added. MODEL-002 status is recorded as completed and

@@ -213,7 +213,8 @@ to version 6 without rebuilding or rewriting prior rows.
 registry, source references, natural-month shifts, future total availability,
 counts, rates, intervals, policies, and common timestamps before opening a
 transaction. It deletes every raw outcome in the complete requested natural
-decision-month range, even when that month has no new outcome rows, then
+decision-month range using only the `decision_period_start` month-start
+identity, even when that month has no new outcome rows, then
 inserts all three output sets in one DuckDB transaction. Exact inserted-row
 readback occurs before COMMIT; an insert or readback mismatch rolls back all
 three tables and preserves the prior committed result. The workflow performs
