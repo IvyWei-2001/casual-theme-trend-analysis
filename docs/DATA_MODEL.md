@@ -42,10 +42,11 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 5 contains twelve business tables plus the `schema_migrations` control
-table. Version 4 adds four V2 evidence tables and version 5 adds three
-MODEL-002 evidence tables without changing source tables, schema-v2 monthly
-aggregation rows, schema-v3 trend scores, or schema-v4 rows:
+version 6 contains fifteen business tables plus the `schema_migrations` control
+table. Version 4 adds four V2 evidence tables, version 5 adds three MODEL-002
+evidence tables, and version 6 adds three BACKTEST-001 evidence tables without
+changing source tables, schema-v2 monthly aggregation rows, schema-v3 trend
+scores, or prior evidence rows:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -79,6 +80,31 @@ uses later months when producing an earlier target. See
 [`MODEL_V2.md`](MODEL_V2.md) for formulas, policy order, readers, replacement,
 readback, and export contracts.
 
+Version 6 adds:
+
+- `theme_launch_window_outcomes`: one raw decision-month/theme row per
+  evaluated future horizon, retaining decision features, exact future core
+  values, absolute/relative changes, directions, percentiles, and top-quintile
+  flags;
+- `theme_backtest_feature_metrics`: the fixed continuous-feature by primary-
+  outcome aggregate registry; and
+- `theme_backtest_segment_metrics`: observed rows for the fixed actionability,
+  direction, stability, and lifecycle segment registry.
+
+Segment Top-Quintile fields include the explicit
+`future_top_quintile_eligible_count` denominator. It counts only numeric
+segment rows in decision-month cohorts with at least five numeric outcome
+rows; the general `eligible_row_count` remains the coverage and distribution
+denominator.
+
+BACKTEST-001 preserves NULL as unavailable and observed zero as numeric. It
+zero-fills only the six future core values when a future theme is absent. Its
+decision features use the exact decision month; future outcome evidence uses
+only the exact shifted month. A version-5 database remains valid for
+read-only inspection without creating version-6 tables. See
+[`BACKTEST_V1.md`](BACKTEST_V1.md) for the complete pure-analysis and storage
+contract.
+
 The composite market-period identity is:
 
 ```text
@@ -104,8 +130,9 @@ aggregation, Trend Score, or Feishu synchronization. Live single-period
 collection is deferred to DB-002. AGG-001 adds the two derived tables described
 below without changing the source-table columns. AGG-002 adds the separate
 schema-v4 evidence tables described after the AGG-001 contract. TREND-001 adds
-the schema-v3 score table, and MODEL-002 adds the schema-v5 evidence tables,
-without changing earlier table contracts.
+the schema-v3 score table, MODEL-002 adds the schema-v5 evidence tables, and
+BACKTEST-001 adds the schema-v6 evidence tables, without changing earlier
+table contracts.
 
 ## AGG-001 schema-v2 derived storage contract
 

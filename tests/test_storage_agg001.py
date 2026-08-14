@@ -115,13 +115,21 @@ def test_fresh_schema_has_version_four_tables_and_exact_columns(tmp_path: Path) 
     connection = repository.open()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,)]
-    assert tuple(row[1] for row in connection.execute(
-        "PRAGMA table_info('monthly_market_totals')"
-    ).fetchall()) == schema_module.MONTHLY_MARKET_TOTALS_COLUMNS
-    assert tuple(row[1] for row in connection.execute(
-        "PRAGMA table_info('theme_monthly_metrics')"
-    ).fetchall()) == schema_module.THEME_MONTHLY_METRICS_COLUMNS
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+    assert (
+        tuple(
+            row[1]
+            for row in connection.execute("PRAGMA table_info('monthly_market_totals')").fetchall()
+        )
+        == schema_module.MONTHLY_MARKET_TOTALS_COLUMNS
+    )
+    assert (
+        tuple(
+            row[1]
+            for row in connection.execute("PRAGMA table_info('theme_monthly_metrics')").fetchall()
+        )
+        == schema_module.THEME_MONTHLY_METRICS_COLUMNS
+    )
     repository.close()
 
 
@@ -150,7 +158,7 @@ def test_existing_version_one_rows_survive_sequential_upgrade(tmp_path: Path) ->
     repository.initialize_schema()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
     assert connection.execute("SELECT count(*) FROM app_metadata").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM market_snapshots").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM monthly_market_totals").fetchone() == (0,)
@@ -207,12 +215,15 @@ def test_derived_parquet_exports_are_readable_and_match_duckdb(tmp_path: Path) -
     assert repository.open().execute(
         "SELECT count(*) FROM read_parquet(?)", [str(metrics_path)]
     ).fetchone() == (2,)
-    assert tuple(
-        row[0]
-        for row in repository.open().execute(
-            "DESCRIBE SELECT * FROM read_parquet(?)", [str(totals_path)]
-        ).fetchall()
-    ) == schema_module.MONTHLY_MARKET_TOTALS_COLUMNS
+    assert (
+        tuple(
+            row[0]
+            for row in repository.open()
+            .execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(totals_path)])
+            .fetchall()
+        )
+        == schema_module.MONTHLY_MARKET_TOTALS_COLUMNS
+    )
     assert repository.open().execute(
         "SELECT game_theme FROM read_parquet(?) ORDER BY game_theme", [str(metrics_path)]
     ).fetchall() == [("A",), ("Decoration",)]

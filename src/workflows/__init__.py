@@ -2,6 +2,7 @@
 
 from .aggregate_themes import aggregate_themes, format_aggregate_themes_summary
 from .backfill_months import backfill_months, format_backfill_summary
+from .backtest_themes import backtest_themes, format_backtest_themes_summary
 from .collect_month import (
     CollectionClient,
     CollectionRepository,
@@ -11,6 +12,8 @@ from .collect_month import (
 )
 from .errors import (
     BackfillMonthsError,
+    BacktestReadbackVerificationError,
+    BacktestThemesError,
     InvalidMonthError,
     ModelReadbackVerificationError,
     ModelThemesError,
@@ -33,6 +36,8 @@ from .models import (
     BackfillMonthsRange,
     BackfillMonthsRequest,
     BackfillMonthsSummary,
+    BacktestThemesRequest,
+    BacktestThemesSummary,
     CollectMonthRequest,
     CollectMonthSummary,
     ModelThemesRequest,
@@ -55,6 +60,10 @@ __all__ = [
     "CollectionRepository",
     "AggregateThemesRequest",
     "AggregateThemesSummary",
+    "BacktestThemesRequest",
+    "BacktestThemesSummary",
+    "BacktestThemesError",
+    "BacktestReadbackVerificationError",
     "BackfillMonthRange",
     "BackfillMonthsError",
     "BackfillMonthsRange",
@@ -79,6 +88,7 @@ __all__ = [
     "WorkflowMetadataIntegrityError",
     "app_metadata_row_to_sensor_tower_metadata",
     "aggregate_themes",
+    "backtest_themes",
     "backfill_months",
     "collect_month",
     "inspect_history",
@@ -88,6 +98,7 @@ __all__ = [
     "format_history_inspection_summary",
     "format_model_themes_summary",
     "format_aggregate_themes_summary",
+    "format_backtest_themes_summary",
     "format_collection_summary",
     "format_score_themes_summary",
     "score_themes",

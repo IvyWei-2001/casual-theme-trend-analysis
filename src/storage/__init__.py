@@ -1,5 +1,10 @@
 """Internal DuckDB storage package for market snapshots and metadata cache."""
 
+from ..analysis.backtest_models import (
+    ThemeBacktestFeatureMetric,
+    ThemeBacktestSegmentMetric,
+    ThemeLaunchWindowOutcome,
+)
 from ..analysis.model_v2_models import (
     ThemeHorizonMetric,
     ThemeModelSummary,
@@ -42,9 +47,12 @@ from .parquet import (
     export_app_metadata_to_parquet,
     export_market_snapshots_to_parquet,
     export_monthly_market_totals_to_parquet,
+    export_theme_backtest_feature_metrics_to_parquet,
+    export_theme_backtest_segment_metrics_to_parquet,
     export_theme_dimension_monthly_metrics_to_parquet,
     export_theme_growth_source_metrics_to_parquet,
     export_theme_horizon_metrics_to_parquet,
+    export_theme_launch_window_outcomes_to_parquet,
     export_theme_market_structure_metrics_to_parquet,
     export_theme_model_summaries_to_parquet,
     export_theme_monthly_metrics_to_parquet,
@@ -76,6 +84,9 @@ __all__ = [
     "StorageValidationError",
     "ThemeMonthlyMetric",
     "ThemeHorizonMetric",
+    "ThemeBacktestFeatureMetric",
+    "ThemeBacktestSegmentMetric",
+    "ThemeLaunchWindowOutcome",
     "ThemeModelSummary",
     "ThemeSeasonalityProfile",
     "ThemeDimensionMonthlyMetric",
@@ -93,6 +104,9 @@ __all__ = [
     "export_theme_dimension_monthly_metrics_to_parquet",
     "export_theme_growth_source_metrics_to_parquet",
     "export_theme_horizon_metrics_to_parquet",
+    "export_theme_backtest_feature_metrics_to_parquet",
+    "export_theme_backtest_segment_metrics_to_parquet",
+    "export_theme_launch_window_outcomes_to_parquet",
     "export_theme_market_structure_metrics_to_parquet",
     "export_theme_model_summaries_to_parquet",
     "export_theme_representative_games_to_parquet",

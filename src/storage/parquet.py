@@ -14,9 +14,12 @@ from .schema import (
     APP_METADATA_COLUMNS,
     MARKET_SNAPSHOT_COLUMNS,
     MONTHLY_MARKET_TOTALS_COLUMNS,
+    THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
+    THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
     THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
     THEME_HORIZON_METRICS_COLUMNS,
+    THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MODEL_SUMMARIES_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
@@ -237,6 +240,72 @@ def export_theme_seasonality_profiles_to_parquet(
             "game_theme",
             "metric_name",
             "calendar_month",
+        ),
+    )
+
+
+def export_theme_launch_window_outcomes_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export raw BACKTEST-001 outcomes in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_launch_window_outcomes",
+        columns=THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
+        order_by=(
+            "scope_name",
+            "decision_period_start",
+            "decision_period_end",
+            "game_theme",
+            "outcome_horizon_months",
+        ),
+    )
+
+
+def export_theme_backtest_feature_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export BACKTEST-001 continuous metrics in stable registry order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_backtest_feature_metrics",
+        columns=THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "backtest_start",
+            "backtest_end",
+            "outcome_horizon_months",
+            "feature_name",
+            "outcome_name",
+        ),
+    )
+
+
+def export_theme_backtest_segment_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export BACKTEST-001 segment metrics in stable segment order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_backtest_segment_metrics",
+        columns=THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "backtest_start",
+            "backtest_end",
+            "outcome_horizon_months",
+            "segment_name",
+            "segment_value",
+            "outcome_name",
         ),
     )
 

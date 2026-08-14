@@ -34,10 +34,10 @@ def _period_end(period_start: date) -> date:
     return date.fromordinal(next_start.toordinal() - 1)
 
 
-def _payload(*, calculated_at: datetime = CALCULATED_AT):
+def _payload(*, calculated_at: datetime = CALCULATED_AT, month_count: int = 36):
     source_periods = []
     metadata = {}
-    for index in range(36):
+    for index in range(month_count):
         month = _month_start(index)
         row = _row(
             f"app-{index}",
@@ -143,7 +143,7 @@ def test_fresh_schema_adds_only_the_three_model_tables_with_exact_columns(
             row[1] for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
         )
         assert actual_columns == expected_columns
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (5,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (6,)
     repository.close()
 
 
@@ -205,32 +205,36 @@ def test_duckdb_rejects_non_exact_summary_complete_year_count(tmp_path: Path) ->
 def test_version_four_database_migrates_without_rewriting_existing_rows(tmp_path: Path) -> None:
     repository = _initialized(tmp_path / "version-four.duckdb")
     connection = repository.open()
-    connection.execute("INSERT INTO app_metadata VALUES (?, ?, ?, ?, ?, ?, ?)", [
-        "app-existing",
-        "Existing",
-        "Publisher",
-        "publisher_name",
-        None,
-        None,
-        CALCULATED_AT,
-    ])
+    connection.execute(
+        "INSERT INTO app_metadata VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            "app-existing",
+            "Existing",
+            "Publisher",
+            "publisher_name",
+            None,
+            None,
+            CALCULATED_AT,
+        ],
+    )
     for table_name in (
         schema_module.THEME_HORIZON_METRICS_TABLE,
         schema_module.THEME_MODEL_SUMMARIES_TABLE,
         schema_module.THEME_SEASONALITY_PROFILES_TABLE,
+        schema_module.THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
+        schema_module.THEME_BACKTEST_FEATURE_METRICS_TABLE,
+        schema_module.THEME_BACKTEST_SEGMENT_METRICS_TABLE,
     ):
         connection.execute(f"DROP TABLE {table_name}")
-    connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
 
     repository.initialize_schema()
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (5,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (6,)
     assert connection.execute(
         "SELECT unified_app_id, publisher_display_name FROM app_metadata"
     ).fetchone() == ("app-existing", "Publisher")
-    assert connection.execute(
-        "SELECT count(*) FROM theme_horizon_metrics"
-    ).fetchone() == (0,)
+    assert connection.execute("SELECT count(*) FROM theme_horizon_metrics").fetchone() == (0,)
     repository.close()
 
 
@@ -269,12 +273,15 @@ def test_model_rows_round_trip_readers_and_deterministic_zstd_exports(tmp_path: 
         first_bytes = path.read_bytes()
         exporter(path)
         assert path.read_bytes() == first_bytes
-        assert tuple(
-            row[0]
-            for row in repository.open().execute(
-                "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
-            ).fetchall()
-        ) == columns
+        assert (
+            tuple(
+                row[0]
+                for row in repository.open()
+                .execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)])
+                .fetchall()
+            )
+            == columns
+        )
         assert repository.open().execute(
             "SELECT count(*) FROM read_parquet(?)", [str(path)]
         ).fetchone() == (
@@ -469,8 +476,7 @@ def test_model_replacement_rejects_mixed_seasonality_metadata_before_connection_
         **{field_name: replacement_value},
     )
     profiles = tuple(
-        malformed_profile if row is original_profile else row
-        for row in model.seasonality_profiles
+        malformed_profile if row is original_profile else row for row in model.seasonality_profiles
     )
 
     with pytest.raises(StorageValidationError, match="metadata must be consistent"):
@@ -503,8 +509,7 @@ def test_model_replacement_rejects_mixed_complete_year_group_before_connection_a
     malformed_profile = replace(original_profile)
     object.__setattr__(malformed_profile, "complete_year_count", 2)
     profiles = tuple(
-        malformed_profile if row is original_profile else row
-        for row in model.seasonality_profiles
+        malformed_profile if row is original_profile else row for row in model.seasonality_profiles
     )
 
     with pytest.raises(StorageValidationError, match="MODEL-002 rows failed validation"):

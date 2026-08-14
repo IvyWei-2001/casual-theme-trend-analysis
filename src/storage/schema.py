@@ -12,7 +12,7 @@ import duckdb
 
 from .errors import SchemaInitializationError, UnsupportedSchemaVersionError
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 APP_METADATA_TABLE = "app_metadata"
@@ -27,6 +27,9 @@ THEME_REPRESENTATIVE_GAMES_TABLE = "theme_representative_games"
 THEME_HORIZON_METRICS_TABLE = "theme_horizon_metrics"
 THEME_MODEL_SUMMARIES_TABLE = "theme_model_summaries"
 THEME_SEASONALITY_PROFILES_TABLE = "theme_seasonality_profiles"
+THEME_LAUNCH_WINDOW_OUTCOMES_TABLE = "theme_launch_window_outcomes"
+THEME_BACKTEST_FEATURE_METRICS_TABLE = "theme_backtest_feature_metrics"
+THEME_BACKTEST_SEGMENT_METRICS_TABLE = "theme_backtest_segment_metrics"
 
 SCHEMA_MIGRATIONS_COLUMNS: tuple[str, ...] = ("version", "applied_at")
 APP_METADATA_COLUMNS: tuple[str, ...] = (
@@ -264,6 +267,173 @@ THEME_SEASONALITY_PROFILES_COLUMNS: tuple[str, ...] = (
     "index_deviation",
     "is_peak_month",
     "is_trough_month",
+    "calculated_at",
+)
+THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "decision_period_start",
+    "decision_period_end",
+    "outcome_horizon_months",
+    "outcome_period_start",
+    "outcome_period_end",
+    "game_theme",
+    "backtest_policy_version",
+    "model_policy_version",
+    "legacy_is_actionable",
+    "legacy_exclusion_reason",
+    "legacy_confidence_score",
+    "legacy_6m_momentum_score",
+    "legacy_6m_momentum_rank",
+    "has_6m_history",
+    "has_12m_history",
+    "has_36m_history",
+    "direction_6m",
+    "direction_12m",
+    "direction_36m",
+    "direction_evidence_count_6m",
+    "direction_evidence_count_12m",
+    "direction_evidence_count_36m",
+    "median_normalized_slope_6m",
+    "median_normalized_slope_12m",
+    "median_normalized_slope_36m",
+    "stability_cv_median_6m",
+    "stability_cv_median_12m",
+    "stability_cv_median_36m",
+    "stability_band_6m",
+    "stability_band_12m",
+    "stability_band_36m",
+    "lifecycle_stage",
+    "first_active_left_censored",
+    "months_since_first_active",
+    "decision_product_count",
+    "decision_product_share",
+    "decision_downloads_sum",
+    "decision_downloads_share",
+    "decision_revenue_usd_sum",
+    "decision_revenue_usd_share",
+    "decision_downloads_product_hhi",
+    "decision_revenue_usd_product_hhi",
+    "decision_publisher_downloads_hhi",
+    "decision_publisher_revenue_usd_hhi",
+    "decision_top_500_turnover_rate",
+    "decision_market_new_entry_share",
+    "decision_downloads_market_new_entry_share_of_current",
+    "decision_revenue_usd_market_new_entry_share_of_current",
+    "decision_downloads_top_10_positive_contribution_share",
+    "decision_revenue_usd_top_10_positive_contribution_share",
+    "decision_downloads_expected_seasonal_index",
+    "decision_revenue_usd_expected_seasonal_index",
+    "decision_downloads_seasonality_amplitude",
+    "decision_revenue_usd_seasonality_amplitude",
+    "future_theme_present",
+    "future_product_count",
+    "future_product_share",
+    "future_downloads_sum",
+    "future_downloads_share",
+    "future_revenue_usd_sum",
+    "future_revenue_usd_share",
+    "product_count_absolute_change",
+    "product_count_relative_change",
+    "product_share_absolute_change",
+    "product_share_relative_change",
+    "downloads_sum_absolute_change",
+    "downloads_sum_relative_change",
+    "downloads_share_absolute_change",
+    "downloads_share_relative_change",
+    "revenue_usd_sum_absolute_change",
+    "revenue_usd_sum_relative_change",
+    "revenue_usd_share_absolute_change",
+    "revenue_usd_share_relative_change",
+    "product_share_change_direction",
+    "downloads_share_change_direction",
+    "revenue_usd_share_change_direction",
+    "future_product_share_percentile",
+    "future_downloads_share_percentile",
+    "future_revenue_usd_share_percentile",
+    "future_product_share_top_quintile",
+    "future_downloads_share_top_quintile",
+    "future_revenue_usd_share_top_quintile",
+    "calculated_at",
+)
+THEME_BACKTEST_FEATURE_METRICS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "backtest_start",
+    "backtest_end",
+    "outcome_horizon_months",
+    "feature_name",
+    "feature_group",
+    "feature_hypothesis",
+    "outcome_name",
+    "backtest_policy_version",
+    "candidate_row_count",
+    "eligible_row_count",
+    "coverage_ratio",
+    "decision_month_count",
+    "correlation_cohort_count",
+    "mean_spearman",
+    "median_spearman",
+    "p25_spearman",
+    "p75_spearman",
+    "positive_spearman_cohort_count",
+    "positive_spearman_cohort_ratio",
+    "positive_spearman_ci_low",
+    "positive_spearman_ci_high",
+    "top_quintile_cohort_count",
+    "top_quintile_selected_count",
+    "top_quintile_hit_count",
+    "top_quintile_hit_rate",
+    "top_quintile_hit_ci_low",
+    "top_quintile_hit_ci_high",
+    "future_top_quintile_base_rate",
+    "top_quintile_lift",
+    "top_quintile_outcome_mean",
+    "top_quintile_outcome_median",
+    "all_eligible_outcome_mean",
+    "all_eligible_outcome_median",
+    "top_quintile_positive_change_count",
+    "top_quintile_positive_change_rate",
+    "top_quintile_positive_change_ci_low",
+    "top_quintile_positive_change_ci_high",
+    "all_positive_change_count",
+    "all_positive_change_rate",
+    "all_positive_change_ci_low",
+    "all_positive_change_ci_high",
+    "low_sample_warning",
+    "calculated_at",
+)
+THEME_BACKTEST_SEGMENT_METRICS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "backtest_start",
+    "backtest_end",
+    "outcome_horizon_months",
+    "segment_name",
+    "segment_value",
+    "outcome_name",
+    "backtest_policy_version",
+    "candidate_row_count",
+    "eligible_row_count",
+    "coverage_ratio",
+    "decision_month_count",
+    "segment_row_share",
+    "outcome_mean",
+    "outcome_median",
+    "outcome_p25",
+    "outcome_p75",
+    "future_top_quintile_eligible_count",
+    "future_top_quintile_count",
+    "future_top_quintile_rate",
+    "future_top_quintile_ci_low",
+    "future_top_quintile_ci_high",
+    "future_top_quintile_base_rate",
+    "future_top_quintile_lift",
+    "positive_change_count",
+    "positive_change_rate",
+    "positive_change_ci_low",
+    "positive_change_ci_high",
+    "low_sample_warning",
     "calculated_at",
 )
 THEME_MARKET_STRUCTURE_METRICS_COLUMNS: tuple[str, ...] = (
@@ -1233,6 +1403,194 @@ CREATE TABLE IF NOT EXISTS theme_seasonality_profiles (
 )
 """
 
+_CREATE_THEME_LAUNCH_WINDOW_OUTCOMES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_launch_window_outcomes (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    decision_period_start DATE NOT NULL,
+    decision_period_end DATE NOT NULL,
+    outcome_horizon_months INTEGER NOT NULL CHECK (outcome_horizon_months IN (1, 2, 3)),
+    outcome_period_start DATE NOT NULL,
+    outcome_period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    backtest_policy_version VARCHAR NOT NULL CHECK (backtest_policy_version = 'BACKTEST001_V1'),
+    model_policy_version VARCHAR NOT NULL CHECK (model_policy_version = 'MODEL002_V1'),
+    legacy_is_actionable BOOLEAN NOT NULL,
+    legacy_exclusion_reason VARCHAR NULL,
+    legacy_confidence_score DOUBLE NOT NULL CHECK (legacy_confidence_score BETWEEN 0 AND 100),
+    legacy_6m_momentum_score DOUBLE NULL,
+    legacy_6m_momentum_rank INTEGER NULL CHECK (legacy_6m_momentum_rank IS NULL OR legacy_6m_momentum_rank >= 1),
+    has_6m_history BOOLEAN NOT NULL CHECK (has_6m_history),
+    has_12m_history BOOLEAN NOT NULL,
+    has_36m_history BOOLEAN NOT NULL,
+    direction_6m VARCHAR NOT NULL CHECK (direction_6m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_12m VARCHAR NOT NULL CHECK (direction_12m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_36m VARCHAR NOT NULL CHECK (direction_36m IN ('up', 'down', 'flat', 'mixed', 'insufficient_history')),
+    direction_evidence_count_6m INTEGER NOT NULL CHECK (direction_evidence_count_6m BETWEEN 0 AND 3),
+    direction_evidence_count_12m INTEGER NOT NULL CHECK (direction_evidence_count_12m BETWEEN 0 AND 3),
+    direction_evidence_count_36m INTEGER NOT NULL CHECK (direction_evidence_count_36m BETWEEN 0 AND 3),
+    median_normalized_slope_6m DOUBLE NULL,
+    median_normalized_slope_12m DOUBLE NULL,
+    median_normalized_slope_36m DOUBLE NULL,
+    stability_cv_median_6m DOUBLE NULL CHECK (stability_cv_median_6m IS NULL OR stability_cv_median_6m >= 0),
+    stability_cv_median_12m DOUBLE NULL CHECK (stability_cv_median_12m IS NULL OR stability_cv_median_12m >= 0),
+    stability_cv_median_36m DOUBLE NULL CHECK (stability_cv_median_36m IS NULL OR stability_cv_median_36m >= 0),
+    stability_band_6m VARCHAR NOT NULL CHECK (stability_band_6m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    stability_band_12m VARCHAR NOT NULL CHECK (stability_band_12m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    stability_band_36m VARCHAR NOT NULL CHECK (stability_band_36m IN ('stable', 'variable', 'volatile', 'insufficient_history')),
+    lifecycle_stage VARCHAR NOT NULL CHECK (lifecycle_stage IN ('insufficient_history', 'emerging', 'accelerating', 'growing', 'mature', 'recovering', 'declining', 'mixed')),
+    first_active_left_censored BOOLEAN NOT NULL,
+    months_since_first_active INTEGER NULL CHECK (months_since_first_active IS NULL OR months_since_first_active >= 0),
+    decision_product_count INTEGER NOT NULL CHECK (decision_product_count >= 1),
+    decision_product_share DOUBLE NOT NULL CHECK (decision_product_share BETWEEN 0 AND 1),
+    decision_downloads_sum DOUBLE NULL,
+    decision_downloads_share DOUBLE NULL CHECK (decision_downloads_share IS NULL OR decision_downloads_share BETWEEN 0 AND 1),
+    decision_revenue_usd_sum DOUBLE NULL,
+    decision_revenue_usd_share DOUBLE NULL CHECK (decision_revenue_usd_share IS NULL OR decision_revenue_usd_share BETWEEN 0 AND 1),
+    decision_downloads_product_hhi DOUBLE NULL CHECK (decision_downloads_product_hhi IS NULL OR decision_downloads_product_hhi BETWEEN 0 AND 1),
+    decision_revenue_usd_product_hhi DOUBLE NULL CHECK (decision_revenue_usd_product_hhi IS NULL OR decision_revenue_usd_product_hhi BETWEEN 0 AND 1),
+    decision_publisher_downloads_hhi DOUBLE NULL CHECK (decision_publisher_downloads_hhi IS NULL OR decision_publisher_downloads_hhi BETWEEN 0 AND 1),
+    decision_publisher_revenue_usd_hhi DOUBLE NULL CHECK (decision_publisher_revenue_usd_hhi IS NULL OR decision_publisher_revenue_usd_hhi BETWEEN 0 AND 1),
+    decision_top_500_turnover_rate DOUBLE NULL CHECK (decision_top_500_turnover_rate IS NULL OR decision_top_500_turnover_rate BETWEEN 0 AND 1),
+    decision_market_new_entry_share DOUBLE NULL CHECK (decision_market_new_entry_share IS NULL OR decision_market_new_entry_share BETWEEN 0 AND 1),
+    decision_downloads_market_new_entry_share_of_current DOUBLE NULL CHECK (decision_downloads_market_new_entry_share_of_current IS NULL OR decision_downloads_market_new_entry_share_of_current BETWEEN 0 AND 1),
+    decision_revenue_usd_market_new_entry_share_of_current DOUBLE NULL CHECK (decision_revenue_usd_market_new_entry_share_of_current IS NULL OR decision_revenue_usd_market_new_entry_share_of_current BETWEEN 0 AND 1),
+    decision_downloads_top_10_positive_contribution_share DOUBLE NULL CHECK (decision_downloads_top_10_positive_contribution_share IS NULL OR decision_downloads_top_10_positive_contribution_share BETWEEN 0 AND 1),
+    decision_revenue_usd_top_10_positive_contribution_share DOUBLE NULL CHECK (decision_revenue_usd_top_10_positive_contribution_share IS NULL OR decision_revenue_usd_top_10_positive_contribution_share BETWEEN 0 AND 1),
+    decision_downloads_expected_seasonal_index DOUBLE NULL CHECK (decision_downloads_expected_seasonal_index IS NULL OR decision_downloads_expected_seasonal_index >= 0),
+    decision_revenue_usd_expected_seasonal_index DOUBLE NULL CHECK (decision_revenue_usd_expected_seasonal_index IS NULL OR decision_revenue_usd_expected_seasonal_index >= 0),
+    decision_downloads_seasonality_amplitude DOUBLE NULL CHECK (decision_downloads_seasonality_amplitude IS NULL OR decision_downloads_seasonality_amplitude >= 0),
+    decision_revenue_usd_seasonality_amplitude DOUBLE NULL CHECK (decision_revenue_usd_seasonality_amplitude IS NULL OR decision_revenue_usd_seasonality_amplitude >= 0),
+    future_theme_present BOOLEAN NOT NULL,
+    future_product_count INTEGER NOT NULL CHECK (future_product_count >= 0),
+    future_product_share DOUBLE NOT NULL CHECK (future_product_share BETWEEN 0 AND 1),
+    future_downloads_sum DOUBLE NULL,
+    future_downloads_share DOUBLE NULL CHECK (future_downloads_share IS NULL OR future_downloads_share BETWEEN 0 AND 1),
+    future_revenue_usd_sum DOUBLE NULL,
+    future_revenue_usd_share DOUBLE NULL CHECK (future_revenue_usd_share IS NULL OR future_revenue_usd_share BETWEEN 0 AND 1),
+    product_count_absolute_change DOUBLE NULL,
+    product_count_relative_change DOUBLE NULL,
+    product_share_absolute_change DOUBLE NULL,
+    product_share_relative_change DOUBLE NULL,
+    downloads_sum_absolute_change DOUBLE NULL,
+    downloads_sum_relative_change DOUBLE,
+    downloads_share_absolute_change DOUBLE NULL,
+    downloads_share_relative_change DOUBLE NULL,
+    revenue_usd_sum_absolute_change DOUBLE NULL,
+    revenue_usd_sum_relative_change DOUBLE NULL,
+    revenue_usd_share_absolute_change DOUBLE NULL,
+    revenue_usd_share_relative_change DOUBLE NULL,
+    product_share_change_direction VARCHAR NOT NULL CHECK (product_share_change_direction IN ('up', 'down', 'unchanged', 'unavailable')),
+    downloads_share_change_direction VARCHAR NOT NULL CHECK (downloads_share_change_direction IN ('up', 'down', 'unchanged', 'unavailable')),
+    revenue_usd_share_change_direction VARCHAR NOT NULL CHECK (revenue_usd_share_change_direction IN ('up', 'down', 'unchanged', 'unavailable')),
+    future_product_share_percentile DOUBLE NOT NULL CHECK (future_product_share_percentile BETWEEN 0 AND 1),
+    future_downloads_share_percentile DOUBLE NULL CHECK (future_downloads_share_percentile IS NULL OR future_downloads_share_percentile BETWEEN 0 AND 1),
+    future_revenue_usd_share_percentile DOUBLE NULL CHECK (future_revenue_usd_share_percentile IS NULL OR future_revenue_usd_share_percentile BETWEEN 0 AND 1),
+    future_product_share_top_quintile BOOLEAN NULL,
+    future_downloads_share_top_quintile BOOLEAN NULL,
+    future_revenue_usd_share_top_quintile BOOLEAN NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, decision_period_start, decision_period_end, game_theme, outcome_horizon_months),
+    CHECK (decision_period_start <= decision_period_end),
+    CHECK (outcome_period_start <= outcome_period_end),
+    CHECK (future_theme_present OR (future_product_count = 0 AND future_product_share = 0 AND future_downloads_sum = 0 AND future_downloads_share = 0 AND future_revenue_usd_sum = 0 AND future_revenue_usd_share = 0))
+)
+"""
+
+_CREATE_THEME_BACKTEST_FEATURE_METRICS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_backtest_feature_metrics (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    backtest_start DATE NOT NULL,
+    backtest_end DATE NOT NULL,
+    outcome_horizon_months INTEGER NOT NULL CHECK (outcome_horizon_months IN (1, 2, 3)),
+    feature_name VARCHAR NOT NULL,
+    feature_group VARCHAR NOT NULL,
+    feature_hypothesis VARCHAR NOT NULL CHECK (feature_hypothesis IN ('higher_better', 'lower_better')),
+    outcome_name VARCHAR NOT NULL CHECK (outcome_name IN ('future_downloads_share', 'future_revenue_usd_share', 'downloads_share_absolute_change', 'revenue_usd_share_absolute_change')),
+    backtest_policy_version VARCHAR NOT NULL CHECK (backtest_policy_version = 'BACKTEST001_V1'),
+    candidate_row_count INTEGER NOT NULL CHECK (candidate_row_count >= 0),
+    eligible_row_count INTEGER NOT NULL CHECK (eligible_row_count >= 0 AND eligible_row_count <= candidate_row_count),
+    coverage_ratio DOUBLE NOT NULL CHECK (coverage_ratio BETWEEN 0 AND 1),
+    decision_month_count INTEGER NOT NULL CHECK (decision_month_count >= 0 AND decision_month_count <= eligible_row_count),
+    correlation_cohort_count INTEGER NOT NULL CHECK (correlation_cohort_count >= 0 AND correlation_cohort_count <= decision_month_count),
+    mean_spearman DOUBLE NULL CHECK (mean_spearman IS NULL OR mean_spearman BETWEEN -1 AND 1),
+    median_spearman DOUBLE NULL CHECK (median_spearman IS NULL OR median_spearman BETWEEN -1 AND 1),
+    p25_spearman DOUBLE NULL CHECK (p25_spearman IS NULL OR p25_spearman BETWEEN -1 AND 1),
+    p75_spearman DOUBLE NULL CHECK (p75_spearman IS NULL OR p75_spearman BETWEEN -1 AND 1),
+    positive_spearman_cohort_count INTEGER NULL CHECK (positive_spearman_cohort_count IS NULL OR positive_spearman_cohort_count <= correlation_cohort_count),
+    positive_spearman_cohort_ratio DOUBLE NULL CHECK (positive_spearman_cohort_ratio IS NULL OR positive_spearman_cohort_ratio BETWEEN 0 AND 1),
+    positive_spearman_ci_low DOUBLE NULL CHECK (positive_spearman_ci_low IS NULL OR positive_spearman_ci_low BETWEEN 0 AND 1),
+    positive_spearman_ci_high DOUBLE NULL CHECK (positive_spearman_ci_high IS NULL OR positive_spearman_ci_high BETWEEN 0 AND 1),
+    top_quintile_cohort_count INTEGER NULL CHECK (top_quintile_cohort_count IS NULL OR top_quintile_cohort_count >= 0),
+    top_quintile_selected_count INTEGER NULL CHECK (top_quintile_selected_count IS NULL OR (top_quintile_selected_count >= 0 AND top_quintile_selected_count <= eligible_row_count)),
+    top_quintile_hit_count INTEGER NULL CHECK (top_quintile_hit_count IS NULL OR top_quintile_hit_count <= top_quintile_selected_count),
+    top_quintile_hit_rate DOUBLE NULL CHECK (top_quintile_hit_rate IS NULL OR top_quintile_hit_rate BETWEEN 0 AND 1),
+    top_quintile_hit_ci_low DOUBLE NULL CHECK (top_quintile_hit_ci_low IS NULL OR top_quintile_hit_ci_low BETWEEN 0 AND 1),
+    top_quintile_hit_ci_high DOUBLE NULL CHECK (top_quintile_hit_ci_high IS NULL OR top_quintile_hit_ci_high BETWEEN 0 AND 1),
+    future_top_quintile_base_rate DOUBLE NULL CHECK (future_top_quintile_base_rate IS NULL OR future_top_quintile_base_rate BETWEEN 0 AND 1),
+    top_quintile_lift DOUBLE NULL,
+    top_quintile_outcome_mean DOUBLE NULL,
+    top_quintile_outcome_median DOUBLE NULL,
+    all_eligible_outcome_mean DOUBLE NULL,
+    all_eligible_outcome_median DOUBLE NULL,
+    top_quintile_positive_change_count INTEGER NULL,
+    top_quintile_positive_change_rate DOUBLE NULL CHECK (top_quintile_positive_change_rate IS NULL OR top_quintile_positive_change_rate BETWEEN 0 AND 1),
+    top_quintile_positive_change_ci_low DOUBLE NULL CHECK (top_quintile_positive_change_ci_low IS NULL OR top_quintile_positive_change_ci_low BETWEEN 0 AND 1),
+    top_quintile_positive_change_ci_high DOUBLE NULL CHECK (top_quintile_positive_change_ci_high IS NULL OR top_quintile_positive_change_ci_high BETWEEN 0 AND 1),
+    all_positive_change_count INTEGER NULL,
+    all_positive_change_rate DOUBLE NULL CHECK (all_positive_change_rate IS NULL OR all_positive_change_rate BETWEEN 0 AND 1),
+    all_positive_change_ci_low DOUBLE NULL CHECK (all_positive_change_ci_low IS NULL OR all_positive_change_ci_low BETWEEN 0 AND 1),
+    all_positive_change_ci_high DOUBLE NULL CHECK (all_positive_change_ci_high IS NULL OR all_positive_change_ci_high BETWEEN 0 AND 1),
+    low_sample_warning BOOLEAN NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, backtest_start, backtest_end, outcome_horizon_months, feature_name, outcome_name, backtest_policy_version),
+    CHECK (backtest_start <= backtest_end)
+)
+"""
+
+_CREATE_THEME_BACKTEST_SEGMENT_METRICS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_backtest_segment_metrics (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    backtest_start DATE NOT NULL,
+    backtest_end DATE NOT NULL,
+    outcome_horizon_months INTEGER NOT NULL CHECK (outcome_horizon_months IN (1, 2, 3)),
+    segment_name VARCHAR NOT NULL CHECK (segment_name IN ('legacy_actionability', 'direction_6m', 'direction_12m', 'direction_36m', 'stability_band_6m', 'stability_band_12m', 'stability_band_36m', 'lifecycle_stage')),
+    segment_value VARCHAR NOT NULL,
+    outcome_name VARCHAR NOT NULL CHECK (outcome_name IN ('future_downloads_share', 'future_revenue_usd_share', 'downloads_share_absolute_change', 'revenue_usd_share_absolute_change')),
+    backtest_policy_version VARCHAR NOT NULL CHECK (backtest_policy_version = 'BACKTEST001_V1'),
+    candidate_row_count INTEGER NOT NULL CHECK (candidate_row_count >= 0),
+    eligible_row_count INTEGER NOT NULL CHECK (eligible_row_count >= 0 AND eligible_row_count <= candidate_row_count),
+    coverage_ratio DOUBLE NOT NULL CHECK (coverage_ratio BETWEEN 0 AND 1),
+    decision_month_count INTEGER NOT NULL CHECK (decision_month_count >= 0 AND decision_month_count <= eligible_row_count),
+    segment_row_share DOUBLE NOT NULL CHECK (segment_row_share BETWEEN 0 AND 1),
+    outcome_mean DOUBLE NULL,
+    outcome_median DOUBLE NULL,
+    outcome_p25 DOUBLE NULL,
+    outcome_p75 DOUBLE NULL,
+    future_top_quintile_eligible_count INTEGER NOT NULL CHECK (future_top_quintile_eligible_count >= 0 AND future_top_quintile_eligible_count <= eligible_row_count),
+    future_top_quintile_count INTEGER NOT NULL CHECK (future_top_quintile_count >= 0 AND future_top_quintile_count <= future_top_quintile_eligible_count),
+    future_top_quintile_rate DOUBLE NULL CHECK (future_top_quintile_rate IS NULL OR future_top_quintile_rate BETWEEN 0 AND 1),
+    future_top_quintile_ci_low DOUBLE NULL CHECK (future_top_quintile_ci_low IS NULL OR future_top_quintile_ci_low BETWEEN 0 AND 1),
+    future_top_quintile_ci_high DOUBLE NULL CHECK (future_top_quintile_ci_high IS NULL OR future_top_quintile_ci_high BETWEEN 0 AND 1),
+    future_top_quintile_base_rate DOUBLE NULL CHECK (future_top_quintile_base_rate IS NULL OR future_top_quintile_base_rate BETWEEN 0 AND 1),
+    future_top_quintile_lift DOUBLE NULL,
+    positive_change_count INTEGER NULL,
+    positive_change_rate DOUBLE NULL CHECK (positive_change_rate IS NULL OR positive_change_rate BETWEEN 0 AND 1),
+    positive_change_ci_low DOUBLE NULL CHECK (positive_change_ci_low IS NULL OR positive_change_ci_low BETWEEN 0 AND 1),
+    positive_change_ci_high DOUBLE NULL CHECK (positive_change_ci_high IS NULL OR positive_change_ci_high BETWEEN 0 AND 1),
+    low_sample_warning BOOLEAN NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, backtest_start, backtest_end, outcome_horizon_months, segment_name, segment_value, outcome_name, backtest_policy_version),
+    CHECK (backtest_start <= backtest_end),
+    CHECK (
+        (future_top_quintile_eligible_count = 0 AND future_top_quintile_rate IS NULL)
+        OR (future_top_quintile_eligible_count > 0 AND future_top_quintile_rate IS NOT NULL)
+    )
+)
+"""
+
 _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (SCHEMA_MIGRATIONS_TABLE, _CREATE_SCHEMA_MIGRATIONS_SQL, SCHEMA_MIGRATIONS_COLUMNS),
     (APP_METADATA_TABLE, _CREATE_APP_METADATA_SQL, APP_METADATA_COLUMNS),
@@ -1300,11 +1658,29 @@ _V5_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         THEME_SEASONALITY_PROFILES_COLUMNS,
     ),
 )
+_V6_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
+        _CREATE_THEME_LAUNCH_WINDOW_OUTCOMES_SQL,
+        THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
+    ),
+    (
+        THEME_BACKTEST_FEATURE_METRICS_TABLE,
+        _CREATE_THEME_BACKTEST_FEATURE_METRICS_SQL,
+        THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
+    ),
+    (
+        THEME_BACKTEST_SEGMENT_METRICS_TABLE,
+        _CREATE_THEME_BACKTEST_SEGMENT_METRICS_SQL,
+        THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
+    ),
+)
 _TABLE_DEFINITIONS = (
     *_TABLE_DEFINITIONS,
     *_V3_TABLE_DEFINITIONS,
     *_V4_TABLE_DEFINITIONS,
     *_V5_TABLE_DEFINITIONS,
+    *_V6_TABLE_DEFINITIONS,
 )
 
 
@@ -1363,6 +1739,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                 [5],
             )
 
+        _assert_table_definitions(connection, _V5_TABLE_DEFINITIONS)
+
+        if newest_version < 6:
+            _apply_version_six(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                [6],
+            )
+
         _assert_required_tables(connection)
 
         connection.execute("COMMIT")
@@ -1419,6 +1804,11 @@ def _apply_version_five(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(create_sql)
 
 
+def _apply_version_six(connection: duckdb.DuckDBPyConnection) -> None:
+    for _table_name, create_sql, _columns in _V6_TABLE_DEFINITIONS:
+        connection.execute(create_sql)
+
+
 def _assert_required_tables(connection: duckdb.DuckDBPyConnection) -> None:
     _assert_table_definitions(connection, _TABLE_DEFINITIONS)
 
@@ -1435,6 +1825,7 @@ def _table_definitions_for_version(
         (3, _V3_TABLE_DEFINITIONS),
         (4, _V4_TABLE_DEFINITIONS),
         (5, _V5_TABLE_DEFINITIONS),
+        (6, _V6_TABLE_DEFINITIONS),
     ):
         if schema_version >= minimum_version:
             definitions += version_definitions

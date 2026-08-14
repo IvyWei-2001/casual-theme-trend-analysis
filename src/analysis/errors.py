@@ -17,3 +17,7 @@ class MissingSourcePeriodError(AggregationValidationError):
     def __init__(self, month: str) -> None:
         self.month = month
         super().__init__(f"source month {month} is missing or empty in DuckDB")
+
+
+class BacktestValidationError(AggregationValidationError):
+    """Raised when normalized BACKTEST-001 evidence cannot be evaluated safely."""

@@ -41,6 +41,8 @@ from .workflows import (
     AggregateThemesRequest,
     BackfillMonthsError,
     BackfillMonthsRequest,
+    BacktestThemesError,
+    BacktestThemesRequest,
     CollectMonthRequest,
     HistoryInspectionRequest,
     InvalidMonthError,
@@ -51,9 +53,11 @@ from .workflows import (
     WorkflowError,
     aggregate_themes,
     backfill_months,
+    backtest_themes,
     collect_month,
     format_aggregate_themes_summary,
     format_backfill_summary,
+    format_backtest_themes_summary,
     format_collection_summary,
     format_feishu_trend_sync_plan_only,
     format_feishu_trend_sync_summary,
@@ -224,6 +228,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="store model rows but skip all four Parquet exports",
     )
+    backtest_parser = subparsers.add_parser(
+        "backtest-themes",
+        help="evaluate leakage-safe T+1, T+2, and T+3 theme launch windows",
+    )
+    backtest_parser.add_argument(
+        "--start",
+        required=True,
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    backtest_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
+    )
+    backtest_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate and print the backtest plan without database or file access",
+    )
+    backtest_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="store backtest rows but skip the three Parquet exports",
+    )
     inspect_parser = subparsers.add_parser(
         "inspect-feishu",
         help="inspect configured Feishu Bitable field metadata without writes",
@@ -331,6 +359,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_error(str(error))
             return 2
         print(format_model_themes_summary(model_plan_summary))
+        return 0
+    if args.command == "backtest-themes" and args.plan_only:
+        try:
+            backtest_plan_summary = backtest_themes(
+                BacktestThemesRequest(
+                    start_month=args.start,
+                    end_month=args.end,
+                    database_path=Path(DEFAULT_DATABASE_PATH),
+                    export_directory=Path(DEFAULT_EXPORT_DIRECTORY),
+                    plan_only=True,
+                ),
+                AppConfig.model_construct(),
+                current_utc=datetime.now(UTC),
+            )
+        except (InvalidMonthError, WorkflowError, ValueError) as error:
+            _print_error(str(error))
+            return 2
+        print(format_backtest_themes_summary(backtest_plan_summary))
         return 0
     if args.command == "inspect-history" and args.plan_only:
         try:
@@ -700,6 +746,44 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_model_themes_summary(model_summary))
+        return 0
+
+    if args.command == "backtest-themes":
+        current_utc = datetime.now(UTC)
+        backtest_request = BacktestThemesRequest(
+            start_month=args.start,
+            end_month=args.end,
+            database_path=config.database_path,
+            export_directory=config.export_directory,
+            plan_only=args.plan_only,
+            skip_export=args.skip_export,
+        )
+        try:
+            backtest_summary = backtest_themes(
+                backtest_request,
+                config,
+                current_utc=current_utc,
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except BacktestThemesError as error:
+            _print_error(str(error))
+            return 4
+        except StorageError:
+            _print_error("local BACKTEST-001 storage operation failed")
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local BACKTEST-001 storage operation failed")
+            return 4
+        except Exception:
+            _print_error("theme launch-window backtest failed")
+            return 4
+
+        print(format_backtest_themes_summary(backtest_summary))
         return 0
 
     _print_error("unsupported command")

@@ -24,11 +24,11 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002 is complete. HIST-002 is complete and its real-environment
-prerequisite evidence is recorded; AGG-002 is complete and MODEL-002 is the
-current issue. The next sequence is BACKTEST-001, DECISION-001, FEISHU-004, and
-AUTOMATION-001. Automation is intentionally deferred until FEISHU-004 and
-cross-functional V2 acceptance.
+CONTRACT-002, HIST-002, and AGG-002 are completed and real-environment
+accepted. MODEL-002 is completed and real-environment accepted; BACKTEST-001 is
+the current implementation boundary. DECISION-001, FEISHU-004, and
+AUTOMATION-001 remain later issues. Automation is intentionally deferred until
+FEISHU-004 and cross-functional V2 acceptance.
 
 ## Requirements
 
@@ -448,9 +448,42 @@ Schema version 5 adds `theme_horizon_metrics`, `theme_model_summaries`, and
 workflow refreshes the unchanged `theme_trend_scores` 6M Momentum baseline,
 atomically replaces the four model output sets, rereads them, and exports four
 deterministic ZSTD Parquet files unless `--skip-export` is used. MODEL-002 is
-not a recommendation, forecast, backtest, dashboard, or Feishu workflow. See
+completed and real-environment accepted with sanitized evidence:
+`schema_version=5`, `history_month_count=36`,
+`source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
+`horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
+`seasonality_profile_group_count=4382`, and `verification=passed`. It is not a
+recommendation, forecast, backtest, dashboard, or Feishu workflow. See
 [`docs/MODEL_V2.md`](docs/MODEL_V2.md) for formulas, policy constants,
 lifecycle order, storage fields, and acceptance boundaries.
+
+## Leakage-safe launch-window validation (BACKTEST-001)
+
+BACKTEST-001 reads stored AGG-002 and MODEL-002 rows and evaluates only
+historical decisions with exact T+1, T+2, and T+3 outcome months. It never
+recalculates the legacy score, AGG-002, or MODEL-002, and it never calls Sensor
+Tower or Feishu:
+
+```powershell
+python -m src backtest-themes --start 2023-08 --end 2026-07 --plan-only
+python -m src backtest-themes --start 2023-08 --end 2026-07 --skip-export
+python -m src backtest-themes --start 2023-08 --end 2026-07
+```
+
+Plan-only mode runs before configuration loading and logging. For the first
+36-month history it reports the fixed decision-month counts, 19 continuous
+features, four primary outcomes, and 228 feature-metric registry rows without
+opening DuckDB or writing files. A real local run requires the accepted stored
+source rows, atomically replaces the three BACKTEST-001 tables, verifies
+readback, and optionally writes three deterministic ZSTD Parquet exports.
+
+The raw outcome table preserves NULL as unavailable and keeps observed zero
+numeric. Absent future themes are zero-filled only for the six future core
+values. Decision-month features never read future MODEL-002, trend, growth, or
+seasonality rows. BACKTEST-001 is evidence only: it does not create a final
+score, forecast, investment recommendation, Feishu view, or automation. See
+[`docs/BACKTEST_V1.md`](docs/BACKTEST_V1.md) for the registry, leakage rules,
+schema-v6 tables, storage contract, and known 36M limitation.
 
 ## FEISHU-001 read-only field inspection
 

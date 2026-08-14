@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Corrected BACKTEST-001 acceptance boundaries: expected decision identities now
+  fail on missing middle-month structure, growth, legacy-score, or model-summary
+  evidence; seasonality indices use decision-month absolute Downloads and Revenue
+  (USD) profiles; raw replacement clears the complete range by decision-month
+  start identity, including the month-start end boundary, and verifies all
+  three tables before commit; segment Top-Quintile metrics expose valid-cohort
+  denominators; aggregate post-commit readback now uses exact run identities;
+  and statistical, migration, stale-row, idempotency, rollback, and monthly
+  expansion regressions were added. MODEL-002 status is recorded as completed and
+  real-environment accepted using sanitized evidence; BACKTEST-001 remains
+  synthetic/temporary-DuckDB verified with real acceptance pending.
+- Added BACKTEST-001 leakage-safe T+1/T+2/T+3 launch-window validation. The
+  schema-v6 implementation adds exactly three tables for raw outcomes,
+  continuous-feature metrics, and categorical-segment metrics; uses a fixed
+  19-feature/4-outcome registry; preserves NULL versus zero semantics; and
+  atomically replaces/readbacks deterministic ZSTD Parquet exports. Plan-only
+  execution is credential-free and development validation uses only synthetic
+  rows, mock repositories, temporary DuckDB, and temporary Parquet. No final
+  score, forecast, recommendation, Feishu operation, automation, or real-data
+  acceptance is included.
 - Added MODEL-002 multi-horizon trend, lifecycle, stability, and seasonality
   evidence. Schema version 5 adds `theme_horizon_metrics`,
   `theme_model_summaries`, and `theme_seasonality_profiles` without changing
