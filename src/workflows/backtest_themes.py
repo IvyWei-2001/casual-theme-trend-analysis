@@ -11,6 +11,7 @@ from typing import Protocol
 
 from ..analysis.backtest_models import (
     BACKTEST_OUTCOME_HORIZONS,
+    BACKTEST_POLICY_VERSION,
     FEATURE_DEFINITIONS,
     PRIMARY_OUTCOME_NAMES,
     ThemeBacktestFeatureMetric,
@@ -142,6 +143,17 @@ class BacktestThemesRepository(Protocol):
     ) -> list[ThemeBacktestFeatureMetric]:
         """Read feature-metric rows."""
 
+    def get_theme_backtest_feature_metrics_exact(
+        self,
+        *,
+        scope_name: str,
+        backtest_start: date,
+        backtest_end: date,
+        cadence: str = "monthly",
+        backtest_policy_version: str = BACKTEST_POLICY_VERSION,
+    ) -> list[ThemeBacktestFeatureMetric]:
+        """Read one exact feature-metric aggregate run identity."""
+
     def get_theme_backtest_segment_metrics(
         self,
         scope_name: str | None = None,
@@ -154,6 +166,17 @@ class BacktestThemesRepository(Protocol):
         outcome_name: str | None = None,
     ) -> list[ThemeBacktestSegmentMetric]:
         """Read segment-metric rows."""
+
+    def get_theme_backtest_segment_metrics_exact(
+        self,
+        *,
+        scope_name: str,
+        backtest_start: date,
+        backtest_end: date,
+        cadence: str = "monthly",
+        backtest_policy_version: str = BACKTEST_POLICY_VERSION,
+    ) -> list[ThemeBacktestSegmentMetric]:
+        """Read one exact segment-metric aggregate run identity."""
 
     def export_theme_launch_window_outcomes_to_parquet(self, path: str | Path) -> None:
         """Export raw outcomes."""
@@ -534,23 +557,29 @@ def _verify_readback(
     start: date,
     end: date,
 ) -> None:
+    if not result.feature_metrics:
+        raise BacktestReadbackVerificationError("BACKTEST-001 readback verification failed")
+    aggregate_start = result.feature_metrics[0].backtest_start
+    aggregate_end = result.feature_metrics[0].backtest_end
     actual_outcomes = repository.get_theme_launch_window_outcomes(
         scope_name=scope_name,
         cadence="monthly",
         decision_period_start=start,
         decision_period_end=end,
     )
-    actual_features = repository.get_theme_backtest_feature_metrics(
+    actual_features = repository.get_theme_backtest_feature_metrics_exact(
         scope_name=scope_name,
         cadence="monthly",
-        backtest_start=start,
-        backtest_end=end,
+        backtest_start=aggregate_start,
+        backtest_end=aggregate_end,
+        backtest_policy_version=BACKTEST_POLICY_VERSION,
     )
-    actual_segments = repository.get_theme_backtest_segment_metrics(
+    actual_segments = repository.get_theme_backtest_segment_metrics_exact(
         scope_name=scope_name,
         cadence="monthly",
-        backtest_start=start,
-        backtest_end=end,
+        backtest_start=aggregate_start,
+        backtest_end=aggregate_end,
+        backtest_policy_version=BACKTEST_POLICY_VERSION,
     )
     if (
         len(actual_outcomes) != len(result.outcomes)

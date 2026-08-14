@@ -764,6 +764,28 @@ class DuckDBRepository:
         ).fetchall()
         return [_theme_backtest_feature_metric_from_database_row(row) for row in rows]
 
+    def get_theme_backtest_feature_metrics_exact(
+        self,
+        *,
+        scope_name: str,
+        backtest_start: date,
+        backtest_end: date,
+        cadence: str = "monthly",
+        backtest_policy_version: str = BACKTEST_POLICY_VERSION,
+    ) -> list[ThemeBacktestFeatureMetric]:
+        """Read one exact feature-metric aggregate run identity."""
+
+        connection = self._require_initialized_connection()
+        rows = connection.execute(
+            f"SELECT {_THEME_BACKTEST_FEATURE_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+            "WHERE scope_name = ? AND cadence = ? AND backtest_start = ? "
+            "AND backtest_end = ? AND backtest_policy_version = ? "
+            "ORDER BY outcome_horizon_months, feature_name, outcome_name",
+            [scope_name, cadence, backtest_start, backtest_end, backtest_policy_version],
+        ).fetchall()
+        return [_theme_backtest_feature_metric_from_database_row(row) for row in rows]
+
     def get_theme_backtest_segment_metrics(
         self,
         scope_name: str | None = None,
@@ -797,6 +819,28 @@ class DuckDBRepository:
             "ORDER BY scope_name, backtest_start, backtest_end, outcome_horizon_months, "
             "segment_name, segment_value, outcome_name, cadence",
             parameters,
+        ).fetchall()
+        return [_theme_backtest_segment_metric_from_database_row(row) for row in rows]
+
+    def get_theme_backtest_segment_metrics_exact(
+        self,
+        *,
+        scope_name: str,
+        backtest_start: date,
+        backtest_end: date,
+        cadence: str = "monthly",
+        backtest_policy_version: str = BACKTEST_POLICY_VERSION,
+    ) -> list[ThemeBacktestSegmentMetric]:
+        """Read one exact segment-metric aggregate run identity."""
+
+        connection = self._require_initialized_connection()
+        rows = connection.execute(
+            f"SELECT {_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_BACKTEST_SEGMENT_METRICS_TABLE} "
+            "WHERE scope_name = ? AND cadence = ? AND backtest_start = ? "
+            "AND backtest_end = ? AND backtest_policy_version = ? "
+            "ORDER BY outcome_horizon_months, segment_name, segment_value, outcome_name",
+            [scope_name, cadence, backtest_start, backtest_end, backtest_policy_version],
         ).fetchall()
         return [_theme_backtest_segment_metric_from_database_row(row) for row in rows]
 

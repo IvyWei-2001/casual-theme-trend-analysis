@@ -8,8 +8,9 @@
   (USD) profiles; raw replacement clears the complete range by decision-month
   start identity, including the month-start end boundary, and verifies all
   three tables before commit; segment Top-Quintile metrics expose valid-cohort
-  denominators; and statistical, migration, stale-row, idempotency, and rollback
-  regressions were added. MODEL-002 status is recorded as completed and
+  denominators; aggregate post-commit readback now uses exact run identities;
+  and statistical, migration, stale-row, idempotency, rollback, and monthly
+  expansion regressions were added. MODEL-002 status is recorded as completed and
   real-environment accepted using sanitized evidence; BACKTEST-001 remains
   synthetic/temporary-DuckDB verified with real acceptance pending.
 - Added BACKTEST-001 leakage-safe T+1/T+2/T+3 launch-window validation. The

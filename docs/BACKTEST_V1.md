@@ -218,7 +218,10 @@ identity, even when that month has no new outcome rows, then
 inserts all three output sets in one DuckDB transaction. Exact inserted-row
 readback occurs before COMMIT; an insert or readback mismatch rolls back all
 three tables and preserves the prior committed result. The workflow performs
-a second sanitized post-commit readback.
+a second sanitized post-commit readback. That workflow readback uses exact
+`backtest_start`, `backtest_end`, and policy identities for Feature and Segment
+aggregate runs, so older ranges remain stored but are never combined with the
+new run.
 
 Readers support range, horizon, feature, outcome, and segment filters and use
 deterministic identity ordering. The three Parquet exports use explicit schema

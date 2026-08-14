@@ -261,6 +261,64 @@ def test_wider_to_narrower_replacement_cleans_end_boundary_and_is_idempotent(
     repository.close()
 
 
+def test_exact_aggregate_readers_keep_multiple_ranges_separate(tmp_path: Path) -> None:
+    repository = DuckDBRepository(tmp_path / "exact-aggregate-readers.duckdb")
+    repository.open()
+    repository.initialize_schema()
+    wide_payload = _payload_with_month_count(37)
+    narrow_payload = _payload_with_month_count(36)
+    wide_result = _calculate_backtest(wide_payload)
+    narrow_result = _calculate_backtest(narrow_payload)
+    _store_agg002(repository, wide_payload)
+    _store_model(
+        repository,
+        wide_payload,
+        calculated_at=wide_payload.monthly_totals[0].calculated_at,
+    )
+    repository.replace_theme_backtest_range(
+        narrow_result.outcomes,
+        narrow_result.feature_metrics,
+        narrow_result.segment_metrics,
+    )
+    repository.replace_theme_backtest_range(
+        wide_result.outcomes,
+        wide_result.feature_metrics,
+        wide_result.segment_metrics,
+    )
+
+    scope_name = wide_result.feature_metrics[0].scope_name
+    wide_start = wide_result.feature_metrics[0].backtest_start
+    wide_end = wide_result.feature_metrics[0].backtest_end
+    narrow_start = narrow_result.feature_metrics[0].backtest_start
+    narrow_end = narrow_result.feature_metrics[0].backtest_end
+    exact_features = repository.get_theme_backtest_feature_metrics_exact(
+        scope_name=scope_name,
+        backtest_start=wide_start,
+        backtest_end=wide_end,
+    )
+    exact_segments = repository.get_theme_backtest_segment_metrics_exact(
+        scope_name=scope_name,
+        backtest_start=wide_start,
+        backtest_end=wide_end,
+    )
+    assert len(exact_features) == 228
+    assert len(exact_segments) == len(wide_result.segment_metrics)
+    assert {row.backtest_start for row in exact_features} == {wide_start}
+    assert {row.backtest_end for row in exact_features} == {wide_end}
+    assert {row.backtest_start for row in exact_segments} == {wide_start}
+    assert {row.backtest_end for row in exact_segments} == {wide_end}
+    assert set(exact_features) == set(wide_result.feature_metrics)
+    assert set(exact_segments) == set(wide_result.segment_metrics)
+    assert len(
+        repository.get_theme_backtest_feature_metrics_exact(
+            scope_name=scope_name,
+            backtest_start=narrow_start,
+            backtest_end=narrow_end,
+        )
+    ) == 228
+    repository.close()
+
+
 class _LateBacktestInsertFailureConnection:
     def __init__(self, connection: Any) -> None:
         self._connection = connection

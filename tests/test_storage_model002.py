@@ -34,10 +34,10 @@ def _period_end(period_start: date) -> date:
     return date.fromordinal(next_start.toordinal() - 1)
 
 
-def _payload(*, calculated_at: datetime = CALCULATED_AT):
+def _payload(*, calculated_at: datetime = CALCULATED_AT, month_count: int = 36):
     source_periods = []
     metadata = {}
-    for index in range(36):
+    for index in range(month_count):
         month = _month_start(index)
         row = _row(
             f"app-{index}",
