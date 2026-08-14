@@ -25,6 +25,14 @@ class ModelReadbackVerificationError(ModelThemesError):
     """Raised when committed MODEL-002 rows do not match the calculated payload."""
 
 
+class BacktestThemesError(WorkflowError):
+    """Raised when the BACKTEST-001 workflow cannot complete safely."""
+
+
+class BacktestReadbackVerificationError(BacktestThemesError):
+    """Raised when committed BACKTEST-001 rows do not match the payload."""
+
+
 type BackfillFailureKind = Literal[
     "configuration",
     "sensor_tower",

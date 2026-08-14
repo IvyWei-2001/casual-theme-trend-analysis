@@ -201,6 +201,12 @@ The read-only HIST-002 boundary is version-aware: it accepts a valid v4 source
 without requiring MODEL-002 tables or creating migrations, accepts v5, and
 rejects unsupported future versions.
 
+BACKTEST-001 is the downstream validation issue. It reads the stored MODEL-002
+summary and seasonality evidence without recalculating it, evaluates exact
+future months, and stores its own schema-v6 raw-outcome, feature-metric, and
+segment-metric tables. MODEL-002 labels remain descriptive evidence until the
+backtest and later decision contracts are accepted.
+
 `replace_theme_model_range(...)` validates typed rows, identities, timestamps,
 source identity equality, horizon references, seasonality groups, and legacy
 score references before one transaction. Seasonality groups must contain

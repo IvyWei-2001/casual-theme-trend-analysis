@@ -77,9 +77,7 @@ def _repository(tmp_path: Path) -> DuckDBRepository:
 
 
 def _request(path: Path) -> HistoryInspectionRequest:
-    return HistoryInspectionRequest(
-        start_month="2023-08", end_month="2026-07", database_path=path
-    )
+    return HistoryInspectionRequest(start_month="2023-08", end_month="2026-07", database_path=path)
 
 
 class _FakeHistoryRepository:
@@ -165,9 +163,12 @@ def test_schema_v4_is_inspectable_read_only_without_model_tables(tmp_path: Path)
         schema_module.THEME_HORIZON_METRICS_TABLE,
         schema_module.THEME_MODEL_SUMMARIES_TABLE,
         schema_module.THEME_SEASONALITY_PROFILES_TABLE,
+        schema_module.THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
+        schema_module.THEME_BACKTEST_FEATURE_METRICS_TABLE,
+        schema_module.THEME_BACKTEST_SEGMENT_METRICS_TABLE,
     ):
         connection.execute(f"DROP TABLE {table_name}")
-    connection.execute("DELETE FROM schema_migrations WHERE version = 5")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
     writable.close()
 
@@ -294,8 +295,7 @@ def test_one_wrong_month_breaks_range_provenance_completeness() -> None:
 
 def test_all_months_using_one_identical_wrong_provenance_still_fail() -> None:
     rows_by_month = {
-        month: [replace(_row(month), scope_country="US")]
-        for month in ("2026-06", "2026-07")
+        month: [replace(_row(month), scope_country="US")] for month in ("2026-06", "2026-07")
     }
 
     summary = _inspect_fake(

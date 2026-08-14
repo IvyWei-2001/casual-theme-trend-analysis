@@ -167,10 +167,13 @@ def test_schema_initialization_is_idempotent_and_has_no_credential_columns(
         "theme_horizon_metrics",
         "theme_model_summaries",
         "theme_seasonality_profiles",
+        "theme_launch_window_outcomes",
+        "theme_backtest_feature_metrics",
+        "theme_backtest_segment_metrics",
     }
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
 
     forbidden_fragments = ("credential", "token", "password", "secret", "url")
     for table_name in tables:
@@ -400,9 +403,10 @@ def test_opaque_ids_and_missing_metrics_round_trip_through_duckdb_and_parquet(
         "FROM market_snapshots WHERE unified_app_id = ?",
         ["synthetic-unified-app-001"],
     ).fetchone() == (None, None)
-    assert repository.get_app_metadata(["synthetic-unified-app-001"])[
-        "synthetic-unified-app-001"
-    ].name is None
+    assert (
+        repository.get_app_metadata(["synthetic-unified-app-001"])["synthetic-unified-app-001"].name
+        is None
+    )
 
     cache = repository.lookup_metadata_cache(
         [" synthetic-unified-app-001 ", "synthetic-missing-app"],
@@ -416,8 +420,7 @@ def test_opaque_ids_and_missing_metrics_round_trip_through_duckdb_and_parquet(
     repository.export_market_snapshots_to_parquet(market_path)
     repository.export_app_metadata_to_parquet(metadata_path)
     assert repository.open().execute(
-        "SELECT source_app_id, unified_app_id, current_units_value "
-        "FROM read_parquet(?)",
+        "SELECT source_app_id, unified_app_id, current_units_value FROM read_parquet(?)",
         [str(market_path)],
     ).fetchone() == (
         "synthetic-source-app-001",

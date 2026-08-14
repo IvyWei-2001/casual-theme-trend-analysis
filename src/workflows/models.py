@@ -259,6 +259,33 @@ class ModelThemesRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class BacktestThemesRequest:
+    """Validated inputs for the local BACKTEST-001 workflow."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class SyncFeishuTrendsRequest:
     """Validated inputs for complete DuckDB-to-Feishu trend synchronization."""
 
@@ -435,6 +462,61 @@ class ModelThemesSummary:
     plan_only: bool
     started_at: datetime
     completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestThemesSummary:
+    """Sanitized result of a validated or completed BACKTEST-001 run."""
+
+    start_month: str
+    end_month: str
+    history_month_count: int
+    legacy_6m_decision_month_count_t1: int
+    legacy_6m_decision_month_count_t2: int
+    legacy_6m_decision_month_count_t3: int
+    model_12m_decision_month_count_t1: int
+    model_12m_decision_month_count_t2: int
+    model_12m_decision_month_count_t3: int
+    model_36m_decision_month_count_t1: int
+    model_36m_decision_month_count_t2: int
+    model_36m_decision_month_count_t3: int
+    seasonality_decision_month_count_t1: int
+    seasonality_decision_month_count_t2: int
+    seasonality_decision_month_count_t3: int
+    feature_definition_count: int
+    primary_outcome_count: int
+    planned_feature_metric_row_count: int
+    source_model_summary_row_count: int
+    source_legacy_6m_score_row_count: int
+    outcome_row_count: int
+    horizon_1_outcome_row_count: int
+    horizon_2_outcome_row_count: int
+    horizon_3_outcome_row_count: int
+    horizon_1_decision_month_count: int
+    horizon_2_decision_month_count: int
+    horizon_3_decision_month_count: int
+    future_theme_absent_row_count: int
+    downloads_outcome_unavailable_count: int
+    revenue_outcome_unavailable_count: int
+    feature_metric_row_count: int
+    segment_metric_row_count: int
+    zero_eligible_36m_feature_metric_count: int
+    low_sample_feature_metric_count: int
+    low_sample_segment_metric_count: int
+    verification_passed: bool
+    database_path: Path
+    outcomes_parquet_path: Path | None
+    feature_metrics_parquet_path: Path | None
+    segment_metrics_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+
+    @property
+    def verification(self) -> str:
+        """Return the sanitized readback status used by the CLI."""
+
+        return "passed" if self.verification_passed else "not_run"
 
 
 def _next_month(year: int, month: int) -> str:

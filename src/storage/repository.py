@@ -13,6 +13,21 @@ from typing import Any, Literal, Self, cast
 
 import duckdb
 
+from ..analysis.backtest_models import (
+    BACKTEST_OUTCOME_HORIZONS,
+    BACKTEST_POLICY_VERSION,
+    FEATURE_DEFINITIONS,
+    PRIMARY_OUTCOME_NAMES,
+    ThemeBacktestFeatureMetric,
+    ThemeBacktestSegmentMetric,
+    ThemeLaunchWindowOutcome,
+)
+from ..analysis.backtest_models import (
+    month_shift as month_shift_for_storage,
+)
+from ..analysis.backtest_models import (
+    natural_month_end as natural_month_end_for_storage,
+)
 from ..analysis.model_v2_models import (
     ThemeHorizonMetric,
     ThemeModelSummary,
@@ -49,12 +64,18 @@ from .schema import (
     MARKET_SNAPSHOTS_TABLE,
     MONTHLY_MARKET_TOTALS_COLUMNS,
     MONTHLY_MARKET_TOTALS_TABLE,
+    THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
+    THEME_BACKTEST_FEATURE_METRICS_TABLE,
+    THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
+    THEME_BACKTEST_SEGMENT_METRICS_TABLE,
     THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
     THEME_DIMENSION_MONTHLY_METRICS_TABLE,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_TABLE,
     THEME_HORIZON_METRICS_COLUMNS,
     THEME_HORIZON_METRICS_TABLE,
+    THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
+    THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_TABLE,
     THEME_MODEL_SUMMARIES_COLUMNS,
@@ -98,16 +119,24 @@ _THEME_REPRESENTATIVE_GAMES_PLACEHOLDERS_SQL = ", ".join(
 _THEME_TREND_SCORES_COLUMNS_SQL = ", ".join(THEME_TREND_SCORES_COLUMNS)
 _THEME_TREND_SCORES_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_TREND_SCORES_COLUMNS)
 _THEME_HORIZON_METRICS_COLUMNS_SQL = ", ".join(THEME_HORIZON_METRICS_COLUMNS)
-_THEME_HORIZON_METRICS_PLACEHOLDERS_SQL = ", ".join(
-    "?" for _ in THEME_HORIZON_METRICS_COLUMNS
-)
+_THEME_HORIZON_METRICS_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_HORIZON_METRICS_COLUMNS)
 _THEME_MODEL_SUMMARIES_COLUMNS_SQL = ", ".join(THEME_MODEL_SUMMARIES_COLUMNS)
-_THEME_MODEL_SUMMARIES_PLACEHOLDERS_SQL = ", ".join(
-    "?" for _ in THEME_MODEL_SUMMARIES_COLUMNS
-)
+_THEME_MODEL_SUMMARIES_PLACEHOLDERS_SQL = ", ".join("?" for _ in THEME_MODEL_SUMMARIES_COLUMNS)
 _THEME_SEASONALITY_PROFILES_COLUMNS_SQL = ", ".join(THEME_SEASONALITY_PROFILES_COLUMNS)
 _THEME_SEASONALITY_PROFILES_PLACEHOLDERS_SQL = ", ".join(
     "?" for _ in THEME_SEASONALITY_PROFILES_COLUMNS
+)
+_THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS_SQL = ", ".join(THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS)
+_THEME_LAUNCH_WINDOW_OUTCOMES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS
+)
+_THEME_BACKTEST_FEATURE_METRICS_COLUMNS_SQL = ", ".join(THEME_BACKTEST_FEATURE_METRICS_COLUMNS)
+_THEME_BACKTEST_FEATURE_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_BACKTEST_FEATURE_METRICS_COLUMNS
+)
+_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL = ", ".join(THEME_BACKTEST_SEGMENT_METRICS_COLUMNS)
+_THEME_BACKTEST_SEGMENT_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_BACKTEST_SEGMENT_METRICS_COLUMNS
 )
 
 _DELETE_MARKET_PERIOD_SQL = """
@@ -262,6 +291,21 @@ _INSERT_THEME_SEASONALITY_PROFILE_SQL = (
     f"INSERT INTO {THEME_SEASONALITY_PROFILES_TABLE} "
     f"({_THEME_SEASONALITY_PROFILES_COLUMNS_SQL}) "
     f"VALUES ({_THEME_SEASONALITY_PROFILES_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_LAUNCH_WINDOW_OUTCOME_SQL = (
+    f"INSERT INTO {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
+    f"({_THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_LAUNCH_WINDOW_OUTCOMES_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_BACKTEST_FEATURE_METRIC_SQL = (
+    f"INSERT INTO {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+    f"({_THEME_BACKTEST_FEATURE_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_BACKTEST_FEATURE_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_BACKTEST_SEGMENT_METRIC_SQL = (
+    f"INSERT INTO {THEME_BACKTEST_SEGMENT_METRICS_TABLE} "
+    f"({_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_BACKTEST_SEGMENT_METRICS_PLACEHOLDERS_SQL})"
 )
 
 
@@ -658,6 +702,110 @@ class DuckDBRepository:
         ).fetchall()
         return [_theme_seasonality_profile_from_database_row(row) for row in rows]
 
+    def get_theme_launch_window_outcomes(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        decision_period_start: date | None = None,
+        decision_period_end: date | None = None,
+        game_theme: str | None = None,
+        outcome_horizon_months: int | None = None,
+    ) -> list[ThemeLaunchWindowOutcome]:
+        """Read raw launch-window outcomes in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _backtest_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            start_column="decision_period_start",
+            end_column="decision_period_end",
+            period_start=decision_period_start,
+            period_end=decision_period_end,
+            game_theme=game_theme,
+            outcome_horizon_months=outcome_horizon_months,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS_SQL} "
+            f"FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, decision_period_start, decision_period_end, "
+            "game_theme, outcome_horizon_months, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_launch_window_outcome_from_database_row(row) for row in rows]
+
+    def get_theme_backtest_feature_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        backtest_start: date | None = None,
+        backtest_end: date | None = None,
+        outcome_horizon_months: int | None = None,
+        feature_name: str | None = None,
+        feature_group: str | None = None,
+        outcome_name: str | None = None,
+    ) -> list[ThemeBacktestFeatureMetric]:
+        """Read continuous feature metrics in deterministic registry order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _backtest_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            start_column="backtest_start",
+            end_column="backtest_end",
+            period_start=backtest_start,
+            period_end=backtest_end,
+            outcome_horizon_months=outcome_horizon_months,
+            feature_name=feature_name,
+            feature_group=feature_group,
+            outcome_name=outcome_name,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_BACKTEST_FEATURE_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, backtest_start, backtest_end, outcome_horizon_months, "
+            "feature_name, outcome_name, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_backtest_feature_metric_from_database_row(row) for row in rows]
+
+    def get_theme_backtest_segment_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        backtest_start: date | None = None,
+        backtest_end: date | None = None,
+        outcome_horizon_months: int | None = None,
+        segment_name: str | None = None,
+        segment_value: str | None = None,
+        outcome_name: str | None = None,
+    ) -> list[ThemeBacktestSegmentMetric]:
+        """Read categorical segment metrics in deterministic identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _backtest_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            start_column="backtest_start",
+            end_column="backtest_end",
+            period_start=backtest_start,
+            period_end=backtest_end,
+            outcome_horizon_months=outcome_horizon_months,
+            segment_name=segment_name,
+            segment_value=segment_value,
+            outcome_name=outcome_name,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_BACKTEST_SEGMENT_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, backtest_start, backtest_end, outcome_horizon_months, "
+            "segment_name, segment_value, outcome_name, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_backtest_segment_metric_from_database_row(row) for row in rows]
+
     def replace_theme_monthly_range(
         self,
         monthly_totals: Sequence[MonthlyMarketTotal],
@@ -890,6 +1038,99 @@ class DuckDBRepository:
             _rollback(connection)
             raise
 
+    def replace_theme_backtest_range(
+        self,
+        outcomes: Sequence[ThemeLaunchWindowOutcome],
+        feature_metrics: Sequence[ThemeBacktestFeatureMetric],
+        segment_metrics: Sequence[ThemeBacktestSegmentMetric],
+    ) -> None:
+        """Atomically replace the three BACKTEST-001 output tables.
+
+        All dataclass and registry validation runs before a storage connection
+        is requested.  Source-identity checks then run before the transaction;
+        only the supplied backtest range is deleted and replaced.
+        """
+
+        payload = _validate_theme_backtest_range(
+            outcomes,
+            feature_metrics,
+            segment_metrics,
+        )
+        outcomes_tuple, features_tuple, segments_tuple, backtest_start, backtest_end = payload
+        connection = self._require_initialized_connection()
+        _verify_backtest_source_identities(connection, outcomes_tuple)
+        _verify_backtest_outcome_periods(connection, outcomes_tuple)
+        decision_periods = {
+            (row.decision_period_start, row.decision_period_end) for row in outcomes_tuple
+        }
+        if not decision_periods:
+            decision_period = backtest_start
+            while decision_period <= backtest_end:
+                decision_periods.add(
+                    (decision_period, natural_month_end_for_storage(decision_period))
+                )
+                decision_period = month_shift_for_storage(decision_period, 1)
+
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for period_start, period_end in sorted(decision_periods):
+                connection.execute(
+                    f"DELETE FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
+                    "WHERE scope_name = ? AND cadence = 'monthly' "
+                    "AND decision_period_start = ? AND decision_period_end = ?",
+                    [features_tuple[0].scope_name, period_start, period_end],
+                )
+            connection.execute(
+                f"DELETE FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+                "WHERE scope_name = ? AND cadence = 'monthly' "
+                "AND backtest_start = ? AND backtest_end = ? AND backtest_policy_version = ?",
+                [
+                    features_tuple[0].scope_name,
+                    backtest_start,
+                    backtest_end,
+                    BACKTEST_POLICY_VERSION,
+                ],
+            )
+            connection.execute(
+                f"DELETE FROM {THEME_BACKTEST_SEGMENT_METRICS_TABLE} "
+                "WHERE scope_name = ? AND cadence = 'monthly' "
+                "AND backtest_start = ? AND backtest_end = ? AND backtest_policy_version = ?",
+                [
+                    features_tuple[0].scope_name,
+                    backtest_start,
+                    backtest_end,
+                    BACKTEST_POLICY_VERSION,
+                ],
+            )
+            if outcomes_tuple:
+                connection.executemany(
+                    _INSERT_THEME_LAUNCH_WINDOW_OUTCOME_SQL,
+                    [_theme_launch_window_outcome_parameters(row) for row in outcomes_tuple],
+                )
+            connection.executemany(
+                _INSERT_THEME_BACKTEST_FEATURE_METRIC_SQL,
+                [_theme_backtest_feature_metric_parameters(row) for row in features_tuple],
+            )
+            if segments_tuple:
+                connection.executemany(
+                    _INSERT_THEME_BACKTEST_SEGMENT_METRIC_SQL,
+                    [_theme_backtest_segment_metric_parameters(row) for row in segments_tuple],
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            _rollback(connection)
+            raise
+
+        _verify_backtest_readback(
+            connection,
+            outcomes_tuple,
+            features_tuple,
+            segments_tuple,
+            scope_name=features_tuple[0].scope_name,
+            backtest_start=backtest_start,
+            backtest_end=backtest_end,
+        )
+
     def upsert_app_metadata(self, rows: Sequence[AppMetadataRow]) -> None:
         """Transaction-safely upsert normalized metadata rows by unified ID."""
 
@@ -1067,6 +1308,27 @@ class DuckDBRepository:
         from .parquet import export_theme_seasonality_profiles_to_parquet
 
         export_theme_seasonality_profiles_to_parquet(self, path)
+
+    def export_theme_launch_window_outcomes_to_parquet(self, path: str | Path) -> None:
+        """Atomically export raw BACKTEST-001 outcomes to Parquet."""
+
+        from .parquet import export_theme_launch_window_outcomes_to_parquet
+
+        export_theme_launch_window_outcomes_to_parquet(self, path)
+
+    def export_theme_backtest_feature_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export BACKTEST-001 feature metrics to Parquet."""
+
+        from .parquet import export_theme_backtest_feature_metrics_to_parquet
+
+        export_theme_backtest_feature_metrics_to_parquet(self, path)
+
+    def export_theme_backtest_segment_metrics_to_parquet(self, path: str | Path) -> None:
+        """Atomically export BACKTEST-001 segment metrics to Parquet."""
+
+        from .parquet import export_theme_backtest_segment_metrics_to_parquet
+
+        export_theme_backtest_segment_metrics_to_parquet(self, path)
 
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
@@ -1322,6 +1584,24 @@ def _theme_seasonality_profile_parameters(
     return tuple(getattr(row, column) for column in THEME_SEASONALITY_PROFILES_COLUMNS)
 
 
+def _theme_launch_window_outcome_parameters(
+    row: ThemeLaunchWindowOutcome,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS)
+
+
+def _theme_backtest_feature_metric_parameters(
+    row: ThemeBacktestFeatureMetric,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_BACKTEST_FEATURE_METRICS_COLUMNS)
+
+
+def _theme_backtest_segment_metric_parameters(
+    row: ThemeBacktestSegmentMetric,
+) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in THEME_BACKTEST_SEGMENT_METRICS_COLUMNS)
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -1390,6 +1670,27 @@ def _theme_seasonality_profile_from_database_row(
 ) -> ThemeSeasonalityProfile:
     values = dict(zip(THEME_SEASONALITY_PROFILES_COLUMNS, row, strict=True))
     return ThemeSeasonalityProfile(**cast(Any, values))
+
+
+def _theme_launch_window_outcome_from_database_row(
+    row: Sequence[object],
+) -> ThemeLaunchWindowOutcome:
+    values = dict(zip(THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS, row, strict=True))
+    return ThemeLaunchWindowOutcome(**cast(Any, values))
+
+
+def _theme_backtest_feature_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeBacktestFeatureMetric:
+    values = dict(zip(THEME_BACKTEST_FEATURE_METRICS_COLUMNS, row, strict=True))
+    return ThemeBacktestFeatureMetric(**cast(Any, values))
+
+
+def _theme_backtest_segment_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeBacktestSegmentMetric:
+    values = dict(zip(THEME_BACKTEST_SEGMENT_METRICS_COLUMNS, row, strict=True))
+    return ThemeBacktestSegmentMetric(**cast(Any, values))
 
 
 def _validate_theme_monthly_range(
@@ -1480,13 +1781,9 @@ def _validate_theme_opportunity_range(
     for values, expected_type, label in expected_types:
         if any(not isinstance(row, expected_type) for row in values):
             raise StorageValidationError(f"{label} contain an invalid typed row")
-    if any(
-        row.evidence_rank > DEFAULT_REPRESENTATIVE_GAME_LIMIT
-        for row in representative_tuple
-    ):
+    if any(row.evidence_rank > DEFAULT_REPRESENTATIVE_GAME_LIMIT for row in representative_tuple):
         raise StorageValidationError(
-            "representative evidence ranks must not exceed "
-            f"{DEFAULT_REPRESENTATIVE_GAME_LIMIT}"
+            f"representative evidence ranks must not exceed {DEFAULT_REPRESENTATIVE_GAME_LIMIT}"
         )
     try:
         totals_tuple = tuple(replace(row) for row in totals_tuple)
@@ -1651,9 +1948,9 @@ def _validate_theme_model_range(
         for key, row in zip(horizon_keys, horizons_tuple, strict=True)
     ):
         raise StorageValidationError("horizon metrics must reference a model summary")
-    horizon_groups: dict[
-        tuple[SnapshotPeriodKey, str, int], list[ThemeHorizonMetric]
-    ] = defaultdict(list)
+    horizon_groups: dict[tuple[SnapshotPeriodKey, str, int], list[ThemeHorizonMetric]] = (
+        defaultdict(list)
+    )
     for key, row in zip(horizon_keys, horizons_tuple, strict=True):
         horizon_groups[(key, row.game_theme, row.horizon_month_count)].append(row)
     for rows in horizon_groups.values():
@@ -1661,9 +1958,7 @@ def _validate_theme_model_range(
         if len(active_months) != 1:
             raise StorageValidationError("horizon active-month evidence must be consistent")
 
-    seasonality_keys = tuple(
-        _period_key_from_model_seasonality(row) for row in seasonality_tuple
-    )
+    seasonality_keys = tuple(_period_key_from_model_seasonality(row) for row in seasonality_tuple)
     seasonality_identities = {
         (*_model_theme_identity(key, row.game_theme), row.metric_name, row.calendar_month)
         for key, row in zip(seasonality_keys, seasonality_tuple, strict=True)
@@ -1681,12 +1976,14 @@ def _validate_theme_model_range(
         tuple[SnapshotPeriodKey, str, str], list[ThemeSeasonalityProfile]
     ] = defaultdict(list)
     for key, seasonality_row in zip(seasonality_keys, seasonality_tuple, strict=True):
-        seasonality_groups[
-            (key, seasonality_row.game_theme, seasonality_row.metric_name)
-        ].append(seasonality_row)
-    for (group_key, group_theme, _metric_name), seasonality_group_rows in (
-        seasonality_groups.items()
-    ):
+        seasonality_groups[(key, seasonality_row.game_theme, seasonality_row.metric_name)].append(
+            seasonality_row
+        )
+    for (
+        group_key,
+        group_theme,
+        _metric_name,
+    ), seasonality_group_rows in seasonality_groups.items():
         if len(seasonality_group_rows) != 12:
             raise StorageValidationError("each seasonality profile must contain twelve rows")
         if {row.calendar_month for row in seasonality_group_rows} != set(range(1, 13)):
@@ -1724,9 +2021,7 @@ def _validate_theme_model_range(
             rel_tol=1e-9,
             abs_tol=1e-9,
         ):
-            raise StorageValidationError(
-                "each seasonality profile must average approximately one"
-            )
+            raise StorageValidationError("each seasonality profile must average approximately one")
 
     score_keys = tuple(_period_key_from_trend_score(row) for row in scores_tuple)
     score_identities = {
@@ -1775,6 +2070,231 @@ def _validate_theme_model_range(
     )
 
 
+def _validate_theme_backtest_range(
+    outcomes: Sequence[ThemeLaunchWindowOutcome],
+    feature_metrics: Sequence[ThemeBacktestFeatureMetric],
+    segment_metrics: Sequence[ThemeBacktestSegmentMetric],
+) -> tuple[
+    tuple[ThemeLaunchWindowOutcome, ...],
+    tuple[ThemeBacktestFeatureMetric, ...],
+    tuple[ThemeBacktestSegmentMetric, ...],
+    date,
+    date,
+]:
+    """Validate a complete BACKTEST-001 payload without storage access."""
+
+    outcomes_tuple = tuple(outcomes)
+    features_tuple = tuple(feature_metrics)
+    segments_tuple = tuple(segment_metrics)
+    if not features_tuple:
+        raise StorageValidationError("backtest feature metrics must not be empty")
+    if any(not isinstance(row, ThemeLaunchWindowOutcome) for row in outcomes_tuple):
+        raise StorageValidationError("backtest outcomes contain an invalid typed row")
+    if any(not isinstance(row, ThemeBacktestFeatureMetric) for row in features_tuple):
+        raise StorageValidationError("backtest feature metrics contain an invalid typed row")
+    if any(not isinstance(row, ThemeBacktestSegmentMetric) for row in segments_tuple):
+        raise StorageValidationError("backtest segment metrics contain an invalid typed row")
+    try:
+        outcomes_tuple = tuple(replace(row) for row in outcomes_tuple)
+        features_tuple = tuple(replace(row) for row in features_tuple)
+        segments_tuple = tuple(replace(row) for row in segments_tuple)
+    except Exception as error:
+        raise StorageValidationError("backtest rows failed validation") from error
+
+    first_feature = features_tuple[0]
+    scope_name = first_feature.scope_name
+    backtest_start = first_feature.backtest_start
+    backtest_end = first_feature.backtest_end
+    calculated_timestamps = {row.calculated_at for row in features_tuple}
+    if len(calculated_timestamps) != 1:
+        raise StorageValidationError("backtest rows must use one calculated_at timestamp")
+    if any(
+        row.scope_name != scope_name
+        or row.cadence != "monthly"
+        or row.backtest_start != backtest_start
+        or row.backtest_end != backtest_end
+        or row.backtest_policy_version != BACKTEST_POLICY_VERSION
+        for row in features_tuple
+    ):
+        raise StorageValidationError("feature metrics must use one range and policy")
+    expected_feature_identities = {
+        (
+            scope_name,
+            "monthly",
+            backtest_start,
+            backtest_end,
+            horizon,
+            definition.feature_name,
+            outcome_name,
+            BACKTEST_POLICY_VERSION,
+        )
+        for horizon in BACKTEST_OUTCOME_HORIZONS
+        for definition in FEATURE_DEFINITIONS
+        for outcome_name in PRIMARY_OUTCOME_NAMES
+    }
+    feature_identities = {row.identity for row in features_tuple}
+    if (
+        len(features_tuple) != len(expected_feature_identities)
+        or feature_identities != expected_feature_identities
+    ):
+        raise StorageValidationError("backtest feature metrics must contain the exact registry")
+
+    outcome_identities = {row.identity for row in outcomes_tuple}
+    if len(outcome_identities) != len(outcomes_tuple):
+        raise StorageValidationError("backtest outcomes must have unique identities")
+    segment_identities = {row.identity for row in segments_tuple}
+    if len(segment_identities) != len(segments_tuple):
+        raise StorageValidationError("backtest segment metrics must have unique identities")
+    for outcome_row in outcomes_tuple:
+        if outcome_row.scope_name != scope_name or outcome_row.cadence != "monthly":
+            raise StorageValidationError("backtest outcomes have incompatible scope")
+        if not backtest_start <= outcome_row.decision_period_start <= backtest_end:
+            raise StorageValidationError("backtest outcome decision is outside the requested range")
+        if not backtest_start <= outcome_row.outcome_period_start <= backtest_end:
+            raise StorageValidationError("backtest outcome period is outside the requested range")
+        if outcome_row.calculated_at != next(iter(calculated_timestamps)):
+            raise StorageValidationError("backtest rows must use one calculated_at timestamp")
+    for segment_row in segments_tuple:
+        if (
+            segment_row.scope_name != scope_name
+            or segment_row.cadence != "monthly"
+            or segment_row.backtest_start != backtest_start
+            or segment_row.backtest_end != backtest_end
+            or segment_row.backtest_policy_version != BACKTEST_POLICY_VERSION
+        ):
+            raise StorageValidationError("segment metrics must use one range and policy")
+        if segment_row.calculated_at != next(iter(calculated_timestamps)):
+            raise StorageValidationError("backtest rows must use one calculated_at timestamp")
+    return outcomes_tuple, features_tuple, segments_tuple, backtest_start, backtest_end
+
+
+def _verify_backtest_source_identities(
+    connection: duckdb.DuckDBPyConnection,
+    outcomes: Sequence[ThemeLaunchWindowOutcome],
+) -> None:
+    """Ensure every raw row references accepted decision-month source rows."""
+
+    for row in outcomes:
+        identity_parameters = [
+            row.scope_name,
+            row.cadence,
+            row.decision_period_start,
+            row.decision_period_end,
+            row.game_theme,
+        ]
+        checks = (
+            (
+                "theme_model_summaries",
+                "SELECT 1 FROM theme_model_summaries "
+                "WHERE scope_name = ? AND cadence = ? AND period_start = ? "
+                "AND period_end = ? AND game_theme = ? AND has_6m_history",
+            ),
+            (
+                "theme_trend_scores",
+                "SELECT 1 FROM theme_trend_scores "
+                "WHERE scope_name = ? AND cadence = ? AND period_start = ? "
+                "AND period_end = ? AND game_theme = ?",
+            ),
+            (
+                "theme_market_structure_metrics",
+                "SELECT 1 FROM theme_market_structure_metrics "
+                "WHERE scope_name = ? AND cadence = ? AND period_start = ? "
+                "AND period_end = ? AND game_theme = ?",
+            ),
+            (
+                "theme_growth_source_metrics",
+                "SELECT 1 FROM theme_growth_source_metrics "
+                "WHERE scope_name = ? AND cadence = ? AND period_start = ? "
+                "AND period_end = ? AND game_theme = ?",
+            ),
+        )
+        for _table_name, query in checks:
+            if connection.execute(query, identity_parameters).fetchone() is None:
+                raise StorageValidationError("backtest outcome source identity verification failed")
+
+
+def _verify_backtest_outcome_periods(
+    connection: duckdb.DuckDBPyConnection,
+    outcomes: Sequence[ThemeLaunchWindowOutcome],
+) -> None:
+    expected_periods = {
+        (row.scope_name, row.cadence, row.outcome_period_start, row.outcome_period_end)
+        for row in outcomes
+    }
+    if not expected_periods:
+        return
+    available = {
+        (str(row[0]), str(row[1]), row[2], row[3])
+        for row in connection.execute(
+            "SELECT scope_name, cadence, period_start, period_end FROM monthly_market_totals"
+        ).fetchall()
+    }
+    if not expected_periods.issubset(available):
+        raise StorageValidationError("backtest outcome month is missing from monthly totals")
+
+
+def _verify_backtest_readback(
+    connection: duckdb.DuckDBPyConnection,
+    outcomes: Sequence[ThemeLaunchWindowOutcome],
+    features: Sequence[ThemeBacktestFeatureMetric],
+    segments: Sequence[ThemeBacktestSegmentMetric],
+    *,
+    scope_name: str,
+    backtest_start: date,
+    backtest_end: date,
+) -> None:
+    raw_rows = connection.execute(
+        f"SELECT {_THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS_SQL} "
+        f"FROM {THEME_LAUNCH_WINDOW_OUTCOMES_TABLE} "
+        "WHERE scope_name = ? AND cadence = 'monthly' "
+        "AND decision_period_start >= ? AND decision_period_end <= ? "
+        "ORDER BY decision_period_start, decision_period_end, game_theme, outcome_horizon_months",
+        [scope_name, backtest_start, backtest_end],
+    ).fetchall()
+    actual_outcomes = tuple(_theme_launch_window_outcome_from_database_row(row) for row in raw_rows)
+    if set(actual_outcomes) != set(outcomes) or len(actual_outcomes) != len(outcomes):
+        raise StorageValidationError("backtest outcome readback verification failed")
+
+    feature_rows = connection.execute(
+        f"SELECT {_THEME_BACKTEST_FEATURE_METRICS_COLUMNS_SQL} "
+        f"FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+        "WHERE scope_name = ? AND cadence = 'monthly' AND backtest_start = ? AND backtest_end = ? "
+        "AND backtest_policy_version = ? "
+        "ORDER BY outcome_horizon_months, feature_name, outcome_name",
+        [scope_name, backtest_start, backtest_end, BACKTEST_POLICY_VERSION],
+    ).fetchall()
+    actual_features = tuple(
+        _theme_backtest_feature_metric_from_database_row(row) for row in feature_rows
+    )
+    if set(actual_features) != set(features) or len(actual_features) != len(features):
+        raise StorageValidationError("backtest feature readback verification failed")
+
+    segment_rows = connection.execute(
+        f"SELECT {_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL} "
+        f"FROM {THEME_BACKTEST_SEGMENT_METRICS_TABLE} "
+        "WHERE scope_name = ? AND cadence = 'monthly' AND backtest_start = ? AND backtest_end = ? "
+        "AND backtest_policy_version = ? "
+        "ORDER BY outcome_horizon_months, segment_name, segment_value, outcome_name",
+        [scope_name, backtest_start, backtest_end, BACKTEST_POLICY_VERSION],
+    ).fetchall()
+    actual_segments = tuple(
+        _theme_backtest_segment_metric_from_database_row(row) for row in segment_rows
+    )
+    if set(actual_segments) != set(segments) or len(actual_segments) != len(segments):
+        raise StorageValidationError("backtest segment readback verification failed")
+    timestamps = {
+        row[0]
+        for row in connection.execute(
+            f"SELECT calculated_at FROM {THEME_BACKTEST_FEATURE_METRICS_TABLE} "
+            "WHERE scope_name = ? AND cadence = 'monthly' "
+            "AND backtest_start = ? AND backtest_end = ?",
+            [scope_name, backtest_start, backtest_end],
+        ).fetchall()
+    }
+    if timestamps != {features[0].calculated_at}:
+        raise StorageValidationError("backtest timestamp readback verification failed")
+
+
 def _verify_model_summary_source_identities(
     connection: duckdb.DuckDBPyConnection,
     target_keys: Sequence[SnapshotPeriodKey],
@@ -1788,10 +2308,7 @@ def _verify_model_summary_source_identities(
             "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ?",
             [key.scope_name, key.cadence, key.period_start, key.period_end],
         ).fetchall()
-        expected.update(
-            (str(row[0]), str(row[1]), row[2], row[3], str(row[4]))
-            for row in rows
-        )
+        expected.update((str(row[0]), str(row[1]), row[2], row[3], str(row[4])) for row in rows)
     actual = {
         (row.scope_name, row.cadence, row.period_start, row.period_end, row.game_theme)
         for row in summaries
@@ -1972,6 +2489,55 @@ def _derived_filter_sql(
     if calendar_month is not None:
         clauses.append("calendar_month = ?")
         parameters.append(calendar_month)
+    return "WHERE " + " AND ".join(clauses), parameters
+
+
+def _backtest_filter_sql(
+    *,
+    scope_name: str | None,
+    cadence: str,
+    start_column: str,
+    end_column: str,
+    period_start: date | None,
+    period_end: date | None,
+    game_theme: str | None = None,
+    outcome_horizon_months: int | None = None,
+    feature_name: str | None = None,
+    feature_group: str | None = None,
+    outcome_name: str | None = None,
+    segment_name: str | None = None,
+    segment_value: str | None = None,
+) -> tuple[str, list[object]]:
+    if cadence != "monthly":
+        raise StorageValidationError("backtest tables only support monthly cadence")
+    if start_column not in {"decision_period_start", "backtest_start"}:
+        raise StorageValidationError("invalid backtest start filter")
+    if end_column not in {"decision_period_end", "backtest_end"}:
+        raise StorageValidationError("invalid backtest end filter")
+    clauses = ["cadence = ?"]
+    parameters: list[object] = [cadence]
+    if scope_name is not None:
+        clauses.append("scope_name = ?")
+        parameters.append(scope_name)
+    if period_start is not None:
+        clauses.append(f"{start_column} >= ?")
+        parameters.append(period_start)
+    if period_end is not None:
+        clauses.append(f"{end_column} <= ?")
+        parameters.append(period_end)
+    optional_filters = (
+        ("game_theme", game_theme),
+        ("outcome_horizon_months", outcome_horizon_months),
+        ("feature_name", feature_name),
+        ("feature_group", feature_group),
+        ("outcome_name", outcome_name),
+        ("segment_name", segment_name),
+        ("segment_value", segment_value),
+    )
+    for column_name, value in optional_filters:
+        if value is not None:
+            clauses.append(f"{column_name} = ?")
+            parameters.append(value)
     return "WHERE " + " AND ".join(clauses), parameters
 
 

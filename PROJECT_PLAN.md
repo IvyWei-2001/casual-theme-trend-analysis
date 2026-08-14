@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: multi-horizon trend, lifecycle, stability, and seasonality evidence
+Current focus: leakage-safe T+1, T+2, and T+3 launch-window validation
 
 ## Development principles
 
@@ -46,16 +46,16 @@ Implement the next issues in exactly this order:
    and representative-game aggregates (completed and real-environment
    accepted)**
 4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-   seasonality (current)**
-5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation**
+   seasonality (implemented)**
+5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
+   (implemented; real-data acceptance remains pending)**
 6. **DECISION-001 - recommendation, risk, confidence, category fit, and
    migration evidence**
 7. **FEISHU-004 - business tables, role views, and dashboards**
 8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002 and HIST-002 are complete; AGG-002 is completed and
-real-environment accepted; MODEL-002 is the current
-focus. The recorded HIST-002 evidence is 36 completed months, 35,525 source snapshots,
+CONTRACT-002, HIST-002, AGG-002, and MODEL-002 are implemented; BACKTEST-001 is
+the current focus. The recorded HIST-002 evidence is 36 completed months, 35,525 source snapshots,
 monthly `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
 structural completeness. Final model weights are not selected in
 CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional

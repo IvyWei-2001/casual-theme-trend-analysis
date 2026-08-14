@@ -1,6 +1,6 @@
 # Current System
 
-This document records the audited state of the repository as of MODEL-002.
+This document records the audited state of the repository as of BACKTEST-001.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -39,8 +39,9 @@ current MVP boundary:
   publisher, entry, rank, and concentration metrics;
 - AGG-002 raw opportunity evidence for market structure, growth sources,
   observed product dimensions, and representative products;
-- schema version 4 migration, atomic six-output replacement, mandatory
-  identity/count readback verification, and deterministic six-file exports;
+- sequential schema migrations through version 6, atomic derived-output
+  replacement, mandatory identity/count readback verification, and
+  deterministic ZSTD exports;
 - the current six-month momentum scoring workflow, stored under the unchanged
   technical `theme_trend_scores` schema and interpreted as 6M Momentum;
 - Feishu schema provisioning with a preserved primary field and deterministic
@@ -108,6 +109,29 @@ skipped. Development validation is synthetic and uses temporary DuckDB and
 Parquet files; no real Sensor Tower, Feishu, or production database operation
 is claimed here.
 
+## BACKTEST-001 implementation status
+
+The local `backtest-themes` workflow is implemented as a pure, typed,
+leakage-safe evaluation over stored AGG-002 and MODEL-002 rows. It emits exact
+T+1/T+2/T+3 raw outcomes, a fixed 19-feature by four-outcome registry, and
+observed categorical-segment metrics. Decision features are read only from
+the decision month; future evidence is read only from the exact outcome month.
+The calculation never calls the legacy score, AGG-002 aggregation, MODEL-002
+calculation, Sensor Tower, or Feishu.
+
+Schema version 6 adds exactly `theme_launch_window_outcomes`,
+`theme_backtest_feature_metrics`, and `theme_backtest_segment_metrics` without
+altering prior tables or columns. Replacement validates typed rows before
+opening the transaction, checks stored source identities and outcome months,
+atomically replaces the requested range, rereads identities/counts/timestamps,
+and can export three deterministic ZSTD Parquet files.
+
+Development validation uses synthetic rows, fake/mock repository boundaries,
+temporary DuckDB, and temporary Parquet only. The plan-only path is
+credential-free and side-effect-free. The first 36-month history emits the
+36M feature registry rows but has no valid 36M predictive evidence; no real
+BACKTEST-001 production acceptance is claimed here.
+
 ## Confirmed metric terminology
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
@@ -128,7 +152,6 @@ The following V2 capabilities are not yet implemented:
 - a Growth Quality score or recommendation layer;
 - competitive white-space metrics;
 - business category-fit or migration decisions;
-- leakage-safe T+1 / T+2 / T+3 launch-window backtesting;
 - investment recommendation;
 - final business tables and dashboards; and
 - automation.

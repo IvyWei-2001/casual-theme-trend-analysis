@@ -63,21 +63,26 @@ metadata limitations, and the existing AGG-001/TREND-001 baseline. Scores,
 recommendations, and business dashboards remain later-issue work.
 
 ### 4. MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
-seasonality (current)
+seasonality (implemented)
 
 Add longer-horizon dimensions and lifecycle/stability/seasonality evidence.
 The local implementation now uses schema version 5, pure normalized-row
 calculation, atomic model-output replacement, deterministic Parquet export,
 and the `model-themes` command. Keep the current 6M Momentum Score as a
 baseline; do not silently reinterpret existing stored values. The provisional
-policy labels are evidence only and require BACKTEST-001 validation before any
-business decision layer.
+policy labels remain evidence only and require BACKTEST-001 validation before
+any business decision layer.
 
 ### 5. BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
 
-Evaluate historical decisions at the T+1, T+2, and T+3 horizons using only
-information available at each historical decision date. Report outcome
-coverage, failure cases, and uncertainty.
+The local implementation reads accepted AGG-002 and MODEL-002 rows only. It
+adds schema-v6 raw outcomes, fixed continuous-feature metrics, and observed
+categorical-segment metrics; preserves NULL/zero semantics; validates exact
+future-month identities; and atomically replaces/readbacks the three output
+tables. The credential-free plan-only path reports the 36-month registry
+counts without storage or file access. Synthetic/mock validation is complete;
+real production-data acceptance and the decision/recommendation layer remain
+out of scope.
 
 ### 6. DECISION-001 - recommendation, risk, confidence, category fit, and
 migration evidence
