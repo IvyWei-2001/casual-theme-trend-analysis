@@ -676,6 +676,7 @@ APP_MONETIZATION_PROFILES_COLUMNS: tuple[str, ...] = (
     "loot_box_state",
     "live_ops_state",
     "meaningful_iap_mechanism_count",
+    "meaningful_iap_evidence_state",
     "monetization_mix_proxy",
     "observable_revenue_applicability",
     "classification_reason",
@@ -724,10 +725,6 @@ THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
     "iap_dominant_candidate_observable_revenue_share",
     "unknown_observable_revenue_usd_sum",
     "unknown_observable_revenue_share",
-    "dominant_monetization_mix_proxy_by_downloads",
-    "dominant_monetization_mix_proxy_downloads_share",
-    "observable_revenue_applicability",
-    "applicability_reason",
     "calculated_at",
 )
 
@@ -1728,6 +1725,9 @@ CREATE TABLE IF NOT EXISTS app_monetization_profiles (
     meaningful_iap_mechanism_count INTEGER NOT NULL CHECK (
         meaningful_iap_mechanism_count BETWEEN 0 AND 7
     ),
+    meaningful_iap_evidence_state VARCHAR NOT NULL CHECK (
+        meaningful_iap_evidence_state IN ('present', 'absent', 'unknown', 'invalid')
+    ),
     monetization_mix_proxy VARCHAR NOT NULL CHECK (
         monetization_mix_proxy IN (
             'ads_dominant_candidate',
@@ -1840,30 +1840,6 @@ CREATE TABLE IF NOT EXISTS theme_monetization_observability_metrics (
     unknown_observable_revenue_usd_sum DOUBLE NULL,
     unknown_observable_revenue_share DOUBLE NULL CHECK (
         unknown_observable_revenue_share IS NULL OR unknown_observable_revenue_share BETWEEN 0 AND 1
-    ),
-    dominant_monetization_mix_proxy_by_downloads VARCHAR NOT NULL CHECK (
-        dominant_monetization_mix_proxy_by_downloads IN (
-            'ads_dominant_candidate',
-            'hybrid_candidate',
-            'iap_dominant_candidate',
-            'unknown'
-        )
-    ),
-    dominant_monetization_mix_proxy_downloads_share DOUBLE NULL CHECK (
-        dominant_monetization_mix_proxy_downloads_share IS NULL OR dominant_monetization_mix_proxy_downloads_share BETWEEN 0 AND 1
-    ),
-    observable_revenue_applicability VARCHAR NOT NULL CHECK (
-        observable_revenue_applicability IN ('low', 'partial', 'higher', 'unknown')
-    ),
-    applicability_reason VARCHAR NOT NULL CHECK (
-        applicability_reason IN (
-            'insufficient_source_match_coverage',
-            'no_positive_downloads_denominator',
-            'unknown_proxy_dominates_downloads',
-            'ads_dominant_downloads',
-            'iap_dominant_downloads',
-            'mixed_or_hybrid_downloads'
-        )
     ),
     calculated_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),

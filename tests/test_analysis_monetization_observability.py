@@ -62,10 +62,14 @@ def test_absent_source_value_is_unknown() -> None:
     ("ads_state", "iap_states", "expected"),
     [
         ("true", ("false",) * 7, ("ads_dominant_candidate", "low")),
+        ("true", ("unknown",) * 7, ("unknown", "unknown")),
+        ("true", ("false",) * 6 + ("unknown",), ("unknown", "unknown")),
+        ("true", ("true",) + ("unknown",) * 6, ("hybrid_candidate", "partial")),
         ("true", ("true",) + ("false",) * 6, ("hybrid_candidate", "partial")),
         ("true", ("true", "true") + ("false",) * 5, ("hybrid_candidate", "partial")),
         ("false", ("true",) + ("false",) * 6, ("iap_dominant_candidate", "higher")),
         ("false", ("false",) * 7, ("unknown", "unknown")),
+        ("false", ("unknown",) * 7, ("unknown", "unknown")),
         ("unknown", ("true",) + ("false",) * 6, ("unknown", "unknown")),
         ("invalid", ("false",) * 7, ("unknown", "unknown")),
         ("false", ("invalid",) + ("false",) * 6, ("unknown", "unknown")),
@@ -129,6 +133,64 @@ def _profile_rows(
     )
 
 
+@pytest.mark.parametrize(
+    ("tags", "expected_evidence", "expected_proxy", "expected_applicability"),
+    [
+        ({MONETIZATION_ADS_TAG: True}, "unknown", "unknown", "unknown"),
+        (
+            {
+                MONETIZATION_ADS_TAG: True,
+                **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[:6]},
+            },
+            "unknown",
+            "unknown",
+            "unknown",
+        ),
+        (
+            {
+                MONETIZATION_ADS_TAG: True,
+                **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
+            },
+            "absent",
+            "ads_dominant_candidate",
+            "low",
+        ),
+        (
+            {
+                MONETIZATION_ADS_TAG: True,
+                MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[0]: True,
+            },
+            "present",
+            "hybrid_candidate",
+            "partial",
+        ),
+        ({MONETIZATION_ADS_TAG: False}, "unknown", "unknown", "unknown"),
+        (
+            {MONETIZATION_ADS_TAG: True, MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[0]: 1},
+            "invalid",
+            "unknown",
+            "unknown",
+        ),
+    ],
+)
+def test_meaningful_iap_evidence_distinguishes_missing_from_absent(
+    tags: dict[str, object],
+    expected_evidence: str,
+    expected_proxy: str,
+    expected_applicability: str,
+) -> None:
+    snapshot = _snapshot(
+        f"evidence-{expected_evidence}-{expected_proxy}",
+        theme="Theme",
+        units=1,
+        revenue=0,
+    )
+    profile = _profile_rows([snapshot], {snapshot.source_app_id: tags})[0]
+    assert profile.meaningful_iap_evidence_state == expected_evidence
+    assert profile.monetization_mix_proxy == expected_proxy
+    assert profile.observable_revenue_applicability == expected_applicability
+
+
 def test_contextual_fields_do_not_create_meaningful_iap() -> None:
     snapshot = _snapshot("contextual", theme="Theme", units=1, revenue=100)
     tags = {
@@ -138,6 +200,7 @@ def test_contextual_fields_do_not_create_meaningful_iap() -> None:
     }
     profile = _profile_rows([snapshot], {"contextual": tags})[0]
     assert profile.meaningful_iap_mechanism_count == 0
+    assert profile.meaningful_iap_evidence_state == "unknown"
     assert profile.monetization_mix_proxy == "unknown"
     assert profile.ads_state == "unknown"
 
@@ -174,14 +237,17 @@ def test_product_classification_does_not_use_model_downloads_or_revenue() -> Non
     ]
 
 
-def test_theme_downloads_majority_controls_applicability_and_revenue_is_supporting() -> None:
+def test_theme_metrics_retain_raw_downloads_and_revenue_evidence() -> None:
     snapshots = [
         _snapshot("ads", theme="Theme", units=80, revenue=10),
         _snapshot("iap-1", theme="Theme", units=10, revenue=20),
         _snapshot("iap-2", theme="Theme", units=10, revenue=0),
     ]
     tags = {
-        "ads": {MONETIZATION_ADS_TAG: True},
+        "ads": {
+            MONETIZATION_ADS_TAG: True,
+            **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
+        },
         "iap-1": {MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
         "iap-2": {MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
     }
@@ -194,25 +260,32 @@ def test_theme_downloads_majority_controls_applicability_and_revenue_is_supporti
     assert metric.iap_dominant_candidate_product_share == pytest.approx(2 / 3)
     assert metric.ads_dominant_candidate_downloads_share == pytest.approx(0.8)
     assert metric.iap_dominant_candidate_downloads_share == pytest.approx(0.2)
-    assert metric.dominant_monetization_mix_proxy_by_downloads == "ads_dominant_candidate"
-    assert metric.observable_revenue_applicability == "low"
     assert metric.observable_revenue_usd_sum == 30
     assert metric.iap_dominant_candidate_observable_revenue_share == pytest.approx(2 / 3)
+    assert not hasattr(metric, "dominant_monetization_mix_proxy_by_downloads")
+    assert not hasattr(metric, "observable_revenue_applicability")
 
 
-def test_unknown_threshold_precedes_ads_at_exact_half() -> None:
+def test_theme_unknown_coverage_remains_raw_evidence() -> None:
     snapshots = [
         _snapshot("unknown", theme="Theme", units=50, revenue=None),
         _snapshot("ads", theme="Theme", units=50, revenue=0),
     ]
-    tags = {"unknown": {}, "ads": {MONETIZATION_ADS_TAG: True}}
+    tags = {
+        "unknown": {},
+        "ads": {
+            MONETIZATION_ADS_TAG: True,
+            **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
+        },
+    }
     metric = aggregate_theme_monetization_observability(
         snapshots,
         _profile_rows(snapshots, tags),
         calculated_at=OBSERVED_AT,
     )[0]
-    assert metric.observable_revenue_applicability == "unknown"
-    assert metric.applicability_reason == "unknown_proxy_dominates_downloads"
+    assert metric.unknown_downloads_share == pytest.approx(0.5)
+    assert metric.source_record_match_ratio == pytest.approx(1.0)
+    assert not hasattr(metric, "applicability_reason")
 
 
 def test_zero_and_null_denominators_remain_distinct() -> None:
@@ -225,7 +298,7 @@ def test_zero_and_null_denominators_remain_distinct() -> None:
     assert zero_metric.downloads_sum == 0
     assert zero_metric.ads_dominant_candidate_downloads_sum == 0
     assert zero_metric.ads_dominant_candidate_downloads_share is None
-    assert zero_metric.applicability_reason == "no_positive_downloads_denominator"
+    assert not hasattr(zero_metric, "observable_revenue_applicability")
 
     null_snapshots = [_snapshot("null", theme="Null", units=None, revenue=None)]
     null_metric = aggregate_theme_monetization_observability(
@@ -235,10 +308,10 @@ def test_zero_and_null_denominators_remain_distinct() -> None:
     )[0]
     assert null_metric.downloads_sum is None
     assert null_metric.observable_revenue_usd_sum is None
-    assert null_metric.applicability_reason == "no_positive_downloads_denominator"
+    assert null_metric.unknown_downloads_share is None
 
 
-def test_source_match_threshold_and_raw_theme_behavior() -> None:
+def test_source_match_ratio_and_raw_theme_behavior() -> None:
     snapshots = [
         _snapshot("a", theme="", units=10, revenue=None),
         _snapshot("b", theme="Unknown", units=10, revenue=None),
@@ -261,7 +334,7 @@ def test_source_match_threshold_and_raw_theme_behavior() -> None:
     unknown_metric = next(metric for metric in metrics if metric.game_theme == "Unknown")
     assert unknown_metric.product_count == 2
     assert unknown_metric.source_record_match_ratio == 0.5
-    assert unknown_metric.applicability_reason == "insufficient_source_match_coverage"
+    assert not hasattr(unknown_metric, "applicability_reason")
 
 
 def test_all_approved_tag_keys_are_exactly_partitioned() -> None:

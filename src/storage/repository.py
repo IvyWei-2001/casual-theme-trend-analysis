@@ -613,8 +613,6 @@ class DuckDBRepository:
         period_start: date | None = None,
         period_end: date | None = None,
         game_theme: str | None = None,
-        observable_revenue_applicability: str | None = None,
-        dominant_monetization_mix_proxy_by_downloads: str | None = None,
     ) -> list[ThemeMonetizationObservabilityMetric]:
         """Read theme observability metrics with deterministic identity ordering."""
 
@@ -625,11 +623,6 @@ class DuckDBRepository:
             period_start=period_start,
             period_end=period_end,
             game_theme=game_theme,
-            observable_revenue_applicability=observable_revenue_applicability,
-            dominant_monetization_mix_proxy_by_downloads=(
-                dominant_monetization_mix_proxy_by_downloads
-            ),
-            table_kind="theme",
         )
         rows = connection.execute(
             f"SELECT {_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL} "
@@ -1845,8 +1838,6 @@ def _monetization_filter_sql(
     monetization_mix_proxy: str | None = None,
     observable_revenue_applicability: str | None = None,
     game_theme: str | None = None,
-    dominant_monetization_mix_proxy_by_downloads: str | None = None,
-    table_kind: Literal["profile", "theme"] = "profile",
 ) -> tuple[str, list[object]]:
     if cadence != "monthly":
         raise StorageValidationError("cadence must equal monthly")
@@ -1876,11 +1867,6 @@ def _monetization_filter_sql(
     if game_theme is not None:
         clauses.append("game_theme = ?")
         parameters.append(game_theme)
-    if dominant_monetization_mix_proxy_by_downloads is not None:
-        if table_kind != "theme":
-            raise StorageValidationError("dominant proxy filter is only valid for theme metrics")
-        clauses.append("dominant_monetization_mix_proxy_by_downloads = ?")
-        parameters.append(dominant_monetization_mix_proxy_by_downloads)
     return "WHERE " + " AND ".join(clauses), parameters
 
 

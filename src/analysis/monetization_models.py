@@ -34,12 +34,10 @@ from ..sensor_tower.dto import (
 from .errors import MonetizationValidationError
 
 MONETIZATION_POLICY_VERSION: Final = "MONETIZATION001_V1"
-MONETIZATION_MIN_SOURCE_MATCH_RATIO: Final = 0.80
-MONETIZATION_PROXY_DOMINANCE_SHARE: Final = 0.50
-MONETIZATION_UNKNOWN_SHARE_THRESHOLD: Final = 0.50
 
 type BooleanState = Literal["true", "false", "unknown", "invalid"]
 type Cadence = Literal["monthly", "weekly"]
+type MeaningfulIapEvidenceState = Literal["present", "absent", "unknown", "invalid"]
 type MonetizationMixProxy = Literal[
     "ads_dominant_candidate",
     "hybrid_candidate",
@@ -70,6 +68,9 @@ MONETIZATION_MIX_PROXIES: Final[tuple[MonetizationMixProxy, ...]] = (
 OBSERVABLE_REVENUE_APPLICABILITIES: Final[
     tuple[ObservableRevenueApplicability, ...]
 ] = ("low", "partial", "higher", "unknown")
+MEANINGFUL_IAP_EVIDENCE_STATES: Final[
+    tuple[MeaningfulIapEvidenceState, ...]
+] = ("present", "absent", "unknown", "invalid")
 CLASSIFICATION_REASONS: Final[tuple[ClassificationReason, ...]] = (
     "source_record_unmatched",
     "invalid_classification_signal",
@@ -79,14 +80,6 @@ CLASSIFICATION_REASONS: Final[tuple[ClassificationReason, ...]] = (
     "ads_state_unknown",
     "no_meaningful_monetization_signal",
     "classification_signal_inconclusive",
-)
-APPLICABILITY_REASONS: Final[tuple[str, ...]] = (
-    "insufficient_source_match_coverage",
-    "no_positive_downloads_denominator",
-    "unknown_proxy_dominates_downloads",
-    "ads_dominant_downloads",
-    "iap_dominant_downloads",
-    "mixed_or_hybrid_downloads",
 )
 MONETIZATION_PROXY_ORDER: Final[tuple[MonetizationMixProxy, ...]] = (
     "ads_dominant_candidate",
@@ -174,6 +167,21 @@ def count_meaningful_iap_mechanisms(
     return sum(states.get(key) == "true" for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS)
 
 
+def classify_meaningful_iap_evidence(
+    meaningful_iap_states: Sequence[BooleanState],
+) -> MeaningfulIapEvidenceState:
+    """Classify seven meaningful-IAP signals without treating missing as false."""
+
+    states = _validate_meaningful_iap_states(meaningful_iap_states)
+    if "invalid" in states:
+        return "invalid"
+    if "true" in states:
+        return "present"
+    if all(state == "false" for state in states):
+        return "absent"
+    return "unknown"
+
+
 def classify_product_monetization_proxy(
     ads_state: BooleanState,
     meaningful_iap_states: Sequence[BooleanState],
@@ -184,27 +192,25 @@ def classify_product_monetization_proxy(
 
     if type(source_record_matched) is not bool:
         raise MonetizationValidationError("source_record_matched must be a Boolean")
-    if ads_state not in BOOLEAN_STATES or any(
-        state not in BOOLEAN_STATES for state in meaningful_iap_states
-    ):
+    if not isinstance(ads_state, str) or ads_state not in BOOLEAN_STATES:
         raise MonetizationValidationError("classification states are not supported")
+    evidence_state = classify_meaningful_iap_evidence(meaningful_iap_states)
 
     if not source_record_matched:
         return "unknown", "unknown", "source_record_unmatched"
 
-    if ads_state == "invalid" or "invalid" in meaningful_iap_states:
+    if ads_state == "invalid" or evidence_state == "invalid":
         return "unknown", "unknown", "invalid_classification_signal"
 
-    meaningful_count = sum(state == "true" for state in meaningful_iap_states)
-    if ads_state == "true" and meaningful_count == 0:
-        return "ads_dominant_candidate", "low", "ads_without_meaningful_iap"
-    if ads_state == "true" and meaningful_count >= 1:
+    if ads_state == "true" and evidence_state == "present":
         return "hybrid_candidate", "partial", "ads_with_meaningful_iap"
-    if ads_state == "false" and meaningful_count >= 1:
+    if ads_state == "true" and evidence_state == "absent":
+        return "ads_dominant_candidate", "low", "ads_without_meaningful_iap"
+    if ads_state == "false" and evidence_state == "present":
         return "iap_dominant_candidate", "higher", "no_ads_with_meaningful_iap"
     if ads_state == "unknown":
         return "unknown", "unknown", "ads_state_unknown"
-    if meaningful_count == 0:
+    if evidence_state == "absent":
         return "unknown", "unknown", "no_meaningful_monetization_signal"
     return "unknown", "unknown", "classification_signal_inconclusive"
 
@@ -242,6 +248,7 @@ class AppMonetizationProfile:
     loot_box_state: BooleanState
     live_ops_state: BooleanState
     meaningful_iap_mechanism_count: int
+    meaningful_iap_evidence_state: MeaningfulIapEvidenceState
     monetization_mix_proxy: MonetizationMixProxy
     observable_revenue_applicability: ObservableRevenueApplicability
     classification_reason: ClassificationReason
@@ -321,7 +328,7 @@ class AppMonetizationProfile:
 
         for field_name in _PROFILE_STATE_FIELDS:
             state = getattr(self, field_name)
-            if state not in BOOLEAN_STATES:
+            if not isinstance(state, str) or state not in BOOLEAN_STATES:
                 raise MonetizationValidationError(f"{field_name} is not a supported state")
         meaningful_count = _require_count(
             self.meaningful_iap_mechanism_count,
@@ -333,11 +340,31 @@ class AppMonetizationProfile:
             dict(zip(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS, self.meaningful_iap_states, strict=True))
         ):
             raise MonetizationValidationError("meaningful_iap_mechanism_count is inconsistent")
-        if self.monetization_mix_proxy not in MONETIZATION_MIX_PROXIES:
+        if (
+            not isinstance(self.meaningful_iap_evidence_state, str)
+            or self.meaningful_iap_evidence_state not in MEANINGFUL_IAP_EVIDENCE_STATES
+        ):
+            raise MonetizationValidationError("meaningful_iap_evidence_state is not supported")
+        if self.meaningful_iap_evidence_state != classify_meaningful_iap_evidence(
+            self.meaningful_iap_states
+        ):
+            raise MonetizationValidationError(
+                "meaningful_iap_evidence_state is inconsistent"
+            )
+        if (
+            not isinstance(self.monetization_mix_proxy, str)
+            or self.monetization_mix_proxy not in MONETIZATION_MIX_PROXIES
+        ):
             raise MonetizationValidationError("monetization_mix_proxy is not supported")
-        if self.observable_revenue_applicability not in OBSERVABLE_REVENUE_APPLICABILITIES:
+        if (
+            not isinstance(self.observable_revenue_applicability, str)
+            or self.observable_revenue_applicability not in OBSERVABLE_REVENUE_APPLICABILITIES
+        ):
             raise MonetizationValidationError("observable_revenue_applicability is not supported")
-        if self.classification_reason not in CLASSIFICATION_REASONS:
+        if (
+            not isinstance(self.classification_reason, str)
+            or self.classification_reason not in CLASSIFICATION_REASONS
+        ):
             raise MonetizationValidationError("classification_reason is not supported")
 
         expected_proxy, expected_applicability, expected_reason = (
@@ -412,10 +439,6 @@ class ThemeMonetizationObservabilityMetric:
     iap_dominant_candidate_observable_revenue_share: float | None
     unknown_observable_revenue_usd_sum: float | None
     unknown_observable_revenue_share: float | None
-    dominant_monetization_mix_proxy_by_downloads: MonetizationMixProxy
-    dominant_monetization_mix_proxy_downloads_share: float | None
-    observable_revenue_applicability: ObservableRevenueApplicability
-    applicability_reason: str
     calculated_at: datetime
 
     @property
@@ -467,7 +490,6 @@ class ThemeMonetizationObservabilityMetric:
         ):
             _require_ratio(getattr(self, field_name), field_name=field_name)
         for field_name in (
-            "dominant_monetization_mix_proxy_downloads_share",
             "ads_dominant_candidate_downloads_share",
             "hybrid_candidate_downloads_share",
             "iap_dominant_candidate_downloads_share",
@@ -557,14 +579,6 @@ class ThemeMonetizationObservabilityMetric:
                 raise MonetizationValidationError(
                     "observable-Revenue proxy shares do not reconcile"
                 )
-        if self.dominant_monetization_mix_proxy_by_downloads not in MONETIZATION_MIX_PROXIES:
-            raise MonetizationValidationError("dominant proxy is not supported")
-        if self.observable_revenue_applicability not in OBSERVABLE_REVENUE_APPLICABILITIES:
-            raise MonetizationValidationError("observable_revenue_applicability is not supported")
-        if self.applicability_reason not in APPLICABILITY_REASONS:
-            raise MonetizationValidationError("applicability_reason is not supported")
-
-
 def build_app_monetization_profiles(
     market_snapshots: Sequence[MarketSnapshotLike],
     source_tags_by_app_id: Mapping[object, object] | Sequence[object],
@@ -603,6 +617,7 @@ def build_app_monetization_profiles(
         meaningful_states = tuple(
             states[key] for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS
         )
+        meaningful_evidence_state = classify_meaningful_iap_evidence(meaningful_states)
         proxy, applicability, reason = classify_product_monetization_proxy(
             states[MONETIZATION_ADS_TAG],
             meaningful_states,
@@ -643,6 +658,7 @@ def build_app_monetization_profiles(
                 loot_box_state=states[MONETIZATION_LOOT_BOX_TAG],
                 live_ops_state=states[MONETIZATION_LIVE_OPS_TAG],
                 meaningful_iap_mechanism_count=sum(state == "true" for state in meaningful_states),
+                meaningful_iap_evidence_state=meaningful_evidence_state,
                 monetization_mix_proxy=proxy,
                 observable_revenue_applicability=applicability,
                 classification_reason=reason,
@@ -650,6 +666,19 @@ def build_app_monetization_profiles(
             )
         )
     return profiles
+
+
+def _validate_meaningful_iap_states(
+    meaningful_iap_states: Sequence[BooleanState],
+) -> tuple[BooleanState, ...]:
+    if len(meaningful_iap_states) != len(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS):
+        raise MonetizationValidationError("exactly seven meaningful-IAP states are required")
+    if any(
+        not isinstance(state, str) or state not in BOOLEAN_STATES
+        for state in meaningful_iap_states
+    ):
+        raise MonetizationValidationError("classification states are not supported")
+    return tuple(meaningful_iap_states)
 
 
 def _normalize_source_tag_records(

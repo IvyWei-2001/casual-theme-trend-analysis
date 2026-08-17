@@ -84,8 +84,6 @@ class MonetizationRepository(Protocol):
         period_start: date | None = None,
         period_end: date | None = None,
         game_theme: str | None = None,
-        observable_revenue_applicability: str | None = None,
-        dominant_monetization_mix_proxy_by_downloads: str | None = None,
     ) -> list[ThemeMonetizationObservabilityMetric]: ...
 
     def export_app_monetization_profiles_to_parquet(self, path: str | Path) -> None: ...
@@ -205,6 +203,15 @@ def collect_monetization(
         matched_count = len(stored_ids & selected_ids)
         unmatched_count = len(stored_ids - selected_ids)
         extra_count = len(selected_ids - stored_ids)
+        if stored_ids != selected_ids:
+            raise MonetizationWorkflowError(
+                "stored/API population mismatch: "
+                f"stored_count={len(stored_ids)} "
+                f"selected_count={len(selected_ids)} "
+                f"matched_count={matched_count} "
+                f"unmatched_stored_count={unmatched_count} "
+                f"extra_selected_count={extra_count}"
+            )
 
         profiles = build_app_monetization_profiles(
             stored_snapshots,
@@ -300,10 +307,6 @@ def format_collect_monetization_summary(summary: CollectMonetizationSummary) -> 
             f"unknown_profile_count={summary.unknown_profile_count}",
             f"invalid_signal_profile_count={summary.invalid_signal_profile_count}",
             f"theme_metric_row_count={summary.theme_metric_row_count}",
-            f"theme_applicability_higher_count={summary.theme_applicability_higher_count}",
-            f"theme_applicability_partial_count={summary.theme_applicability_partial_count}",
-            f"theme_applicability_low_count={summary.theme_applicability_low_count}",
-            f"theme_applicability_unknown_count={summary.theme_applicability_unknown_count}",
             f"verification={summary.verification}",
             f"metadata_api={summary.metadata_api}",
             f"feishu={summary.feishu}",
@@ -355,18 +358,6 @@ def _build_summary(
             row.classification_reason == "invalid_classification_signal" for row in profile_rows
         ),
         theme_metric_row_count=len(theme_rows),
-        theme_applicability_higher_count=sum(
-            row.observable_revenue_applicability == "higher" for row in theme_rows
-        ),
-        theme_applicability_partial_count=sum(
-            row.observable_revenue_applicability == "partial" for row in theme_rows
-        ),
-        theme_applicability_low_count=sum(
-            row.observable_revenue_applicability == "low" for row in theme_rows
-        ),
-        theme_applicability_unknown_count=sum(
-            row.observable_revenue_applicability == "unknown" for row in theme_rows
-        ),
         database_path=request.database_path,
         app_profiles_parquet_path=app_profiles_parquet_path,
         theme_metrics_parquet_path=theme_metrics_parquet_path,

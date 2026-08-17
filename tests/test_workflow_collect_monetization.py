@@ -8,6 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.analysis.monetization_models import build_app_monetization_profiles
+from src.analysis.monetization_observability import (
+    aggregate_theme_monetization_observability,
+)
 from src.sensor_tower import (
     GAME_IQ_IAP_BUNDLES_TAG,
     MONETIZATION_ADS_TAG,
@@ -113,16 +117,19 @@ def _config() -> SimpleNamespace:
     )
 
 
-def _repository(tmp_path: Path) -> tuple[DuckDBRepository, list[MarketSnapshotRow]]:
-    rows = [_snapshot("a1", 1, "Theme"), _snapshot("a2", 2, "Other")]
+def _repository(
+    tmp_path: Path,
+    rows: list[MarketSnapshotRow] | None = None,
+) -> tuple[DuckDBRepository, list[MarketSnapshotRow]]:
+    stored_rows = rows or [_snapshot("a1", 1, "Theme"), _snapshot("a2", 2, "Other")]
     repository = DuckDBRepository(tmp_path / "workflow.duckdb")
     repository.open()
     repository.initialize_schema()
-    repository.replace_market_snapshot_period(rows)
-    return repository, rows
+    repository.replace_market_snapshot_period(stored_rows)
+    return repository, stored_rows
 
 
-def test_latest_workflow_reuses_one_market_response_and_preserves_source_population(
+def test_latest_workflow_requires_and_reuses_an_exact_source_population(
     tmp_path: Path,
 ) -> None:
     repository, stored_rows = _repository(tmp_path)
@@ -130,7 +137,7 @@ def test_latest_workflow_reuses_one_market_response_and_preserves_source_populat
         [
             _record("a1", {MONETIZATION_ADS_TAG: True}),
             _record(
-                "a3",
+                "a2",
                 {MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
             ),
         ]
@@ -154,9 +161,9 @@ def test_latest_workflow_reuses_one_market_response_and_preserves_source_populat
     assert summary.stored_snapshot_count == 2
     assert summary.candidate_count == 2
     assert summary.selected_count == 2
-    assert summary.matched_source_record_count == 1
-    assert summary.unmatched_stored_snapshot_count == 1
-    assert summary.extra_selected_record_count == 1
+    assert summary.matched_source_record_count == 2
+    assert summary.unmatched_stored_snapshot_count == 0
+    assert summary.extra_selected_record_count == 0
     assert summary.profile_row_count == 2
     assert summary.classified_profile_count == 1
     assert summary.unknown_profile_count == 1
@@ -165,6 +172,91 @@ def test_latest_workflow_reuses_one_market_response_and_preserves_source_populat
     assert summary.feishu == "disabled"
     assert "parquet_export=skipped" in format_collect_monetization_summary(summary)
     assert repository.get_market_snapshot_period(stored_rows[0].period_key) == stored_rows
+    assert not (tmp_path / "exports").exists()
+    repository.close()
+
+
+def test_unmatched_stored_population_fails_before_writes(tmp_path: Path) -> None:
+    repository, stored_rows = _repository(tmp_path)
+    client = _FakeMarketClient([_record("a1", {MONETIZATION_ADS_TAG: True})])
+    request = CollectMonetizationRequest(
+        month="2026-07",
+        database_path=tmp_path / "workflow.duckdb",
+        export_directory=tmp_path / "exports",
+        skip_export=False,
+    )
+
+    with pytest.raises(
+        MonetizationWorkflowError,
+        match=(
+            r"stored/API population mismatch: stored_count=2 selected_count=1 "
+            r"matched_count=1 unmatched_stored_count=1 extra_selected_count=0"
+        ),
+    ) as error:
+        collect_monetization(
+            request,
+            _config(),
+            current_utc=CURRENT_UTC,
+            client=client,
+            repository=repository,
+        )
+    assert "a1" not in str(error.value)
+    assert client.fetch_count == 1
+    assert repository.get_market_snapshot_period(stored_rows[0].period_key) == stored_rows
+    assert repository.get_app_monetization_profiles() == []
+    assert repository.get_theme_monetization_observability_metrics() == []
+    assert not (tmp_path / "exports").exists()
+    repository.close()
+
+
+def test_extra_selected_population_fails_and_existing_monetization_survives(
+    tmp_path: Path,
+) -> None:
+    stored_rows = [_snapshot("a1", 1, "Theme")]
+    repository, stored_rows = _repository(tmp_path, stored_rows)
+    source_records = [_record("a1", {MONETIZATION_ADS_TAG: True})]
+    existing_profiles = build_app_monetization_profiles(
+        stored_rows,
+        [
+            SimpleNamespace(app_id="a1", custom_tags={MONETIZATION_ADS_TAG: True}),
+        ],
+        observed_at=CURRENT_UTC,
+    )
+    existing_metrics = aggregate_theme_monetization_observability(
+        stored_rows,
+        existing_profiles,
+        calculated_at=CURRENT_UTC,
+    )
+    repository.replace_monetization_period(existing_profiles, existing_metrics)
+    client = _FakeMarketClient(
+        source_records + [_record("a2", {MONETIZATION_ADS_TAG: False})]
+    )
+    request = CollectMonetizationRequest(
+        month="2026-07",
+        database_path=tmp_path / "workflow.duckdb",
+        export_directory=tmp_path / "exports",
+        skip_export=False,
+    )
+
+    with pytest.raises(
+        MonetizationWorkflowError,
+        match=(
+            r"stored/API population mismatch: stored_count=1 selected_count=2 "
+            r"matched_count=1 unmatched_stored_count=0 extra_selected_count=1"
+        ),
+    ) as error:
+        collect_monetization(
+            request,
+            _config(),
+            current_utc=CURRENT_UTC,
+            client=client,
+            repository=repository,
+        )
+    assert "a2" not in str(error.value)
+    assert client.fetch_count == 1
+    assert repository.get_market_snapshot_period(stored_rows[0].period_key) == stored_rows
+    assert repository.get_app_monetization_profiles() == existing_profiles
+    assert repository.get_theme_monetization_observability_metrics() == existing_metrics
     assert not (tmp_path / "exports").exists()
     repository.close()
 

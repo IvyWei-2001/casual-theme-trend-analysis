@@ -59,19 +59,31 @@ Missing does not mean false.
 
 The persisted policy version is `MONETIZATION001_V1`.
 
-For a matched source record, rules are applied in this order:
+For the seven meaningful-IAP fields, the profile stores an explicit evidence
+state:
 
-1. An invalid Ads state or invalid meaningful-IAP state produces
-   `unknown` / `invalid_classification_signal`.
-2. Ads `true` with no meaningful IAP mechanism produces
-   `ads_dominant_candidate` / `low`.
-3. Ads `true` with at least one meaningful IAP mechanism produces
-   `hybrid_candidate` / `partial`.
-4. Ads `false` with at least one meaningful IAP mechanism produces
-   `iap_dominant_candidate` / `higher`.
-5. Ads `false` with no meaningful IAP mechanism produces `unknown`.
-6. Ads `unknown` produces `unknown`; an otherwise inconclusive state remains
-   `unknown`.
+- `present`: at least one field is explicitly `true`;
+- `absent`: all seven fields are explicitly `false`;
+- `unknown`: no field is true and at least one field is missing, `None`, or
+  otherwise unknown;
+- `invalid`: at least one field is invalid.
+
+A positive meaningful-IAP field is sufficient even when the other six fields
+are missing. For a matched source record, the product matrix is:
+
+| Ads state | Meaningful-IAP evidence | Proxy | App applicability |
+| --- | --- | --- | --- |
+| `true` | `present` | `hybrid_candidate` | `partial` |
+| `true` | `absent` | `ads_dominant_candidate` | `low` |
+| `true` | `unknown` or `invalid` | `unknown` | `unknown` |
+| `false` | `present` | `iap_dominant_candidate` | `higher` |
+| `false` | `absent` | `unknown` | `unknown` |
+| `false` | `unknown` or `invalid` | `unknown` | `unknown` |
+| `unknown` or `invalid` | any | `unknown` | `unknown` |
+
+Invalid input may retain the distinct `invalid` evidence state and
+`invalid_classification_signal` reason, but never produces a classified proxy
+or applicability value.
 
 An unmatched stored product is always `unknown`, with all states `unknown`,
 empty canonical audit JSON `{}`, and reason `source_record_unmatched`.
@@ -88,33 +100,15 @@ The stored `market_snapshots` population is authoritative. There is exactly
 one profile per stored product and one theme metric per non-NULL raw
 `game_theme`; empty strings, `Unknown`, and `N/A` remain distinct labels.
 
-Theme metrics expose product-count proxy shares, Downloads-weighted proxy
-shares, and observable-Revenue composition shares. Downloads is the primary
-theme-level dominance evidence; product count and observable Revenue remain
-supporting evidence. Numeric zero remains zero, SQL `NULL` remains unavailable,
-and a missing or non-positive denominator produces a `NULL` share. No values
-are rounded and infinity is never emitted.
-
-The provisional applicability constants are:
-
-- `MONETIZATION_MIN_SOURCE_MATCH_RATIO = 0.80`
-- `MONETIZATION_PROXY_DOMINANCE_SHARE = 0.50`
-- `MONETIZATION_UNKNOWN_SHARE_THRESHOLD = 0.50`
-
-They are descriptive thresholds, not investment weights or backtested decision
-thresholds. Applicability is evaluated in this order:
-
-1. Match ratio below 0.80: `unknown`,
-   `insufficient_source_match_coverage`.
-2. No positive Downloads denominator: `unknown`,
-   `no_positive_downloads_denominator`.
-3. Unknown proxy Downloads share at least 0.50: `unknown`,
-   `unknown_proxy_dominates_downloads`.
-4. Ads-candidate Downloads share at least 0.50: `low`,
-   `ads_dominant_downloads`.
-5. IAP-candidate Downloads share at least 0.50: `higher`,
-   `iap_dominant_downloads`.
-6. Otherwise: `partial`, `mixed_or_hybrid_downloads`.
+Theme metrics expose raw product-count proxy shares, Downloads-weighted proxy
+sums and shares, observable-Revenue composition sums and shares, source-match
+counts and ratios, and invalid/unknown coverage evidence. These are descriptive
+metrics only. Theme aggregation does not produce a dominant-proxy label,
+theme-level `low`/`partial`/`higher`/`unknown` applicability value, or a
+business recommendation. Numeric zero remains zero, SQL `NULL` remains
+unavailable, and a missing denominator produces a `NULL` share. No values are
+rounded and infinity is never emitted. `observable_revenue_applicability` is
+valid only on the app-level proxy classification above.
 
 ## Storage and workflows
 
@@ -143,7 +137,10 @@ month, and performs no credential, network, database, directory, or file
 operation. Real execution accepts only the latest stored completed month,
 calls the existing market endpoint once, reuses existing local selection,
 does not call metadata or Feishu, keeps the stored population authoritative,
-and counts unmatched/extra fetched products in its sanitized summary.
+and rejects any selected source-ID population that does not exactly match the
+stored latest-month source-ID population. The sanitized mismatch error reports
+only stored, selected, matched, unmatched, and extra counts; it lists no IDs
+and performs no profile/theme replacement or Parquet export.
 
 The two deterministic atomic ZSTD exports are:
 

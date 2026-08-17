@@ -146,9 +146,10 @@ MONETIZATION-001 adds the pure typed modules
 `src/analysis/monetization_observability.py`, plus the latest-month-only
 `collect-monetization` workflow. It uses exactly eleven verified Sensor Tower
 Custom Fields, preserves a safe raw-tag audit, classifies Ads/IAP/Hybrid
-proxies without using Revenue amount or Game Product Model, and aggregates
-Downloads-weighted theme evidence with explicit observable-Revenue
-applicability thresholds.
+proxies without using Revenue amount or Game Product Model, and aggregates raw
+Downloads-weighted and observable-Revenue theme evidence. App-level
+observable-Revenue applicability comes only from the confirmed Ads/IAP matrix;
+theme aggregation adds no applicability or dominant-proxy label.
 
 Schema version 7 adds exactly `app_monetization_profiles` and
 `theme_monetization_observability_metrics`; existing source, AGG, MODEL, and

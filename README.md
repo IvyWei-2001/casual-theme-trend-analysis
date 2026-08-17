@@ -494,8 +494,8 @@ theme-level evidence with Downloads as the primary weighting. It does not
 estimate IAA revenue, infer total revenue, map Game Product Model to
 monetization, modify BACKTEST-001, or create a score or recommendation. See
 [`docs/MONETIZATION_OBSERVABILITY.md`](docs/MONETIZATION_OBSERVABILITY.md) for
-the exact fields, missing-versus-false semantics, proxy rules, thresholds, and
-historical-versioning limitation.
+the exact fields, missing-versus-false semantics, evidence states, proxy rules,
+raw theme metrics, and historical-versioning limitation.
 
 Schema version 7 adds only `app_monetization_profiles` and
 `theme_monetization_observability_metrics`. The dedicated command observes

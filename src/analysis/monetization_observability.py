@@ -9,15 +9,11 @@ from math import isfinite
 
 from .errors import MonetizationValidationError
 from .monetization_models import (
-    MONETIZATION_MIN_SOURCE_MATCH_RATIO,
     MONETIZATION_POLICY_VERSION,
-    MONETIZATION_PROXY_DOMINANCE_SHARE,
     MONETIZATION_PROXY_ORDER,
-    MONETIZATION_UNKNOWN_SHARE_THRESHOLD,
     AppMonetizationProfile,
     MarketSnapshotLike,
     MonetizationMixProxy,
-    ObservableRevenueApplicability,
     ThemeMonetizationObservabilityMetric,
 )
 
@@ -171,18 +167,6 @@ def _aggregate_theme_group(
     ads_known_ratio = ads_known_count / product_count
     classified_ratio = classified_count / product_count
 
-    if downloads_sum is not None and downloads_sum > 0:
-        dominant_proxy, dominant_share = _dominant_downloads(downloads_shares)
-    else:
-        dominant_proxy, dominant_share = "unknown", None
-    applicability, applicability_reason = _theme_applicability(
-        source_match_ratio=source_match_ratio,
-        downloads_sum=downloads_sum,
-        unknown_downloads_share=downloads_shares["unknown"],
-        ads_downloads_share=downloads_shares["ads_dominant_candidate"],
-        iap_downloads_share=downloads_shares["iap_dominant_candidate"],
-    )
-
     scope_name, cadence, period_start, period_end = period_key
     return ThemeMonetizationObservabilityMetric(
         scope_name=scope_name,
@@ -233,10 +217,6 @@ def _aggregate_theme_group(
         iap_dominant_candidate_observable_revenue_share=revenue_shares["iap_dominant_candidate"],
         unknown_observable_revenue_usd_sum=revenue_proxy_sums["unknown"],
         unknown_observable_revenue_share=revenue_shares["unknown"],
-        dominant_monetization_mix_proxy_by_downloads=dominant_proxy,
-        dominant_monetization_mix_proxy_downloads_share=dominant_share,
-        observable_revenue_applicability=applicability,
-        applicability_reason=applicability_reason,
         calculated_at=calculated_at,
     )
 
@@ -279,46 +259,3 @@ def _proxy_shares(
         proxy_sum = sums[proxy]
         shares[proxy] = None if proxy_sum is None else proxy_sum / positive_denominator
     return shares
-
-
-def _dominant_downloads(
-    shares: dict[MonetizationMixProxy, float | None],
-) -> tuple[MonetizationMixProxy, float]:
-    best_proxy = MONETIZATION_PROXY_ORDER[0]
-    best_share = -1.0
-    for proxy in MONETIZATION_PROXY_ORDER:
-        share = shares[proxy]
-        if share is not None and share > best_share:
-            best_proxy = proxy
-            best_share = share
-    return best_proxy, best_share
-
-
-def _theme_applicability(
-    *,
-    source_match_ratio: float,
-    downloads_sum: float | None,
-    unknown_downloads_share: float | None,
-    ads_downloads_share: float | None,
-    iap_downloads_share: float | None,
-) -> tuple[ObservableRevenueApplicability, str]:
-    if source_match_ratio < MONETIZATION_MIN_SOURCE_MATCH_RATIO:
-        return "unknown", "insufficient_source_match_coverage"
-    if downloads_sum is None or downloads_sum <= 0:
-        return "unknown", "no_positive_downloads_denominator"
-    if (
-        unknown_downloads_share is not None
-        and unknown_downloads_share >= MONETIZATION_UNKNOWN_SHARE_THRESHOLD
-    ):
-        return "unknown", "unknown_proxy_dominates_downloads"
-    if (
-        ads_downloads_share is not None
-        and ads_downloads_share >= MONETIZATION_PROXY_DOMINANCE_SHARE
-    ):
-        return "low", "ads_dominant_downloads"
-    if (
-        iap_downloads_share is not None
-        and iap_downloads_share >= MONETIZATION_PROXY_DOMINANCE_SHARE
-    ):
-        return "higher", "iap_dominant_downloads"
-    return "partial", "mixed_or_hybrid_downloads"

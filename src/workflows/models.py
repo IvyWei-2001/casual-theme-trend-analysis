@@ -378,10 +378,6 @@ class CollectMonetizationSummary:
     unknown_profile_count: int
     invalid_signal_profile_count: int
     theme_metric_row_count: int
-    theme_applicability_higher_count: int
-    theme_applicability_partial_count: int
-    theme_applicability_low_count: int
-    theme_applicability_unknown_count: int
     database_path: Path
     app_profiles_parquet_path: Path | None
     theme_metrics_parquet_path: Path | None

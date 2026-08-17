@@ -10,7 +10,10 @@ from types import SimpleNamespace
 import duckdb
 import pytest
 
-from src.analysis.monetization_models import build_app_monetization_profiles
+from src.analysis.monetization_models import (
+    MONETIZATION_MEANINGFUL_IAP_TAG_KEYS,
+    build_app_monetization_profiles,
+)
 from src.analysis.monetization_observability import (
     aggregate_theme_monetization_observability,
 )
@@ -78,7 +81,13 @@ def _snapshot(
 def _payload() -> tuple[list[MarketSnapshotRow], list[object], list[object]]:
     snapshots = [_snapshot("a1", 1), _snapshot("a2", 2, theme="Other")]
     source_records = [
-        SimpleNamespace(app_id="a1", custom_tags={MONETIZATION_ADS_TAG: True}),
+        SimpleNamespace(
+            app_id="a1",
+            custom_tags={
+                MONETIZATION_ADS_TAG: True,
+                **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
+            },
+        ),
         SimpleNamespace(
             app_id="a2",
             custom_tags={MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
@@ -158,6 +167,13 @@ def test_fresh_schema_reaches_v7_with_exactly_two_new_tables(tmp_path: Path) -> 
             "PRAGMA table_info('theme_monetization_observability_metrics')"
         ).fetchall()
     ] == list(schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS)
+    assert "meaningful_iap_evidence_state" in schema_module.APP_MONETIZATION_PROFILES_COLUMNS
+    assert not {
+        "dominant_monetization_mix_proxy_by_downloads",
+        "dominant_monetization_mix_proxy_downloads_share",
+        "observable_revenue_applicability",
+        "applicability_reason",
+    } & set(schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS)
     repository.close()
 
 
@@ -204,6 +220,8 @@ def test_atomic_round_trip_filters_and_zstd_exports(tmp_path: Path) -> None:
         profiles,
         metrics,
     )
+    assert profiles[0].meaningful_iap_evidence_state == "absent"
+    assert profiles[1].meaningful_iap_evidence_state == "present"
 
     assert repository.get_app_monetization_profiles(
         scope_name=SCOPE_NAME,
