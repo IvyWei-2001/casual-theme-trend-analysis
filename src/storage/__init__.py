@@ -11,6 +11,10 @@ from ..analysis.model_v2_models import (
     ThemeSeasonalityProfile,
 )
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
+from ..analysis.monetization_models import (
+    AppMonetizationProfile,
+    ThemeMonetizationObservabilityMetric,
+)
 from ..analysis.opportunity_models import (
     ThemeDimensionMonthlyMetric,
     ThemeGrowthSourceMetric,
@@ -45,6 +49,7 @@ from .models import (
 )
 from .parquet import (
     export_app_metadata_to_parquet,
+    export_app_monetization_profiles_to_parquet,
     export_market_snapshots_to_parquet,
     export_monthly_market_totals_to_parquet,
     export_theme_backtest_feature_metrics_to_parquet,
@@ -55,6 +60,7 @@ from .parquet import (
     export_theme_launch_window_outcomes_to_parquet,
     export_theme_market_structure_metrics_to_parquet,
     export_theme_model_summaries_to_parquet,
+    export_theme_monetization_observability_metrics_to_parquet,
     export_theme_monthly_metrics_to_parquet,
     export_theme_representative_games_to_parquet,
     export_theme_seasonality_profiles_to_parquet,
@@ -65,6 +71,7 @@ from .schema import CURRENT_SCHEMA_VERSION, initialize_schema
 
 __all__ = [
     "AppMetadataRow",
+    "AppMonetizationProfile",
     "Cadence",
     "CURRENT_SCHEMA_VERSION",
     "DuckDBRepository",
@@ -83,6 +90,7 @@ __all__ = [
     "StorageError",
     "StorageValidationError",
     "ThemeMonthlyMetric",
+    "ThemeMonetizationObservabilityMetric",
     "ThemeHorizonMetric",
     "ThemeBacktestFeatureMetric",
     "ThemeBacktestSegmentMetric",
@@ -98,9 +106,11 @@ __all__ = [
     "build_app_metadata_rows",
     "build_market_snapshot_rows",
     "export_app_metadata_to_parquet",
+    "export_app_monetization_profiles_to_parquet",
     "export_market_snapshots_to_parquet",
     "export_monthly_market_totals_to_parquet",
     "export_theme_monthly_metrics_to_parquet",
+    "export_theme_monetization_observability_metrics_to_parquet",
     "export_theme_dimension_monthly_metrics_to_parquet",
     "export_theme_growth_source_metrics_to_parquet",
     "export_theme_horizon_metrics_to_parquet",

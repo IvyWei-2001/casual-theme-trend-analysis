@@ -260,11 +260,18 @@ def test_workflow_filters_before_metadata_and_exports_rows_in_selected_order(
     assert summary.metadata_requested_count == 2
     assert summary.metadata_returned_count == 2
     assert summary.snapshot_rows_written == 2
+    assert summary.monetization_profile_rows_written == 2
+    assert summary.theme_monetization_rows_written == 0
+    assert client.market_calls == 1
     assert client.metadata_requests == [("2", "3")]
     assert summary.market_parquet_path is not None
     assert summary.metadata_parquet_path is not None
     assert summary.market_parquet_path.exists()
     assert summary.metadata_parquet_path.exists()
+    assert summary.app_profiles_parquet_path is not None
+    assert summary.theme_metrics_parquet_path is not None
+    assert summary.app_profiles_parquet_path.exists()
+    assert summary.theme_metrics_parquet_path.exists()
     rendered_summary = format_collection_summary(summary)
     assert "987654321" not in rendered_summary
     assert "unit-test-token" not in rendered_summary

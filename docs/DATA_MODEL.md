@@ -42,11 +42,12 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 6 contains fifteen business tables plus the `schema_migrations` control
-table. Version 4 adds four V2 evidence tables, version 5 adds three MODEL-002
-evidence tables, and version 6 adds three BACKTEST-001 evidence tables without
-changing source tables, schema-v2 monthly aggregation rows, schema-v3 trend
-scores, or prior evidence rows:
+version 7 contains seventeen business tables plus the `schema_migrations`
+control table. Version 4 adds four V2 evidence tables, version 5 adds three
+MODEL-002 evidence tables, version 6 adds three BACKTEST-001 evidence tables,
+and version 7 adds two MONETIZATION-001 evidence tables without changing
+source tables, schema-v2 monthly aggregation rows, schema-v3 trend scores, or
+prior evidence rows:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -131,8 +132,9 @@ collection is deferred to DB-002. AGG-001 adds the two derived tables described
 below without changing the source-table columns. AGG-002 adds the separate
 schema-v4 evidence tables described after the AGG-001 contract. TREND-001 adds
 the schema-v3 score table, MODEL-002 adds the schema-v5 evidence tables, and
-BACKTEST-001 adds the schema-v6 evidence tables, without changing earlier
-table contracts.
+BACKTEST-001 adds the schema-v6 evidence tables, and MONETIZATION-001 adds the
+schema-v7 monetization evidence tables, without changing earlier table
+contracts.
 
 ## AGG-001 schema-v2 derived storage contract
 

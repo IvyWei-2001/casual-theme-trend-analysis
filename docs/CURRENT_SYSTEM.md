@@ -1,6 +1,7 @@
 # Current System
 
-This document records the audited state of the repository as of BACKTEST-001.
+This document records the audited state of the repository as of
+MONETIZATION-001.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -39,7 +40,7 @@ current MVP boundary:
   publisher, entry, rank, and concentration metrics;
 - AGG-002 raw opportunity evidence for market structure, growth sources,
   observed product dimensions, and representative products;
-- sequential schema migrations through version 6, atomic derived-output
+- sequential schema migrations through version 7, atomic derived-output
   replacement, mandatory identity/count readback verification, and
   deterministic ZSTD exports;
 - the current six-month momentum scoring workflow, stored under the unchanged
@@ -132,9 +133,37 @@ and can export three deterministic ZSTD Parquet files.
 
 Development validation uses synthetic rows, fake/mock repository boundaries,
 temporary DuckDB, and temporary Parquet only. The plan-only path is
-credential-free and side-effect-free. The first 36-month history emits the
-36M feature registry rows but has no valid 36M predictive evidence; no real
-BACKTEST-001 production acceptance is claimed here.
+credential-free and side-effect-free. The project-owner-provided accepted
+boundary is 2023-08 through 2026-07 with `outcome_row_count=5147`,
+`feature_metric_row_count=228`, `segment_metric_row_count=336`, and
+`verification=passed`. The first 36-month history emits the 36M feature
+registry rows but does not validate 36M predictive value.
+
+## MONETIZATION-001 implementation status
+
+MONETIZATION-001 adds the pure typed modules
+`src/analysis/monetization_models.py` and
+`src/analysis/monetization_observability.py`, plus the latest-month-only
+`collect-monetization` workflow. It uses exactly eleven verified Sensor Tower
+Custom Fields, preserves a safe raw-tag audit, classifies Ads/IAP/Hybrid
+proxies without using Revenue amount or Game Product Model, and aggregates
+Downloads-weighted theme evidence with explicit observable-Revenue
+applicability thresholds.
+
+Schema version 7 adds exactly `app_monetization_profiles` and
+`theme_monetization_observability_metrics`; existing source, AGG, MODEL, and
+BACKTEST tables remain unchanged. The dedicated workflow does one market
+request, no metadata or Feishu request, and does not rewrite the stored source
+population. `collect-month` reuses its selected response and historical
+`backfill-months` does not create monetization rows. DuckDB is authoritative;
+the two outputs are deterministic atomic ZSTD Parquet exports.
+
+The current Custom Field response is not proven to be historically versioned.
+MONETIZATION-001 therefore observes only the latest stored completed month and
+does not perform a 36-month monetization backfill or historical BACKTEST
+re-stratification. Development validation uses synthetic responses, fake or
+mock clients, temporary DuckDB, and temporary Parquet only; no real Sensor
+Tower, Feishu, user DuckDB, or user Parquet operation is included.
 
 ## Confirmed metric terminology
 

@@ -28,6 +28,23 @@ from .model_v2_models import (
     ThemeModelSummary,
     ThemeSeasonalityProfile,
 )
+from .monetization_models import (
+    MONETIZATION_MIN_SOURCE_MATCH_RATIO,
+    MONETIZATION_POLICY_VERSION,
+    MONETIZATION_PROXY_DOMINANCE_SHARE,
+    MONETIZATION_UNKNOWN_SHARE_THRESHOLD,
+    AppMonetizationProfile,
+    ThemeMonetizationObservabilityMetric,
+    build_app_monetization_profiles,
+    classify_monetization_proxy,
+    classify_product_monetization_proxy,
+    count_meaningful_iap_mechanisms,
+    normalize_source_boolean_state,
+)
+from .monetization_observability import (
+    aggregate_theme_monetization_metrics,
+    aggregate_theme_monetization_observability,
+)
 from .opportunity_aggregation import aggregate_theme_opportunity_metrics
 from .opportunity_models import (
     DEFAULT_REPRESENTATIVE_GAME_LIMIT,
@@ -94,4 +111,17 @@ __all__ = [
     "ThemeModelSummary",
     "ThemeSeasonalityProfile",
     "calculate_theme_model_metrics",
+    "AppMonetizationProfile",
+    "ThemeMonetizationObservabilityMetric",
+    "MONETIZATION_POLICY_VERSION",
+    "MONETIZATION_MIN_SOURCE_MATCH_RATIO",
+    "MONETIZATION_PROXY_DOMINANCE_SHARE",
+    "MONETIZATION_UNKNOWN_SHARE_THRESHOLD",
+    "normalize_source_boolean_state",
+    "count_meaningful_iap_mechanisms",
+    "classify_product_monetization_proxy",
+    "classify_monetization_proxy",
+    "build_app_monetization_profiles",
+    "aggregate_theme_monetization_observability",
+    "aggregate_theme_monetization_metrics",
 ]

@@ -24,11 +24,11 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002, HIST-002, and AGG-002 are completed and real-environment
-accepted. MODEL-002 is completed and real-environment accepted; BACKTEST-001 is
-the current implementation boundary. DECISION-001, FEISHU-004, and
-AUTOMATION-001 remain later issues. Automation is intentionally deferred until
-FEISHU-004 and cross-functional V2 acceptance.
+CONTRACT-002, HIST-002, AGG-002, MODEL-002, and BACKTEST-001 are completed at
+the accepted project boundary. MONETIZATION-001 adds descriptive monetization
+proxy observability without changing BACKTEST-001 or adding a recommendation.
+DECISION-001, FEISHU-004, and AUTOMATION-001 remain later issues. Automation is
+intentionally deferred until FEISHU-004 and cross-functional V2 acceptance.
 
 ## Requirements
 
@@ -483,7 +483,35 @@ values. Decision-month features never read future MODEL-002, trend, growth, or
 seasonality rows. BACKTEST-001 is evidence only: it does not create a final
 score, forecast, investment recommendation, Feishu view, or automation. See
 [`docs/BACKTEST_V1.md`](docs/BACKTEST_V1.md) for the registry, leakage rules,
-schema-v6 tables, storage contract, and known 36M limitation.
+schema-v6 tables, storage contract, and accepted 36-month boundary.
+
+## Monetization proxy observability (MONETIZATION-001)
+
+MONETIZATION-001 reads the eleven verified Sensor Tower monetization Custom
+Fields already included in the market response. It normalizes strict Boolean
+signals, classifies transparent product proxies, and aggregates descriptive
+theme-level evidence with Downloads as the primary weighting. It does not
+estimate IAA revenue, infer total revenue, map Game Product Model to
+monetization, modify BACKTEST-001, or create a score or recommendation. See
+[`docs/MONETIZATION_OBSERVABILITY.md`](docs/MONETIZATION_OBSERVABILITY.md) for
+the exact fields, missing-versus-false semantics, proxy rules, thresholds, and
+historical-versioning limitation.
+
+Schema version 7 adds only `app_monetization_profiles` and
+`theme_monetization_observability_metrics`. The dedicated command observes
+only the latest stored completed month and does not call metadata or Feishu:
+
+```powershell
+python -m src collect-monetization --month 2026-07 --plan-only
+python -m src collect-monetization --month 2026-07
+python -m src collect-monetization --month 2026-07 --skip-export
+```
+
+Plan-only is credential-, network-, database-, and file-write-free. Future
+`collect-month` runs reuse their single selected market response, while
+historical `backfill-months` does not create monetization observations. DuckDB
+is authoritative; the two output Parquet files are deterministic atomic ZSTD
+exports.
 
 ## FEISHU-001 read-only field inspection
 

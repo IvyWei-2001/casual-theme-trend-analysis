@@ -147,6 +147,7 @@ def backfill_months(
                     client=active_client,
                     repository=active_repository,
                     repository_initialized=True,
+                    include_monetization=False,
                     metadata_sleep=metadata_sleep,
                 )
             except Exception as error:

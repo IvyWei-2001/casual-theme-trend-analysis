@@ -532,9 +532,11 @@ def test_version_five_to_six_migration_preserves_prior_rows(tmp_path: Path) -> N
         schema_module.THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
         schema_module.THEME_BACKTEST_FEATURE_METRICS_TABLE,
         schema_module.THEME_BACKTEST_SEGMENT_METRICS_TABLE,
+        schema_module.APP_MONETIZATION_PROFILES_TABLE,
+        schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
     ):
         connection.execute(f"DROP TABLE {table}")
-    connection.execute("DELETE FROM schema_migrations WHERE version = 6")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (6, 7)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (5,)
 
     repository.initialize_schema()
@@ -547,7 +549,7 @@ def test_version_five_to_six_migration_preserves_prior_rows(tmp_path: Path) -> N
         for table in prior_tables
     }
     assert after == before
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (6,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (7,)
     assert (
         "future_top_quintile_eligible_count"
         in schema_module.THEME_BACKTEST_SEGMENT_METRICS_COLUMNS

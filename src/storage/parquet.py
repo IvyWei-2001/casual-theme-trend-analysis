@@ -12,6 +12,7 @@ import duckdb
 from .errors import ParquetExportError
 from .schema import (
     APP_METADATA_COLUMNS,
+    APP_MONETIZATION_PROFILES_COLUMNS,
     MARKET_SNAPSHOT_COLUMNS,
     MONTHLY_MARKET_TOTALS_COLUMNS,
     THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
@@ -22,6 +23,7 @@ from .schema import (
     THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MODEL_SUMMARIES_COLUMNS,
+    THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_REPRESENTATIVE_GAMES_COLUMNS,
     THEME_SEASONALITY_PROFILES_COLUMNS,
@@ -66,6 +68,21 @@ def export_app_metadata_to_parquet(
     )
 
 
+def export_app_monetization_profiles_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export product monetization profiles in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="app_monetization_profiles",
+        columns=APP_MONETIZATION_PROFILES_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "unified_app_id"),
+    )
+
+
 def export_monthly_market_totals_to_parquet(
     repository: StorageRepositoryProtocol,
     path: str | Path,
@@ -92,6 +109,21 @@ def export_theme_monthly_metrics_to_parquet(
         path=path,
         table_name="theme_monthly_metrics",
         columns=THEME_MONTHLY_METRICS_COLUMNS,
+        order_by=("scope_name", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_monetization_observability_metrics_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export theme monetization observability in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_monetization_observability_metrics",
+        columns=THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
         order_by=("scope_name", "period_start", "period_end", "game_theme"),
     )
 

@@ -97,6 +97,29 @@ class CollectMonthRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class CollectMonetizationRequest:
+    """Validated inputs for the latest-month monetization observation."""
+
+    month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.month, str) or not self.month:
+            raise WorkflowError("month must be a non-empty string")
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class BackfillMonthRange:
     """Validated inclusive sequence of completed natural calendar months."""
 
@@ -324,6 +347,47 @@ class CollectMonthSummary:
     database_path: Path
     market_parquet_path: Path | None
     metadata_parquet_path: Path | None
+    monetization_profile_rows_written: int
+    theme_monetization_rows_written: int
+    app_profiles_parquet_path: Path | None
+    theme_metrics_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CollectMonetizationSummary:
+    """Sanitized result of a plan or completed monetization observation."""
+
+    month: str
+    period_start: date
+    period_end: date
+    scope_name: str
+    policy_version: str
+    verified_tag_count: int
+    meaningful_iap_tag_count: int
+    stored_snapshot_count: int
+    candidate_count: int
+    selected_count: int
+    matched_source_record_count: int
+    unmatched_stored_snapshot_count: int
+    extra_selected_record_count: int
+    profile_row_count: int
+    classified_profile_count: int
+    unknown_profile_count: int
+    invalid_signal_profile_count: int
+    theme_metric_row_count: int
+    theme_applicability_higher_count: int
+    theme_applicability_partial_count: int
+    theme_applicability_low_count: int
+    theme_applicability_unknown_count: int
+    database_path: Path
+    app_profiles_parquet_path: Path | None
+    theme_metrics_parquet_path: Path | None
+    verification: str
+    metadata_api: str
+    feishu: str
     plan_only: bool
     started_at: datetime
     completed_at: datetime

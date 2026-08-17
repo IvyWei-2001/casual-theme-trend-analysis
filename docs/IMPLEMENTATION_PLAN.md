@@ -86,24 +86,37 @@ adds schema-v6 raw outcomes, fixed continuous-feature metrics, and observed
 categorical-segment metrics; preserves NULL/zero semantics; validates exact
 future-month identities; and atomically replaces/readbacks the three output
 tables. The credential-free plan-only path reports the 36-month registry
-counts without storage or file access. Synthetic/mock validation is complete;
-BACKTEST-001 real-environment acceptance and the decision/recommendation layer
-remain out of scope.
+counts without storage or file access. The accepted project boundary covers
+2023-08 through 2026-07 with `outcome_row_count=5147`,
+`feature_metric_row_count=228`, `segment_metric_row_count=336`, and
+`verification=passed`.
 
-### 6. DECISION-001 - recommendation, risk, confidence, category fit, and
+### 6. MONETIZATION-001 - monetization proxy observability (current)
+
+Read the verified Sensor Tower monetization Custom Fields already present in
+the market response, normalize strict source states, classify transparent
+product proxies, and aggregate Downloads-weighted theme-level observable-
+Revenue evidence. Schema version 7 adds exactly two output tables. The issue
+must not estimate IAA revenue, map Game Product Model to monetization, change
+BACKTEST-001, add DECISION-001 scores, create Feishu views, or backfill
+historical monetization. The dedicated command observes only the latest stored
+completed month, while future `collect-month` reuses its one selected market
+response.
+
+### 7. DECISION-001 - recommendation, risk, confidence, category fit, and
 migration evidence
 
 Compose explainable recommendations from the approved dimensions. Separate
 validated Game Sub-genre fit from migration hypotheses and expose risk,
 confidence, evidence coverage, and next validation actions.
 
-### 7. FEISHU-004 - business tables, role views, and dashboards
+### 8. FEISHU-004 - business tables, role views, and dashboards
 
 Implement the accepted V2 business tables and role-specific dashboards only
 after V2 metrics and backtests are accepted. Tables remain the drill-down and
 evidence layer; dashboards remain presentation surfaces.
 
-### 8. AUTOMATION-001 - monthly automated execution after V2 acceptance
+### 9. AUTOMATION-001 - monthly automated execution after V2 acceptance
 
 Automate the accepted monthly workflow only after FEISHU-004 and
 cross-functional acceptance. AUTOMATION-001 is intentionally paused until

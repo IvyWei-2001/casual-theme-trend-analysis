@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: leakage-safe T+1, T+2, and T+3 launch-window validation
+Current focus: MONETIZATION-001 monetization proxy observability
 
 ## Development principles
 
@@ -48,14 +48,15 @@ Implement the next issues in exactly this order:
 4. **MODEL-002 - 6M, 12M, and 36M trend dimensions, lifecycle, stability, and
    seasonality (completed and real-environment accepted)**
 5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
-   (implemented; real-data acceptance remains pending)**
-6. **DECISION-001 - recommendation, risk, confidence, category fit, and
+   (completed and real-environment accepted)**
+6. **MONETIZATION-001 - monetization proxy observability (current issue)**
+7. **DECISION-001 - recommendation, risk, confidence, category fit, and
    migration evidence**
-7. **FEISHU-004 - business tables, role views, and dashboards**
-8. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
+8. **FEISHU-004 - business tables, role views, and dashboards**
+9. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002, HIST-002, AGG-002, and MODEL-002 are completed and
-real-environment accepted; BACKTEST-001 is the current focus. The recorded
+CONTRACT-002, HIST-002, AGG-002, MODEL-002, and BACKTEST-001 are completed and
+real-environment accepted; MONETIZATION-001 is the current focus. The recorded
 HIST-002 evidence is 36 completed months, 35,525 source snapshots, monthly
 `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
 structural completeness. Sanitized MODEL-002 acceptance evidence is
@@ -63,21 +64,23 @@ structural completeness. Sanitized MODEL-002 acceptance evidence is
 `source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
 `horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
 `seasonality_profile_group_count=4382`, and `verification=passed`.
-BACKTEST-001 remains implemented and synthetic/temporary-DuckDB verified;
-real-environment acceptance remains pending. Final model weights are not
-selected in CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and
-cross-functional acceptance. The one-issue/one-PR rule continues throughout
-this sequence.
+The accepted BACKTEST-001 evidence covers 36 completed months and reports
+`outcome_row_count=5147`, `feature_metric_row_count=228`,
+`segment_metric_row_count=336`, and `verification=passed`. MONETIZATION-001
+does not change those results. Final model weights are not selected in
+CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
+acceptance. The one-issue/one-PR rule continues throughout this sequence.
 
 ## Scope guard
 
 AGG-002 adds only raw evidence aggregates and their local storage/export
 workflow. MODEL-002 adds descriptive multi-horizon evidence and provisional
 lifecycle/stability/seasonality labels without changing the legacy 6M
-Momentum formula. Neither issue adds forecasting, recommendations, CPI or
-retention integration, Feishu fields/records/views/dashboards, GitHub Actions,
-or scheduling. BACKTEST-001 and later issues remain responsible for outcomes
-and business decisions.
+Momentum formula. BACKTEST-001 validates launch-window evidence. MONETIZATION-001
+adds only observable monetization evidence: it does not estimate IAA revenue,
+re-stratify BACKTEST-001, add forecasting, recommendations, CPI or retention
+integration, Feishu fields/records/views/dashboards, GitHub Actions, or
+scheduling.
 
 The V2 product must keep theme opportunity separate from Product Greenlight.
 The latter additionally requires product quality, marketability, creative
