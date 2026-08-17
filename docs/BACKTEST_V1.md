@@ -240,7 +240,8 @@ replacement. Export failure does not undo a committed DuckDB replacement.
 Automated development validation uses synthetic typed rows, mock/fake
 repository boundaries, temporary DuckDB, and temporary Parquet only. No
 production database, production Parquet, Sensor Tower request, or Feishu
-request is part of MONETIZATION-001 development validation. The first
+request is part of BACKTEST-001 development validation. BACKTEST-001 does not
+claim to control historically for true monetization type. The first
 36-month history emits 36M feature rows but does not validate 36M predictive
 value. Any final recommendation, score, forecast, business dashboard, or
 scheduled execution requires a later issue and separate acceptance.

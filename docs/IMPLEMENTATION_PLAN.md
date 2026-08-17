@@ -22,7 +22,7 @@ work. Current behavior includes:
   manual ranked view.
 
 `units_absolute` is the source-preserving field for Downloads (count), and
-`revenue_absolute` is the source-preserving field for Revenue (USD), by
+`revenue_absolute` is the source-preserving field for observable Revenue (USD), by
 project-owner confirmation on 2026-08-12. Missing values remain NULL and
 observed zero remains zero. The selected sample is not the complete global
 mobile-games market.
@@ -93,15 +93,17 @@ counts without storage or file access. The accepted project boundary covers
 
 ### 6. MONETIZATION-001 - monetization proxy observability (current)
 
-Read the verified Sensor Tower monetization Custom Fields already present in
-the market response, normalize strict source states, classify transparent
-product proxies, and aggregate Downloads-weighted theme-level observable-
-Revenue evidence. Schema version 7 adds exactly two output tables. The issue
-must not estimate IAA revenue, map Game Product Model to monetization, change
-BACKTEST-001, add DECISION-001 scores, create Feishu views, or backfill
-historical monetization. The dedicated command observes only the latest stored
-completed month, while future `collect-month` reuses its one selected market
-response.
+Derive an explicitly labeled candidate heuristic offline from stored
+`market_snapshots` only. `revenue_absolute` is third-party-platform observable
+Revenue (USD): NULL is `unknown`, zero is `iaa_candidate`, and positive is
+`iap_or_hybrid_candidate`. Schema version 8 adds exactly two compact output
+tables, covers every requested stored month including 2023-08 through 2026-07,
+and atomically replaces only those monetization rows. The issue must not
+estimate IAA revenue, treat a candidate as an observed type, map Game Product
+Model to monetization, use historical Custom Fields, change BACKTEST-001, add
+DECISION-001 scores, create Feishu views, or make a Sensor Tower request.
+Future `collect-month` reuses its already selected market rows without a second
+request or historical recalculation.
 
 ### 7. DECISION-001 - recommendation, risk, confidence, category fit, and
 migration evidence

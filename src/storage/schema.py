@@ -12,7 +12,7 @@ import duckdb
 
 from .errors import SchemaInitializationError, UnsupportedSchemaVersionError
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 APP_METADATA_TABLE = "app_metadata"
@@ -650,7 +650,7 @@ THEME_REPRESENTATIVE_GAMES_COLUMNS: tuple[str, ...] = (
     "is_theme_entry",
     "calculated_at",
 )
-APP_MONETIZATION_PROFILES_COLUMNS: tuple[str, ...] = (
+LEGACY_APP_MONETIZATION_PROFILES_COLUMNS: tuple[str, ...] = (
     "scope_name",
     "cadence",
     "period_start",
@@ -682,7 +682,7 @@ APP_MONETIZATION_PROFILES_COLUMNS: tuple[str, ...] = (
     "classification_reason",
     "observed_at",
 )
-THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
+LEGACY_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
     "scope_name",
     "cadence",
     "period_start",
@@ -725,6 +725,51 @@ THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
     "iap_dominant_candidate_observable_revenue_share",
     "unknown_observable_revenue_usd_sum",
     "unknown_observable_revenue_share",
+    "calculated_at",
+)
+
+APP_MONETIZATION_PROFILES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "source_app_id",
+    "unified_app_id",
+    "game_theme",
+    "game_product_model",
+    "monetization_policy_version",
+    "observable_revenue_usd",
+    "observable_revenue_state",
+    "monetization_proxy",
+    "classification_reason",
+    "calculated_at",
+)
+THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "monetization_policy_version",
+    "product_count",
+    "observable_revenue_usd_coverage_count",
+    "observable_revenue_usd_coverage_ratio",
+    "observable_revenue_usd_sum",
+    "iaa_candidate_product_count",
+    "iaa_candidate_product_share",
+    "iap_or_hybrid_candidate_product_count",
+    "iap_or_hybrid_candidate_product_share",
+    "unknown_product_count",
+    "unknown_product_share",
+    "downloads_coverage_count",
+    "downloads_coverage_ratio",
+    "downloads_sum",
+    "iaa_candidate_downloads_sum",
+    "iaa_candidate_downloads_share",
+    "iap_or_hybrid_candidate_downloads_sum",
+    "iap_or_hybrid_candidate_downloads_share",
+    "unknown_downloads_sum",
+    "unknown_downloads_share",
     "calculated_at",
 )
 
@@ -1670,7 +1715,7 @@ CREATE TABLE IF NOT EXISTS theme_backtest_segment_metrics (
 )
 """
 
-_CREATE_APP_MONETIZATION_PROFILES_SQL = """
+_CREATE_LEGACY_APP_MONETIZATION_PROFILES_SQL = """
 CREATE TABLE IF NOT EXISTS app_monetization_profiles (
     scope_name VARCHAR NOT NULL,
     cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
@@ -1757,7 +1802,7 @@ CREATE TABLE IF NOT EXISTS app_monetization_profiles (
 )
 """
 
-_CREATE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL = """
+_CREATE_LEGACY_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL = """
 CREATE TABLE IF NOT EXISTS theme_monetization_observability_metrics (
     scope_name VARCHAR NOT NULL,
     cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
@@ -1861,6 +1906,128 @@ CREATE TABLE IF NOT EXISTS theme_monetization_observability_metrics (
 )
 """
 
+_CREATE_APP_MONETIZATION_PROFILES_SQL = """
+CREATE TABLE IF NOT EXISTS app_monetization_profiles (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    source_app_id VARCHAR NOT NULL,
+    unified_app_id VARCHAR NOT NULL,
+    game_theme VARCHAR NULL,
+    game_product_model VARCHAR NULL,
+    monetization_policy_version VARCHAR NOT NULL CHECK (
+        monetization_policy_version = 'MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1'
+    ),
+    observable_revenue_usd DOUBLE NULL CHECK (
+        observable_revenue_usd IS NULL OR observable_revenue_usd >= 0
+    ),
+    observable_revenue_state VARCHAR NOT NULL CHECK (
+        observable_revenue_state IN ('unavailable', 'zero', 'positive')
+    ),
+    monetization_proxy VARCHAR NOT NULL CHECK (
+        monetization_proxy IN ('iaa_candidate', 'iap_or_hybrid_candidate', 'unknown')
+    ),
+    classification_reason VARCHAR NOT NULL CHECK (
+        classification_reason IN (
+            'observable_revenue_unavailable',
+            'observable_revenue_zero',
+            'observable_revenue_positive'
+        )
+    ),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, unified_app_id),
+    CHECK (period_start <= period_end),
+    CHECK (
+        (observable_revenue_usd IS NULL AND observable_revenue_state = 'unavailable')
+        OR (observable_revenue_usd = 0 AND observable_revenue_state = 'zero')
+        OR (observable_revenue_usd > 0 AND observable_revenue_state = 'positive')
+    )
+)
+"""
+
+_CREATE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_monetization_observability_metrics (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    monetization_policy_version VARCHAR NOT NULL CHECK (
+        monetization_policy_version = 'MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1'
+    ),
+    product_count INTEGER NOT NULL CHECK (product_count > 0),
+    observable_revenue_usd_coverage_count INTEGER NOT NULL CHECK (
+        observable_revenue_usd_coverage_count BETWEEN 0 AND product_count
+    ),
+    observable_revenue_usd_coverage_ratio DOUBLE NOT NULL CHECK (
+        observable_revenue_usd_coverage_ratio BETWEEN 0 AND 1
+    ),
+    observable_revenue_usd_sum DOUBLE NULL CHECK (
+        observable_revenue_usd_sum IS NULL OR observable_revenue_usd_sum >= 0
+    ),
+    iaa_candidate_product_count INTEGER NOT NULL CHECK (
+        iaa_candidate_product_count BETWEEN 0 AND product_count
+    ),
+    iaa_candidate_product_share DOUBLE NOT NULL CHECK (
+        iaa_candidate_product_share BETWEEN 0 AND 1
+    ),
+    iap_or_hybrid_candidate_product_count INTEGER NOT NULL CHECK (
+        iap_or_hybrid_candidate_product_count BETWEEN 0 AND product_count
+    ),
+    iap_or_hybrid_candidate_product_share DOUBLE NOT NULL CHECK (
+        iap_or_hybrid_candidate_product_share BETWEEN 0 AND 1
+    ),
+    unknown_product_count INTEGER NOT NULL CHECK (
+        unknown_product_count BETWEEN 0 AND product_count
+    ),
+    unknown_product_share DOUBLE NOT NULL CHECK (
+        unknown_product_share BETWEEN 0 AND 1
+    ),
+    downloads_coverage_count INTEGER NOT NULL CHECK (
+        downloads_coverage_count BETWEEN 0 AND product_count
+    ),
+    downloads_coverage_ratio DOUBLE NOT NULL CHECK (
+        downloads_coverage_ratio BETWEEN 0 AND 1
+    ),
+    downloads_sum DOUBLE NULL CHECK (downloads_sum IS NULL OR downloads_sum >= 0),
+    iaa_candidate_downloads_sum DOUBLE NULL CHECK (
+        iaa_candidate_downloads_sum IS NULL OR iaa_candidate_downloads_sum >= 0
+    ),
+    iaa_candidate_downloads_share DOUBLE NULL CHECK (
+        iaa_candidate_downloads_share IS NULL OR iaa_candidate_downloads_share BETWEEN 0 AND 1
+    ),
+    iap_or_hybrid_candidate_downloads_sum DOUBLE NULL CHECK (
+        iap_or_hybrid_candidate_downloads_sum IS NULL OR iap_or_hybrid_candidate_downloads_sum >= 0
+    ),
+    iap_or_hybrid_candidate_downloads_share DOUBLE NULL CHECK (
+        iap_or_hybrid_candidate_downloads_share IS NULL OR iap_or_hybrid_candidate_downloads_share BETWEEN 0 AND 1
+    ),
+    unknown_downloads_sum DOUBLE NULL CHECK (
+        unknown_downloads_sum IS NULL OR unknown_downloads_sum >= 0
+    ),
+    unknown_downloads_share DOUBLE NULL CHECK (
+        unknown_downloads_share IS NULL OR unknown_downloads_share BETWEEN 0 AND 1
+    ),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),
+    CHECK (period_start <= period_end),
+    CHECK (
+        (downloads_coverage_count = 0 AND downloads_sum IS NULL)
+        OR (downloads_coverage_count > 0 AND downloads_sum IS NOT NULL)
+    ),
+    CHECK (
+        (observable_revenue_usd_coverage_count = 0 AND observable_revenue_usd_sum IS NULL)
+        OR (observable_revenue_usd_coverage_count > 0 AND observable_revenue_usd_sum IS NOT NULL)
+    ),
+    CHECK (
+        iaa_candidate_product_count
+        + iap_or_hybrid_candidate_product_count
+        + unknown_product_count = product_count
+    )
+)
+"""
+
 _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (SCHEMA_MIGRATIONS_TABLE, _CREATE_SCHEMA_MIGRATIONS_SQL, SCHEMA_MIGRATIONS_COLUMNS),
     (APP_METADATA_TABLE, _CREATE_APP_METADATA_SQL, APP_METADATA_COLUMNS),
@@ -1948,6 +2115,18 @@ _V6_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 _V7_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         APP_MONETIZATION_PROFILES_TABLE,
+        _CREATE_LEGACY_APP_MONETIZATION_PROFILES_SQL,
+        LEGACY_APP_MONETIZATION_PROFILES_COLUMNS,
+    ),
+    (
+        THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
+        _CREATE_LEGACY_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL,
+        LEGACY_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
+    ),
+)
+_V8_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        APP_MONETIZATION_PROFILES_TABLE,
         _CREATE_APP_MONETIZATION_PROFILES_SQL,
         APP_MONETIZATION_PROFILES_COLUMNS,
     ),
@@ -1963,7 +2142,7 @@ _TABLE_DEFINITIONS = (
     *_V4_TABLE_DEFINITIONS,
     *_V5_TABLE_DEFINITIONS,
     *_V6_TABLE_DEFINITIONS,
-    *_V7_TABLE_DEFINITIONS,
+    *_V8_TABLE_DEFINITIONS,
 )
 
 
@@ -2040,6 +2219,14 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                 [7],
             )
 
+        if newest_version < 8:
+            _assert_table_definitions(connection, _V7_TABLE_DEFINITIONS)
+            _apply_version_eight(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                [8],
+            )
+
         _assert_required_tables(connection)
 
         connection.execute("COMMIT")
@@ -2106,6 +2293,32 @@ def _apply_version_seven(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(create_sql)
 
 
+def _apply_version_eight(connection: duckdb.DuckDBPyConnection) -> None:
+    """Replace only empty interim-v7 monetization tables with the v8 schema."""
+
+    legacy_tables = tuple(table_name for table_name, _sql, _columns in _V7_TABLE_DEFINITIONS)
+    row_counts = {
+        table_name: _count_rows(connection, table_name)
+        for table_name in legacy_tables
+    }
+    non_empty = {table_name: count for table_name, count in row_counts.items() if count}
+    if non_empty:
+        raise SchemaInitializationError(
+            "schema-v7 monetization tables must both be empty before schema-v8 migration"
+        )
+    for table_name in legacy_tables:
+        connection.execute(f"DROP TABLE {table_name}")
+    for _table_name, create_sql, _columns in _V8_TABLE_DEFINITIONS:
+        connection.execute(create_sql)
+
+
+def _count_rows(connection: duckdb.DuckDBPyConnection, table_name: str) -> int:
+    result = connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    if result is None or result[0] is None:
+        raise SchemaInitializationError(f"could not count legacy table {table_name!r}")
+    return int(result[0])
+
+
 def _assert_required_tables(connection: duckdb.DuckDBPyConnection) -> None:
     _assert_table_definitions(connection, _TABLE_DEFINITIONS)
 
@@ -2123,10 +2336,13 @@ def _table_definitions_for_version(
         (4, _V4_TABLE_DEFINITIONS),
         (5, _V5_TABLE_DEFINITIONS),
         (6, _V6_TABLE_DEFINITIONS),
-        (7, _V7_TABLE_DEFINITIONS),
     ):
         if schema_version >= minimum_version:
             definitions += version_definitions
+    if schema_version == 7:
+        definitions += _V7_TABLE_DEFINITIONS
+    elif schema_version >= 8:
+        definitions += _V8_TABLE_DEFINITIONS
     return definitions
 
 

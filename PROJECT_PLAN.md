@@ -14,8 +14,9 @@ mock boundary for external APIs.
 DuckDB is the analytical source of truth and Parquet is the approved
 file-oriented export boundary. Feishu is a collaboration and dashboard
 projection. Sensor Tower is the only approved market-data source, and themes
-must come from Sensor Tower Game Theme / Custom Fields rather than manual or
-LLM classification.
+must come from Sensor Tower Game Theme / approved theme fields rather than
+manual or LLM classification. MONETIZATION-001 does not use monetization
+Custom Fields.
 
 ## Completed technical MVP
 
@@ -76,11 +77,19 @@ acceptance. The one-issue/one-PR rule continues throughout this sequence.
 AGG-002 adds only raw evidence aggregates and their local storage/export
 workflow. MODEL-002 adds descriptive multi-horizon evidence and provisional
 lifecycle/stability/seasonality labels without changing the legacy 6M
-Momentum formula. BACKTEST-001 validates launch-window evidence. MONETIZATION-001
-adds only observable monetization evidence: it does not estimate IAA revenue,
+Momentum formula. BACKTEST-001 validates launch-window evidence without
+claiming control for true monetization type. MONETIZATION-001 derives only the
+observable-Revenue candidate heuristic from stored snapshots; it does not
+estimate IAA revenue,
 re-stratify BACKTEST-001, add forecasting, recommendations, CPI or retention
 integration, Feishu fields/records/views/dashboards, GitHub Actions, or
 scheduling.
+
+MONETIZATION-001 uses policy version
+`MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1` and covers stored months
+2023-08 through 2026-07 when that inclusive range is requested. It is not an
+observed monetization type, does not estimate IAA advertising revenue, and
+requires no Sensor Tower request.
 
 The V2 product must keep theme opportunity separate from Product Greenlight.
 The latter additionally requires product quality, marketability, creative

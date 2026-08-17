@@ -2,16 +2,16 @@
 
 ## Unreleased
 
-- Added MONETIZATION-001 observable monetization evidence. Schema version 7 adds
-  exactly `app_monetization_profiles` and
-  `theme_monetization_observability_metrics`; strict verified Custom Field
-  normalization, explicit missing-versus-absent IAP evidence, transparent
-  product proxies, raw Downloads-weighted theme evidence, latest-month-only
-  collection, atomic replacement/readback, and deterministic ZSTD Parquet
-  exports are included. Product Model remains auxiliary evidence, no IAA
-  revenue is estimated, historical monetization is not backfilled,
-  `collect-month` reuses its single market response, and development uses
-  synthetic data with temporary storage only.
+- Replaced MONETIZATION-001 Custom-Field collection with the schema-v8 offline
+  observable-Revenue proxy. Stored `revenue_absolute` maps NULL to `unknown`,
+  zero to `iaa_candidate`, and positive values to
+  `iap_or_hybrid_candidate`; these are candidates rather than observed
+  monetization types. The inclusive `derive-monetization` range workflow
+  covers the requested stored months, atomically replaces only monetization
+  rows, preserves NULL-versus-zero semantics, rejects negative/non-finite
+  values, and writes deterministic ZSTD Parquet exports only after success.
+  No Custom Fields are used, no IAA revenue is estimated, Product Model is
+  context only, and development uses temporary storage and synthetic data.
 - Corrected BACKTEST-001 acceptance boundaries: expected decision identities now
   fail on missing middle-month structure, growth, legacy-score, or model-summary
   evidence; seasonality indices use decision-month absolute Downloads and Revenue

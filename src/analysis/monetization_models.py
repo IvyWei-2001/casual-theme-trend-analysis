@@ -1,111 +1,57 @@
-"""Pure MONETIZATION-001 models and product-level classification policy.
+"""Pure observable-Revenue monetization proxy models.
 
-This module accepts already parsed Custom Field mappings and stored snapshot-like
-rows.  It deliberately has no configuration, network, DuckDB, Feishu, or
-external-service dependency.
+MONETIZATION-001 is deliberately an observable-Revenue candidate heuristic.
+The value is third-party-platform observable Revenue (USD), not complete
+commercial revenue and not an observed monetization type.
 """
 
 from __future__ import annotations
 
 import calendar
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from math import isclose, isfinite
+from numbers import Real
 from typing import Final, Literal, Protocol
 
 from ..identifiers import normalize_required_opaque_id
-from ..sensor_tower.dto import (
-    GAME_IQ_IAP_BUNDLES_TAG,
-    IN_APP_PURCHASES_TAG,
-    IN_APP_SUBSCRIPTION_TAG,
-    MONETIZATION_AD_REMOVAL_TAG,
-    MONETIZATION_ADS_TAG,
-    MONETIZATION_CURRENCY_BUNDLES_TAG,
-    MONETIZATION_LIVE_OPS_TAG,
-    MONETIZATION_LOOT_BOX_TAG,
-    MONETIZATION_MEANINGFUL_IAP_TAG_KEYS,
-    MONETIZATION_SEASON_PASS_TAG,
-    MONETIZATION_STARTER_PACK_TAG,
-    MONETIZATION_SUBSCRIPTION_TAG,
-    MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS,
-)
 from .errors import MonetizationValidationError
 
-MONETIZATION_POLICY_VERSION: Final = "MONETIZATION001_V1"
+MONETIZATION_POLICY_VERSION: Final = "MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1"
 
-type BooleanState = Literal["true", "false", "unknown", "invalid"]
-type Cadence = Literal["monthly", "weekly"]
-type MeaningfulIapEvidenceState = Literal["present", "absent", "unknown", "invalid"]
-type MonetizationMixProxy = Literal[
-    "ads_dominant_candidate",
-    "hybrid_candidate",
-    "iap_dominant_candidate",
+type ObservableRevenueState = Literal["unavailable", "zero", "positive"]
+type MonetizationProxy = Literal[
+    "iaa_candidate",
+    "iap_or_hybrid_candidate",
     "unknown",
 ]
-type ObservableRevenueApplicability = Literal["low", "partial", "higher", "unknown"]
 type ClassificationReason = Literal[
-    "source_record_unmatched",
-    "invalid_classification_signal",
-    "ads_without_meaningful_iap",
-    "ads_with_meaningful_iap",
-    "no_ads_with_meaningful_iap",
-    "ads_state_unknown",
-    "no_meaningful_monetization_signal",
-    "classification_signal_inconclusive",
+    "observable_revenue_unavailable",
+    "observable_revenue_zero",
+    "observable_revenue_positive",
 ]
 
-BOOLEAN_STATES: Final[frozenset[str]] = frozenset(
-    {"true", "false", "unknown", "invalid"}
+OBSERVABLE_REVENUE_STATES: Final[tuple[ObservableRevenueState, ...]] = (
+    "unavailable",
+    "zero",
+    "positive",
 )
-MONETIZATION_MIX_PROXIES: Final[tuple[MonetizationMixProxy, ...]] = (
-    "ads_dominant_candidate",
-    "hybrid_candidate",
-    "iap_dominant_candidate",
+MONETIZATION_PROXIES: Final[tuple[MonetizationProxy, ...]] = (
+    "iaa_candidate",
+    "iap_or_hybrid_candidate",
     "unknown",
 )
-OBSERVABLE_REVENUE_APPLICABILITIES: Final[
-    tuple[ObservableRevenueApplicability, ...]
-] = ("low", "partial", "higher", "unknown")
-MEANINGFUL_IAP_EVIDENCE_STATES: Final[
-    tuple[MeaningfulIapEvidenceState, ...]
-] = ("present", "absent", "unknown", "invalid")
+MONETIZATION_PROXY_ORDER: Final[tuple[MonetizationProxy, ...]] = MONETIZATION_PROXIES
 CLASSIFICATION_REASONS: Final[tuple[ClassificationReason, ...]] = (
-    "source_record_unmatched",
-    "invalid_classification_signal",
-    "ads_without_meaningful_iap",
-    "ads_with_meaningful_iap",
-    "no_ads_with_meaningful_iap",
-    "ads_state_unknown",
-    "no_meaningful_monetization_signal",
-    "classification_signal_inconclusive",
-)
-MONETIZATION_PROXY_ORDER: Final[tuple[MonetizationMixProxy, ...]] = (
-    "ads_dominant_candidate",
-    "hybrid_candidate",
-    "iap_dominant_candidate",
-    "unknown",
-)
-
-_MISSING_SOURCE_VALUE: Final[object] = object()
-_PROFILE_STATE_FIELDS: Final[tuple[str, ...]] = (
-    "ads_state",
-    "ad_removal_state",
-    "in_app_purchases_state",
-    "iap_bundles_state",
-    "currency_bundles_state",
-    "season_pass_state",
-    "starter_pack_state",
-    "subscription_state",
-    "in_app_subscription_state",
-    "loot_box_state",
-    "live_ops_state",
+    "observable_revenue_unavailable",
+    "observable_revenue_zero",
+    "observable_revenue_positive",
 )
 
 
 class MarketSnapshotLike(Protocol):
-    """Structural input contract used by the pure profile builder."""
+    """Structural input contract for stored market snapshot rows."""
 
     @property
     def scope_name(self) -> str: ...
@@ -138,90 +84,56 @@ class MarketSnapshotLike(Protocol):
     def revenue_absolute(self) -> float | None: ...
 
 
-def normalize_source_boolean_state(value: object = _MISSING_SOURCE_VALUE) -> BooleanState:
-    """Normalize one verified Boolean-like Custom Field without coercion.
+def classify_observable_revenue(
+    revenue_absolute: object,
+) -> tuple[ObservableRevenueState, MonetizationProxy, ClassificationReason]:
+    """Classify one stored observable-Revenue value using the exact proxy map.
 
-    Missing and ``None`` are deliberately distinct from false in the source
-    contract, while values such as integers, lists, and arbitrary strings are
-    retained as invalid signals.
+    ``None`` means the third-party observable value is unavailable. Numeric
+    zero and positive values produce candidates only; they do not prove the
+    product's actual monetization type. Negative and non-finite values are
+    invalid source data and are rejected before persistence.
     """
 
-    if value is _MISSING_SOURCE_VALUE or value is None:
-        return "unknown"
-    if type(value) is bool:
-        return "true" if value else "false"
-    if type(value) is str:
-        normalized = value.strip().casefold()
-        if normalized == "true":
-            return "true"
-        if normalized == "false":
-            return "false"
-    return "invalid"
+    if revenue_absolute is None:
+        return (
+            "unavailable",
+            "unknown",
+            "observable_revenue_unavailable",
+        )
+    if isinstance(revenue_absolute, bool) or not isinstance(revenue_absolute, Real):
+        raise MonetizationValidationError(
+            "observable Revenue must be a finite, non-negative number or NULL"
+        )
+    numeric_value = float(revenue_absolute)
+    if not isfinite(numeric_value) or numeric_value < 0:
+        raise MonetizationValidationError(
+            "observable Revenue must be a finite, non-negative number or NULL"
+        )
+    if numeric_value == 0:
+        return "zero", "iaa_candidate", "observable_revenue_zero"
+    return "positive", "iap_or_hybrid_candidate", "observable_revenue_positive"
 
 
-def count_meaningful_iap_mechanisms(
-    states: Mapping[str, BooleanState],
-) -> int:
-    """Count only the seven approved meaningful IAP mechanisms."""
+def classify_observable_revenue_proxy(
+    revenue_absolute: object,
+) -> tuple[ObservableRevenueState, MonetizationProxy, ClassificationReason]:
+    """Named alias for callers that emphasize the candidate-proxy contract."""
 
-    return sum(states.get(key) == "true" for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS)
-
-
-def classify_meaningful_iap_evidence(
-    meaningful_iap_states: Sequence[BooleanState],
-) -> MeaningfulIapEvidenceState:
-    """Classify seven meaningful-IAP signals without treating missing as false."""
-
-    states = _validate_meaningful_iap_states(meaningful_iap_states)
-    if "invalid" in states:
-        return "invalid"
-    if "true" in states:
-        return "present"
-    if all(state == "false" for state in states):
-        return "absent"
-    return "unknown"
+    return classify_observable_revenue(revenue_absolute)
 
 
-def classify_product_monetization_proxy(
-    ads_state: BooleanState,
-    meaningful_iap_states: Sequence[BooleanState],
-    *,
-    source_record_matched: bool = True,
-) -> tuple[MonetizationMixProxy, ObservableRevenueApplicability, ClassificationReason]:
-    """Apply the MONETIZATION001_V1 product policy in its specified order."""
+def classify_monetization_proxy(
+    revenue_absolute: object,
+) -> tuple[ObservableRevenueState, MonetizationProxy, ClassificationReason]:
+    """Short name for the observable-Revenue classifier."""
 
-    if type(source_record_matched) is not bool:
-        raise MonetizationValidationError("source_record_matched must be a Boolean")
-    if not isinstance(ads_state, str) or ads_state not in BOOLEAN_STATES:
-        raise MonetizationValidationError("classification states are not supported")
-    evidence_state = classify_meaningful_iap_evidence(meaningful_iap_states)
-
-    if not source_record_matched:
-        return "unknown", "unknown", "source_record_unmatched"
-
-    if ads_state == "invalid" or evidence_state == "invalid":
-        return "unknown", "unknown", "invalid_classification_signal"
-
-    if ads_state == "true" and evidence_state == "present":
-        return "hybrid_candidate", "partial", "ads_with_meaningful_iap"
-    if ads_state == "true" and evidence_state == "absent":
-        return "ads_dominant_candidate", "low", "ads_without_meaningful_iap"
-    if ads_state == "false" and evidence_state == "present":
-        return "iap_dominant_candidate", "higher", "no_ads_with_meaningful_iap"
-    if ads_state == "unknown":
-        return "unknown", "unknown", "ads_state_unknown"
-    if evidence_state == "absent":
-        return "unknown", "unknown", "no_meaningful_monetization_signal"
-    return "unknown", "unknown", "classification_signal_inconclusive"
-
-
-# Short aliases make the pure policy convenient to use from focused callers.
-classify_monetization_proxy = classify_product_monetization_proxy
+    return classify_observable_revenue(revenue_absolute)
 
 
 @dataclass(frozen=True, slots=True)
 class AppMonetizationProfile:
-    """One prospective product-level monetization evidence profile."""
+    """One stored market snapshot's observable-Revenue proxy profile."""
 
     scope_name: str
     cadence: str
@@ -232,27 +144,11 @@ class AppMonetizationProfile:
     game_theme: str | None
     game_product_model: str | None
     monetization_policy_version: str
-    source_record_matched: bool
-    verified_source_tags_json: str
-    source_tag_present_count: int
-    source_tag_invalid_count: int
-    ads_state: BooleanState
-    ad_removal_state: BooleanState
-    in_app_purchases_state: BooleanState
-    iap_bundles_state: BooleanState
-    currency_bundles_state: BooleanState
-    season_pass_state: BooleanState
-    starter_pack_state: BooleanState
-    subscription_state: BooleanState
-    in_app_subscription_state: BooleanState
-    loot_box_state: BooleanState
-    live_ops_state: BooleanState
-    meaningful_iap_mechanism_count: int
-    meaningful_iap_evidence_state: MeaningfulIapEvidenceState
-    monetization_mix_proxy: MonetizationMixProxy
-    observable_revenue_applicability: ObservableRevenueApplicability
+    observable_revenue_usd: float | None
+    observable_revenue_state: ObservableRevenueState
+    monetization_proxy: MonetizationProxy
     classification_reason: ClassificationReason
-    observed_at: datetime
+    calculated_at: datetime
 
     @property
     def period_key(self) -> tuple[str, str, date, date]:
@@ -260,142 +156,52 @@ class AppMonetizationProfile:
 
         return (self.scope_name, self.cadence, self.period_start, self.period_end)
 
-    @property
-    def meaningful_iap_states(self) -> tuple[BooleanState, ...]:
-        """Return the seven meaningful-IAP states in source-contract order."""
-
-        return (
-            self.iap_bundles_state,
-            self.currency_bundles_state,
-            self.season_pass_state,
-            self.starter_pack_state,
-            self.subscription_state,
-            self.in_app_subscription_state,
-            self.loot_box_state,
-        )
-
     def __post_init__(self) -> None:
         _require_text(self.scope_name, field_name="scope_name")
         if self.cadence != "monthly":
             raise MonetizationValidationError("cadence must equal monthly")
         _require_natural_month(self.period_start, self.period_end)
         for field_name in ("source_app_id", "unified_app_id"):
-            _normalize_id(getattr(self, field_name), field_name=field_name)
-        if self.game_theme is not None and not isinstance(self.game_theme, str):
-            raise MonetizationValidationError("game_theme must be a string or NULL")
-        if self.game_product_model is not None and not isinstance(self.game_product_model, str):
-            raise MonetizationValidationError("game_product_model must be a string or NULL")
-        if self.monetization_policy_version != MONETIZATION_POLICY_VERSION:
-            raise MonetizationValidationError("monetization_policy_version is not supported")
-        if type(self.source_record_matched) is not bool:
-            raise MonetizationValidationError("source_record_matched must be a Boolean")
-        _require_timestamp(self.observed_at, field_name="observed_at")
-
-        try:
-            raw_tags = json.loads(self.verified_source_tags_json)
-        except (TypeError, json.JSONDecodeError) as error:
-            raise MonetizationValidationError(
-                "verified_source_tags_json must be canonical JSON"
-            ) from error
-        if not isinstance(raw_tags, dict):
-            raise MonetizationValidationError("verified_source_tags_json must contain an object")
-        if any(key not in MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS for key in raw_tags):
-            raise MonetizationValidationError(
-                "verified_source_tags_json contains an unapproved tag"
+            object.__setattr__(
+                self,
+                field_name,
+                _normalize_id(getattr(self, field_name), field_name=field_name),
             )
-        if _canonical_json(raw_tags) != self.verified_source_tags_json:
-            raise MonetizationValidationError("verified_source_tags_json must be canonical JSON")
-
-        present_count = _require_count(
-            self.source_tag_present_count,
-            field_name="source_tag_present_count",
-        )
-        invalid_count = _require_count(
-            self.source_tag_invalid_count,
-            field_name="source_tag_invalid_count",
-        )
-        if present_count != len(raw_tags):
-            raise MonetizationValidationError("source_tag_present_count does not match raw tags")
-        if invalid_count > present_count:
-            raise MonetizationValidationError("source_tag_invalid_count exceeds present tags")
-        if present_count > len(MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS):
-            raise MonetizationValidationError("source_tag_present_count exceeds approved tags")
-        expected_invalid_count = sum(
-            normalize_source_boolean_state(raw_tags[key]) == "invalid" for key in raw_tags
-        )
-        if invalid_count != expected_invalid_count:
-            raise MonetizationValidationError("source_tag_invalid_count is inconsistent")
-
-        for field_name in _PROFILE_STATE_FIELDS:
-            state = getattr(self, field_name)
-            if not isinstance(state, str) or state not in BOOLEAN_STATES:
-                raise MonetizationValidationError(f"{field_name} is not a supported state")
-        meaningful_count = _require_count(
-            self.meaningful_iap_mechanism_count,
-            field_name="meaningful_iap_mechanism_count",
-        )
-        if meaningful_count > len(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS):
-            raise MonetizationValidationError("meaningful_iap_mechanism_count exceeds seven")
-        if meaningful_count != count_meaningful_iap_mechanisms(
-            dict(zip(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS, self.meaningful_iap_states, strict=True))
-        ):
-            raise MonetizationValidationError("meaningful_iap_mechanism_count is inconsistent")
-        if (
-            not isinstance(self.meaningful_iap_evidence_state, str)
-            or self.meaningful_iap_evidence_state not in MEANINGFUL_IAP_EVIDENCE_STATES
-        ):
-            raise MonetizationValidationError("meaningful_iap_evidence_state is not supported")
-        if self.meaningful_iap_evidence_state != classify_meaningful_iap_evidence(
-            self.meaningful_iap_states
-        ):
-            raise MonetizationValidationError(
-                "meaningful_iap_evidence_state is inconsistent"
-            )
-        if (
-            not isinstance(self.monetization_mix_proxy, str)
-            or self.monetization_mix_proxy not in MONETIZATION_MIX_PROXIES
-        ):
-            raise MonetizationValidationError("monetization_mix_proxy is not supported")
-        if (
-            not isinstance(self.observable_revenue_applicability, str)
-            or self.observable_revenue_applicability not in OBSERVABLE_REVENUE_APPLICABILITIES
-        ):
-            raise MonetizationValidationError("observable_revenue_applicability is not supported")
-        if (
-            not isinstance(self.classification_reason, str)
-            or self.classification_reason not in CLASSIFICATION_REASONS
-        ):
-            raise MonetizationValidationError("classification_reason is not supported")
-
-        expected_proxy, expected_applicability, expected_reason = (
-            classify_product_monetization_proxy(
-                self.ads_state,
-                self.meaningful_iap_states,
-                source_record_matched=self.source_record_matched,
-            )
-        )
-        if (
-            self.monetization_mix_proxy,
-            self.observable_revenue_applicability,
-            self.classification_reason,
-        ) != (expected_proxy, expected_applicability, expected_reason):
-            raise MonetizationValidationError("product monetization evidence is inconsistent")
-        if not self.source_record_matched:
-            if (
-                self.verified_source_tags_json != "{}"
-                or self.source_tag_present_count != 0
-                or self.source_tag_invalid_count != 0
-                or any(
-                    getattr(self, field_name) != "unknown"
-                    for field_name in _PROFILE_STATE_FIELDS
+        for field_name in ("game_theme", "game_product_model"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise MonetizationValidationError(
+                    f"{field_name} must be a string or NULL"
                 )
-            ):
-                raise MonetizationValidationError("unmatched profiles must contain unknown states")
+        if self.monetization_policy_version != MONETIZATION_POLICY_VERSION:
+            raise MonetizationValidationError(
+                "monetization_policy_version is not supported"
+            )
+        normalized_revenue = _normalize_observable_revenue(self.observable_revenue_usd)
+        object.__setattr__(self, "observable_revenue_usd", normalized_revenue)
+        if self.observable_revenue_state not in OBSERVABLE_REVENUE_STATES:
+            raise MonetizationValidationError(
+                "observable_revenue_state is not supported"
+            )
+        if self.monetization_proxy not in MONETIZATION_PROXIES:
+            raise MonetizationValidationError("monetization_proxy is not supported")
+        if self.classification_reason not in CLASSIFICATION_REASONS:
+            raise MonetizationValidationError("classification_reason is not supported")
+        expected = classify_observable_revenue(normalized_revenue)
+        if (
+            self.observable_revenue_state,
+            self.monetization_proxy,
+            self.classification_reason,
+        ) != expected:
+            raise MonetizationValidationError(
+                "observable-Revenue classification is inconsistent"
+            )
+        _require_timestamp(self.calculated_at, field_name="calculated_at")
 
 
 @dataclass(frozen=True, slots=True)
 class ThemeMonetizationObservabilityMetric:
-    """Downloads-weighted observable-Revenue evidence for one raw theme."""
+    """Raw-theme product and Downloads evidence for one stored month."""
 
     scope_name: str
     cadence: str
@@ -404,46 +210,49 @@ class ThemeMonetizationObservabilityMetric:
     game_theme: str
     monetization_policy_version: str
     product_count: int
-    downloads_coverage_count: int
-    downloads_sum: float | None
     observable_revenue_usd_coverage_count: int
+    observable_revenue_usd_coverage_ratio: float
     observable_revenue_usd_sum: float | None
-    source_record_match_count: int
-    source_record_match_ratio: float
-    ads_signal_known_count: int
-    ads_signal_known_ratio: float
-    proxy_classified_count: int
-    proxy_classified_ratio: float
-    invalid_signal_count: int
-    ads_dominant_candidate_product_count: int
-    ads_dominant_candidate_product_share: float
-    hybrid_candidate_product_count: int
-    hybrid_candidate_product_share: float
-    iap_dominant_candidate_product_count: int
-    iap_dominant_candidate_product_share: float
+    iaa_candidate_product_count: int
+    iaa_candidate_product_share: float
+    iap_or_hybrid_candidate_product_count: int
+    iap_or_hybrid_candidate_product_share: float
     unknown_product_count: int
     unknown_product_share: float
-    ads_dominant_candidate_downloads_sum: float | None
-    ads_dominant_candidate_downloads_share: float | None
-    hybrid_candidate_downloads_sum: float | None
-    hybrid_candidate_downloads_share: float | None
-    iap_dominant_candidate_downloads_sum: float | None
-    iap_dominant_candidate_downloads_share: float | None
+    downloads_coverage_count: int
+    downloads_coverage_ratio: float
+    downloads_sum: float | None
+    iaa_candidate_downloads_sum: float | None
+    iaa_candidate_downloads_share: float | None
+    iap_or_hybrid_candidate_downloads_sum: float | None
+    iap_or_hybrid_candidate_downloads_share: float | None
     unknown_downloads_sum: float | None
     unknown_downloads_share: float | None
-    ads_dominant_candidate_observable_revenue_usd_sum: float | None
-    ads_dominant_candidate_observable_revenue_share: float | None
-    hybrid_candidate_observable_revenue_usd_sum: float | None
-    hybrid_candidate_observable_revenue_share: float | None
-    iap_dominant_candidate_observable_revenue_usd_sum: float | None
-    iap_dominant_candidate_observable_revenue_share: float | None
-    unknown_observable_revenue_usd_sum: float | None
-    unknown_observable_revenue_share: float | None
     calculated_at: datetime
 
     @property
     def period_key(self) -> tuple[str, str, date, date]:
+        """Return the stored market-period identity."""
+
         return (self.scope_name, self.cadence, self.period_start, self.period_end)
+
+    @property
+    def observable_revenue_coverage_count(self) -> int:
+        """Short alias for the USD-qualified coverage field."""
+
+        return self.observable_revenue_usd_coverage_count
+
+    @property
+    def observable_revenue_coverage_ratio(self) -> float:
+        """Short alias for the USD-qualified coverage field."""
+
+        return self.observable_revenue_usd_coverage_ratio
+
+    @property
+    def observable_revenue_sum(self) -> float | None:
+        """Short alias for the total observable-Revenue sum."""
+
+        return self.observable_revenue_usd_sum
 
     def __post_init__(self) -> None:
         _require_text(self.scope_name, field_name="scope_name")
@@ -453,311 +262,251 @@ class ThemeMonetizationObservabilityMetric:
         if not isinstance(self.game_theme, str):
             raise MonetizationValidationError("game_theme must be a string")
         if self.monetization_policy_version != MONETIZATION_POLICY_VERSION:
-            raise MonetizationValidationError("monetization_policy_version is not supported")
+            raise MonetizationValidationError(
+                "monetization_policy_version is not supported"
+            )
         _require_timestamp(self.calculated_at, field_name="calculated_at")
 
-        product_count = _require_count(self.product_count, field_name="product_count", minimum=1)
+        product_count = _require_count(self.product_count, field_name="product_count")
+        if product_count == 0:
+            raise MonetizationValidationError("product_count must be positive")
         for field_name in (
-            "downloads_coverage_count",
             "observable_revenue_usd_coverage_count",
-            "source_record_match_count",
-            "ads_signal_known_count",
-            "proxy_classified_count",
-            "invalid_signal_count",
+            "downloads_coverage_count",
+            "iaa_candidate_product_count",
+            "iap_or_hybrid_candidate_product_count",
+            "unknown_product_count",
         ):
-            value = _require_count(getattr(self, field_name), field_name=field_name)
-            if value > product_count:
-                raise MonetizationValidationError(f"{field_name} exceeds product_count")
-        _validate_sum_coverage(
-            self.downloads_coverage_count,
-            self.downloads_sum,
-            metric_name="downloads",
+            count_value = _require_count(getattr(self, field_name), field_name=field_name)
+            if count_value > product_count:
+                raise MonetizationValidationError(
+                    f"{field_name} must not exceed product_count"
+                )
+
+        if (
+            self.iaa_candidate_product_count
+            + self.iap_or_hybrid_candidate_product_count
+            + self.unknown_product_count
+            != product_count
+        ):
+            raise MonetizationValidationError(
+                "monetization product counts must reconcile to product_count"
+            )
+        _require_ratio(
+            self.observable_revenue_usd_coverage_ratio,
+            field_name="observable_revenue_usd_coverage_ratio",
         )
+        _require_ratio(
+            self.downloads_coverage_ratio,
+            field_name="downloads_coverage_ratio",
+        )
+        if not isclose(
+            self.observable_revenue_usd_coverage_ratio,
+            self.observable_revenue_usd_coverage_count / product_count,
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            raise MonetizationValidationError(
+                "observable revenue coverage ratio is inconsistent"
+            )
+        if not isclose(
+            self.downloads_coverage_ratio,
+            self.downloads_coverage_count / product_count,
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            raise MonetizationValidationError("downloads coverage ratio is inconsistent")
+
         _validate_sum_coverage(
             self.observable_revenue_usd_coverage_count,
             self.observable_revenue_usd_sum,
             metric_name="observable_revenue_usd",
         )
-
-        for field_name in (
-            "source_record_match_ratio",
-            "ads_signal_known_ratio",
-            "proxy_classified_ratio",
-            "ads_dominant_candidate_product_share",
-            "hybrid_candidate_product_share",
-            "iap_dominant_candidate_product_share",
-            "unknown_product_share",
-        ):
-            _require_ratio(getattr(self, field_name), field_name=field_name)
-        for field_name in (
-            "ads_dominant_candidate_downloads_share",
-            "hybrid_candidate_downloads_share",
-            "iap_dominant_candidate_downloads_share",
-            "unknown_downloads_share",
-            "ads_dominant_candidate_observable_revenue_share",
-            "hybrid_candidate_observable_revenue_share",
-            "iap_dominant_candidate_observable_revenue_share",
-            "unknown_observable_revenue_share",
-        ):
-            _require_optional_ratio(getattr(self, field_name), field_name=field_name)
-
-        product_counts = (
-            self.ads_dominant_candidate_product_count,
-            self.hybrid_candidate_product_count,
-            self.iap_dominant_candidate_product_count,
-            self.unknown_product_count,
+        _validate_sum_coverage(
+            self.downloads_coverage_count,
+            self.downloads_sum,
+            metric_name="downloads",
         )
-        if (
-            sum(_require_count(value, field_name="proxy product count") for value in product_counts)
-            != product_count
+        for field_name in (
+            "iaa_candidate_downloads_sum",
+            "iap_or_hybrid_candidate_downloads_sum",
+            "unknown_downloads_sum",
         ):
-            raise MonetizationValidationError("proxy product counts do not reconcile")
-        product_shares = (
-            self.ads_dominant_candidate_product_share,
-            self.hybrid_candidate_product_share,
-            self.iap_dominant_candidate_product_share,
-            self.unknown_product_share,
+            _normalize_non_negative_optional(
+                getattr(self, field_name), field_name=field_name
+            )
+
+        for proxy, count in (
+            ("iaa_candidate", self.iaa_candidate_product_count),
+            ("iap_or_hybrid_candidate", self.iap_or_hybrid_candidate_product_count),
+            ("unknown", self.unknown_product_count),
+        ):
+            share_name = f"{proxy}_product_share"
+            share = getattr(self, share_name)
+            _require_ratio(share, field_name=share_name)
+            if not isclose(share, count / product_count, rel_tol=0, abs_tol=1e-12):
+                raise MonetizationValidationError(f"{share_name} is inconsistent")
+
+        denominator = self.downloads_sum
+        download_sums = (
+            self.iaa_candidate_downloads_sum,
+            self.iap_or_hybrid_candidate_downloads_sum,
+            self.unknown_downloads_sum,
         )
-        if not isclose(sum(product_shares), 1.0, rel_tol=1e-9, abs_tol=1e-9):
-            raise MonetizationValidationError("proxy product shares do not reconcile")
-        for count, share in zip(product_counts, product_shares, strict=True):
-            if not isclose(share, count / product_count, rel_tol=1e-9, abs_tol=1e-9):
-                raise MonetizationValidationError("proxy product share is inconsistent")
-
-        expected_match_ratio = self.source_record_match_count / product_count
-        expected_ads_ratio = self.ads_signal_known_count / product_count
-        expected_proxy_ratio = self.proxy_classified_count / product_count
-        if not isclose(
-            self.source_record_match_ratio,
-            expected_match_ratio,
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ):
-            raise MonetizationValidationError("source_record_match_ratio is inconsistent")
-        if not isclose(
-            self.ads_signal_known_ratio,
-            expected_ads_ratio,
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ):
-            raise MonetizationValidationError("ads_signal_known_ratio is inconsistent")
-        if not isclose(
-            self.proxy_classified_ratio,
-            expected_proxy_ratio,
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ):
-            raise MonetizationValidationError("proxy_classified_ratio is inconsistent")
-
-        if self.downloads_sum is not None and self.downloads_sum > 0:
-            downloads_shares = (
-                self.ads_dominant_candidate_downloads_share,
-                self.hybrid_candidate_downloads_share,
-                self.iap_dominant_candidate_downloads_share,
-                self.unknown_downloads_share,
-            )
-            if any(value is None for value in downloads_shares) or not isclose(
-                sum(value for value in downloads_shares if value is not None),
-                1.0,
-                rel_tol=1e-9,
-                abs_tol=1e-9,
-            ):
-                raise MonetizationValidationError("Downloads proxy shares do not reconcile")
-        if self.observable_revenue_usd_sum is not None and self.observable_revenue_usd_sum > 0:
-            revenue_shares = (
-                self.ads_dominant_candidate_observable_revenue_share,
-                self.hybrid_candidate_observable_revenue_share,
-                self.iap_dominant_candidate_observable_revenue_share,
-                self.unknown_observable_revenue_share,
-            )
-            if any(value is None for value in revenue_shares) or not isclose(
-                sum(value for value in revenue_shares if value is not None),
-                1.0,
-                rel_tol=1e-9,
-                abs_tol=1e-9,
-            ):
+        download_shares = (
+            self.iaa_candidate_downloads_share,
+            self.iap_or_hybrid_candidate_downloads_share,
+            self.unknown_downloads_share,
+        )
+        if denominator is None or denominator <= 0:
+            if any(share is not None for share in download_shares):
                 raise MonetizationValidationError(
-                    "observable-Revenue proxy shares do not reconcile"
+                    "Downloads shares require a positive observed denominator"
                 )
+        else:
+            for value, share in zip(download_sums, download_shares, strict=True):
+                if share is not None:
+                    _require_ratio(share, field_name="downloads class share")
+                    if value is None:
+                        raise MonetizationValidationError(
+                            "Downloads share requires an observed class sum"
+                        )
+                    if not isclose(share, value / denominator, rel_tol=0, abs_tol=1e-12):
+                        raise MonetizationValidationError(
+                            "Downloads class share is inconsistent"
+                        )
+
+
 def build_app_monetization_profiles(
     market_snapshots: Sequence[MarketSnapshotLike],
-    source_tags_by_app_id: Mapping[object, object] | Sequence[object],
     *,
-    observed_at: datetime,
+    calculated_at: datetime,
 ) -> list[AppMonetizationProfile]:
-    """Build exactly one profile for every stored market-snapshot row.
+    """Build exactly one observable-Revenue profile per stored snapshot."""
 
-    ``source_tags_by_app_id`` may be a normalized mapping or a sequence of
-    Sensor Tower-like records exposing ``app_id`` and ``custom_tags``.  The
-    latter convenience is limited to reading already fetched records; this
-    function never performs I/O or selection.
-    """
-
-    _require_timestamp(observed_at, field_name="observed_at")
     snapshots = tuple(market_snapshots)
     if not snapshots:
-        raise MonetizationValidationError("market snapshot population must not be empty")
-    source_tags = _normalize_source_tag_records(source_tags_by_app_id)
-    seen_source_ids: set[str] = set()
-    seen_unified_ids: set[str] = set()
+        raise MonetizationValidationError("market snapshots must not be empty")
+    _validate_snapshot_population(snapshots)
     profiles: list[AppMonetizationProfile] = []
     for snapshot in snapshots:
-        source_app_id = _normalize_id(snapshot.source_app_id, field_name="source_app_id")
-        unified_app_id = _normalize_id(snapshot.unified_app_id, field_name="unified_app_id")
-        if source_app_id in seen_source_ids:
-            raise MonetizationValidationError("stored source_app_id values must be unique")
-        if unified_app_id in seen_unified_ids:
-            raise MonetizationValidationError("stored unified_app_id values must be unique")
-        seen_source_ids.add(source_app_id)
-        seen_unified_ids.add(unified_app_id)
-
-        matched = source_app_id in source_tags
-        tags = source_tags[source_app_id] if matched else {}
-        states = _normalized_tag_states(tags)
-        meaningful_states = tuple(
-            states[key] for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS
-        )
-        meaningful_evidence_state = classify_meaningful_iap_evidence(meaningful_states)
-        proxy, applicability, reason = classify_product_monetization_proxy(
-            states[MONETIZATION_ADS_TAG],
-            meaningful_states,
-            source_record_matched=matched,
-        )
-        present_tags = (
-            {key: tags[key] for key in MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS if key in tags}
-            if matched
-            else {}
-        )
-        raw_json = _canonical_json(present_tags)
+        normalized_revenue = _normalize_observable_revenue(snapshot.revenue_absolute)
+        state, proxy, reason = classify_observable_revenue(normalized_revenue)
         profiles.append(
             AppMonetizationProfile(
                 scope_name=snapshot.scope_name,
                 cadence=snapshot.cadence,
                 period_start=snapshot.period_start,
                 period_end=snapshot.period_end,
-                source_app_id=source_app_id,
-                unified_app_id=unified_app_id,
+                source_app_id=snapshot.source_app_id,
+                unified_app_id=snapshot.unified_app_id,
                 game_theme=snapshot.game_theme,
                 game_product_model=snapshot.game_product_model,
                 monetization_policy_version=MONETIZATION_POLICY_VERSION,
-                source_record_matched=matched,
-                verified_source_tags_json=raw_json,
-                source_tag_present_count=len(present_tags),
-                source_tag_invalid_count=sum(
-                    state == "invalid" for state in states.values()
-                ),
-                ads_state=states[MONETIZATION_ADS_TAG],
-                ad_removal_state=states[MONETIZATION_AD_REMOVAL_TAG],
-                in_app_purchases_state=states[IN_APP_PURCHASES_TAG],
-                iap_bundles_state=states[GAME_IQ_IAP_BUNDLES_TAG],
-                currency_bundles_state=states[MONETIZATION_CURRENCY_BUNDLES_TAG],
-                season_pass_state=states[MONETIZATION_SEASON_PASS_TAG],
-                starter_pack_state=states[MONETIZATION_STARTER_PACK_TAG],
-                subscription_state=states[MONETIZATION_SUBSCRIPTION_TAG],
-                in_app_subscription_state=states[IN_APP_SUBSCRIPTION_TAG],
-                loot_box_state=states[MONETIZATION_LOOT_BOX_TAG],
-                live_ops_state=states[MONETIZATION_LIVE_OPS_TAG],
-                meaningful_iap_mechanism_count=sum(state == "true" for state in meaningful_states),
-                meaningful_iap_evidence_state=meaningful_evidence_state,
-                monetization_mix_proxy=proxy,
-                observable_revenue_applicability=applicability,
+                observable_revenue_usd=normalized_revenue,
+                observable_revenue_state=state,
+                monetization_proxy=proxy,
                 classification_reason=reason,
-                observed_at=observed_at,
+                calculated_at=calculated_at,
             )
         )
     return profiles
 
 
-def _validate_meaningful_iap_states(
-    meaningful_iap_states: Sequence[BooleanState],
-) -> tuple[BooleanState, ...]:
-    if len(meaningful_iap_states) != len(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS):
-        raise MonetizationValidationError("exactly seven meaningful-IAP states are required")
-    if any(
-        not isinstance(state, str) or state not in BOOLEAN_STATES
-        for state in meaningful_iap_states
-    ):
-        raise MonetizationValidationError("classification states are not supported")
-    return tuple(meaningful_iap_states)
+def _validate_snapshot_population(snapshots: Sequence[MarketSnapshotLike]) -> None:
+    first = snapshots[0]
+    first_key = _snapshot_period_key(first)
+    if first.cadence != "monthly":
+        raise MonetizationValidationError("cadence must equal monthly")
+    for snapshot in snapshots:
+        if _snapshot_period_key(snapshot) != first_key:
+            raise MonetizationValidationError(
+                "market snapshots must share one period identity"
+            )
+        if not isinstance(snapshot.game_theme, (str, type(None))):
+            raise MonetizationValidationError("game_theme must be a string or NULL")
+        if not isinstance(snapshot.game_product_model, (str, type(None))):
+            raise MonetizationValidationError(
+                "game_product_model must be a string or NULL"
+            )
+        _normalize_observable_revenue(snapshot.revenue_absolute)
+    unified_ids = [
+        _normalize_id(snapshot.unified_app_id, field_name="unified_app_id")
+        for snapshot in snapshots
+    ]
+    if len(set(unified_ids)) != len(unified_ids):
+        raise MonetizationValidationError("market snapshots have duplicate unified identities")
+    source_ids = [
+        _normalize_id(snapshot.source_app_id, field_name="source_app_id")
+        for snapshot in snapshots
+    ]
+    if len(set(source_ids)) != len(source_ids):
+        raise MonetizationValidationError("market snapshots have duplicate source identities")
 
 
-def _normalize_source_tag_records(
-    source_records: Mapping[object, object] | Sequence[object],
-) -> dict[str, Mapping[str, object]]:
-    if isinstance(source_records, Mapping):
-        items = tuple(source_records.items())
-    elif isinstance(source_records, Sequence) and not isinstance(source_records, (str, bytes)):
-        sequence_items: list[tuple[object, object]] = []
-        for record in source_records:
-            if isinstance(record, Mapping):
-                app_id = record.get("app_id")
-                tags = record.get("custom_tags")
-            else:
-                app_id = getattr(record, "app_id", None)
-                tags = getattr(record, "custom_tags", None)
-            if app_id is None:
-                raise MonetizationValidationError("fetched source record has no app_id")
-            sequence_items.append((app_id, tags))
-        items = tuple(sequence_items)
-    else:
-        raise MonetizationValidationError("source tags must be a mapping or record sequence")
-
-    normalized: dict[str, Mapping[str, object]] = {}
-    for raw_app_id, raw_tags in items:
-        app_id = _normalize_id(raw_app_id, field_name="source_app_id")
-        if app_id in normalized:
-            raise MonetizationValidationError("fetched source_app_id values must be unique")
-        normalized[app_id] = _coerce_tag_mapping(raw_tags)
-    return normalized
-
-
-def _coerce_tag_mapping(value: object) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise MonetizationValidationError("fetched source Custom Tags must be a mapping")
-    normalized: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise MonetizationValidationError("source Custom Tag keys must be strings")
-        normalized[key] = item
-    return normalized
-
-
-def _normalized_tag_states(tags: Mapping[str, object]) -> dict[str, BooleanState]:
-    return {
-        key: normalize_source_boolean_state(tags[key] if key in tags else _MISSING_SOURCE_VALUE)
-        for key in MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS
-    }
-
-
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        _json_safe_value(value),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
+def _snapshot_period_key(snapshot: MarketSnapshotLike) -> tuple[str, str, date, date]:
+    return (
+        snapshot.scope_name,
+        snapshot.cadence,
+        snapshot.period_start,
+        snapshot.period_end,
     )
 
 
-def _json_safe_value(value: object) -> object:
-    if value is None or type(value) is bool or type(value) is str or type(value) is int:
-        return value
-    if type(value) is float:
-        return value if isfinite(value) else "<unsupported>"
-    if isinstance(value, (list, tuple)):
-        return [_json_safe_value(item) for item in value]
-    if isinstance(value, Mapping):
-        if any(not isinstance(key, str) for key in value):
-            return "<unsupported>"
-        return {key: _json_safe_value(item) for key, item in value.items()}
-    return "<unsupported>"
+def _normalize_observable_revenue(value: object) -> float | None:
+    if value is None:
+        return None
+    state, _proxy, _reason = classify_observable_revenue(value)
+    if state == "unavailable":
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise MonetizationValidationError(
+            "observable Revenue must be a finite, non-negative number or NULL"
+        )
+    return float(value)
 
 
-def _normalize_id(value: object, *, field_name: str) -> str:
-    try:
-        return normalize_required_opaque_id(value, field_name=field_name)
-    except ValueError as error:
-        raise MonetizationValidationError(str(error)) from None
+def _normalize_non_negative_optional(value: object, *, field_name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise MonetizationValidationError(f"{field_name} must be a number or NULL")
+    normalized = float(value)
+    if not isfinite(normalized) or normalized < 0:
+        raise MonetizationValidationError(f"{field_name} must be finite and non-negative")
+    return normalized
+
+
+def _validate_sum_coverage(
+    coverage_count: int,
+    value: float | None,
+    *,
+    metric_name: str,
+) -> None:
+    normalized = _normalize_non_negative_optional(value, field_name=f"{metric_name}_sum")
+    if coverage_count == 0 and normalized is not None:
+        raise MonetizationValidationError(
+            f"{metric_name}_sum must be NULL without coverage"
+        )
+    if coverage_count > 0 and normalized is None:
+        raise MonetizationValidationError(
+            f"{metric_name}_sum is required with coverage"
+        )
+
+
+def _require_ratio(value: object, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise MonetizationValidationError(f"{field_name} must be a finite ratio")
+    normalized = float(value)
+    if not isfinite(normalized) or not 0 <= normalized <= 1:
+        raise MonetizationValidationError(f"{field_name} must be a finite ratio")
+    return normalized
+
+
+def _require_count(value: object, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise MonetizationValidationError(f"{field_name} must be a non-negative integer")
+    return value
 
 
 def _require_text(value: object, *, field_name: str) -> str:
@@ -766,71 +515,26 @@ def _require_text(value: object, *, field_name: str) -> str:
     return value
 
 
-def _require_date(value: object, *, field_name: str) -> date:
-    if type(value) is not date:
-        raise MonetizationValidationError(f"{field_name} must be a date")
-    return value
+def _normalize_id(value: object, *, field_name: str) -> str:
+    try:
+        return normalize_required_opaque_id(value, field_name=field_name)
+    except ValueError as error:
+        raise MonetizationValidationError(str(error)) from error
 
 
-def _require_natural_month(period_start: object, period_end: object) -> tuple[date, date]:
-    start = _require_date(period_start, field_name="period_start")
-    end = _require_date(period_end, field_name="period_end")
-    if start.day != 1 or end != date(
-        start.year,
-        start.month,
-        calendar.monthrange(start.year, start.month)[1],
+def _require_natural_month(period_start: object, period_end: object) -> None:
+    if not isinstance(period_start, date) or not isinstance(period_end, date):
+        raise MonetizationValidationError("period boundaries must be dates")
+    if period_start.day != 1:
+        raise MonetizationValidationError("period_start must be the first day of a month")
+    if period_end != date(
+        period_start.year,
+        period_start.month,
+        calendar.monthrange(period_start.year, period_start.month)[1],
     ):
-        raise MonetizationValidationError("period must be one natural calendar month")
-    return start, end
+        raise MonetizationValidationError("period_end must be the last day of the month")
 
 
-def _require_timestamp(value: object, *, field_name: str) -> datetime:
+def _require_timestamp(value: object, *, field_name: str) -> None:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise MonetizationValidationError(f"{field_name} must be timezone-aware")
-    return value
-
-
-def _require_count(value: object, *, field_name: str, minimum: int = 0) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise MonetizationValidationError(
-            f"{field_name} must be an integer greater than or equal to {minimum}"
-        )
-    return value
-
-
-def _require_number(value: object, *, field_name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise MonetizationValidationError(f"{field_name} must be a number")
-    numeric_value = float(value)
-    if not isfinite(numeric_value):
-        raise MonetizationValidationError(f"{field_name} must be finite")
-    return numeric_value
-
-
-def _require_ratio(value: object, *, field_name: str) -> float:
-    numeric_value = _require_number(value, field_name=field_name)
-    if not 0 <= numeric_value <= 1:
-        raise MonetizationValidationError(f"{field_name} must be between 0 and 1")
-    return numeric_value
-
-
-def _require_optional_ratio(value: object, *, field_name: str) -> float | None:
-    if value is None:
-        return None
-    return _require_ratio(value, field_name=field_name)
-
-
-def _validate_sum_coverage(
-    coverage_count: int,
-    value: object,
-    *,
-    metric_name: str,
-) -> None:
-    if coverage_count == 0 and value is not None:
-        raise MonetizationValidationError(f"{metric_name}_sum must be NULL when coverage is zero")
-    if coverage_count > 0 and value is None:
-        raise MonetizationValidationError(
-            f"{metric_name}_sum must be present when coverage is non-zero"
-        )
-    if value is not None:
-        _require_number(value, field_name=f"{metric_name}_sum")

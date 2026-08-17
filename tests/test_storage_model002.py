@@ -143,7 +143,7 @@ def test_fresh_schema_adds_only_the_three_model_tables_with_exact_columns(
             row[1] for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
         )
         assert actual_columns == expected_columns
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (7,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
     repository.close()
 
 
@@ -228,11 +228,11 @@ def test_version_four_database_migrates_without_rewriting_existing_rows(tmp_path
         schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
     ):
         connection.execute(f"DROP TABLE {table_name}")
-    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7)")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7, 8)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
 
     repository.initialize_schema()
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (7,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
     assert connection.execute(
         "SELECT unified_app_id, publisher_display_name FROM app_metadata"
     ).fetchone() == ("app-existing", "Publisher")

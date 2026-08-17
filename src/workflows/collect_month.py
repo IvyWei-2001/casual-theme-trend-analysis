@@ -283,8 +283,7 @@ def collect_month(
         if include_monetization:
             monetization_profiles = build_app_monetization_profiles(
                 snapshot_rows,
-                selected_records,
-                observed_at=started_at,
+                calculated_at=started_at,
             )
             theme_monetization_metrics = aggregate_theme_monetization_observability(
                 snapshot_rows,

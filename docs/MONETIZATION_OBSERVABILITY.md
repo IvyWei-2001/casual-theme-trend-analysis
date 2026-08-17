@@ -1,168 +1,140 @@
-# MONETIZATION-001 Monetization Proxy Observability
+# MONETIZATION-001 Observable-Revenue Proxy Observability
 
-MONETIZATION-001 is a descriptive evidence layer for the stored monthly
-market sample. It reads the verified Sensor Tower Custom Fields already
-returned by the existing market response, classifies a transparent product
-proxy, and aggregates theme-level Downloads-weighted evidence. It does not
-create a score, recommendation, dashboard, Feishu view, automation, or
-historical backtest feature.
+MONETIZATION-001 is a deliberately simple, offline evidence layer derived
+only from stored `market_snapshots` rows. It is not an observed monetization
+type. The policy covers every requested stored completed month; for the
+accepted history, `--start 2023-08 --end 2026-07` covers 36 months.
 
 ## Business boundary
 
-The existing source fields retain their database names:
+`revenue_absolute` means only third-party-platform observable Revenue (USD).
+It does not include complete IAA advertising revenue and must never be
+described as actual total revenue. The proxy does not estimate IAA revenue.
 
-- `units_absolute` is Downloads count.
-- `revenue_absolute` is third-party-platform observable Revenue (USD).
+The exact product mapping is:
 
-Observable Revenue is not total monetization coverage. In particular, a
-third-party platform may not observe in-app advertising revenue. Therefore a
-zero observable-Revenue value is an observed zero, not proof that total
-revenue is zero, and 100% observable-Revenue coverage is not proof that total
-monetization is fully covered. MONETIZATION-001 never estimates IAA revenue,
-ARPDAU, RPD, LTV, ROAS, CPI, or profitability.
-
-Game Product Model is retained as auxiliary source evidence. It is not a
-monetization-classification input, so values such as `Hypercasual`, `Casual`,
-or `Hybridcasual` are never directly mapped to IAA, IAP, or Hybrid.
-
-## Verified Custom Fields
-
-The contract uses exactly these eleven source keys:
-
-Advertising evidence:
-
-- `Monetization: Ads`
-
-Contextual fields, excluded from the meaningful-IAP count:
-
-- `Monetization: Ad Removal`
-- `In-App Purchases`
-- `Monetization: Live Ops`
-
-Meaningful IAP mechanisms:
-
-- `Game IQ - IAP Bundles`
-- `Monetization: Currency Bundles`
-- `Monetization: Season Pass`
-- `Monetization: Starter Pack`
-- `Monetization: Subscription`
-- `In-App Subscription`
-- `Monetization: Loot Box`
-
-Each source value is normalized strictly to `true`, `false`, `unknown`, or
-`invalid`. Exact Boolean values and trimmed, case-folded strings `true` and
-`false` are recognized. Missing keys and `None` become `unknown`; integers,
-yes/no strings, lists, dictionaries, and other values become `invalid`.
-Missing does not mean false.
-
-## Product proxy policy
-
-The persisted policy version is `MONETIZATION001_V1`.
-
-For the seven meaningful-IAP fields, the profile stores an explicit evidence
-state:
-
-- `present`: at least one field is explicitly `true`;
-- `absent`: all seven fields are explicitly `false`;
-- `unknown`: no field is true and at least one field is missing, `None`, or
-  otherwise unknown;
-- `invalid`: at least one field is invalid.
-
-A positive meaningful-IAP field is sufficient even when the other six fields
-are missing. For a matched source record, the product matrix is:
-
-| Ads state | Meaningful-IAP evidence | Proxy | App applicability |
+| `revenue_absolute` | `observable_revenue_state` | `monetization_proxy` | `classification_reason` |
 | --- | --- | --- | --- |
-| `true` | `present` | `hybrid_candidate` | `partial` |
-| `true` | `absent` | `ads_dominant_candidate` | `low` |
-| `true` | `unknown` or `invalid` | `unknown` | `unknown` |
-| `false` | `present` | `iap_dominant_candidate` | `higher` |
-| `false` | `absent` | `unknown` | `unknown` |
-| `false` | `unknown` or `invalid` | `unknown` | `unknown` |
-| `unknown` or `invalid` | any | `unknown` | `unknown` |
+| `NULL` | `unavailable` | `unknown` | `observable_revenue_unavailable` |
+| `0` | `zero` | `iaa_candidate` | `observable_revenue_zero` |
+| `> 0` | `positive` | `iap_or_hybrid_candidate` | `observable_revenue_positive` |
 
-Invalid input may retain the distinct `invalid` evidence state and
-`invalid_classification_signal` reason, but never produces a classified proxy
-or applicability value.
+Business-facing meanings are fixed:
 
-An unmatched stored product is always `unknown`, with all states `unknown`,
-empty canonical audit JSON `{}`, and reason `source_record_unmatched`.
+- `iaa_candidate`: IAA candidate (observable Revenue = 0)
+- `iap_or_hybrid_candidate`: IAP or Hybrid candidate (observable Revenue > 0)
+- `unknown`: Unknown (observable Revenue unavailable)
 
-Each product profile stores the exact approved source keys that were present
-in `verified_source_tags_json`, using canonical UTF-8 JSON with sorted keys
-and compact separators. Source string capitalization is preserved. Unsupported
-values are represented safely; arbitrary object internals, credentials, and
-URLs are not serialized. The CLI and logs never print this JSON or raw values.
+`iaa_candidate` is never confirmed or pure IAA. Observable Revenue = 0 does
+not prove actual total revenue = 0 or pure IAA. Observable Revenue > 0 does
+not distinguish pure IAP from Hybrid. Observable-Revenue coverage is not total
+commercial-revenue coverage. No field estimates IAA advertising revenue.
 
-## Theme observability
+Negative, NaN, and infinite observable-Revenue values are invalid and fail
+before DuckDB writes or Parquet exports. An observed numeric zero remains zero;
+an unavailable value remains SQL `NULL`.
 
-The stored `market_snapshots` population is authoritative. There is exactly
-one profile per stored product and one theme metric per non-NULL raw
-`game_theme`; empty strings, `Unknown`, and `N/A` remain distinct labels.
+Game Product Model is retained only as raw context. It does not determine the
+proxy. Historical Sensor Tower Custom Fields are not used. The derived CSV
+column `变现模式`, weekly CSVs, raw JSON files, Ads, Ad Removal, IAP, Live Ops,
+or any other unavailable Custom Field are outside this implementation.
 
-Theme metrics expose raw product-count proxy shares, Downloads-weighted proxy
-sums and shares, observable-Revenue composition sums and shares, source-match
-counts and ratios, and invalid/unknown coverage evidence. These are descriptive
-metrics only. Theme aggregation does not produce a dominant-proxy label,
-theme-level `low`/`partial`/`higher`/`unknown` applicability value, or a
-business recommendation. Numeric zero remains zero, SQL `NULL` remains
-unavailable, and a missing denominator produces a `NULL` share. No values are
-rounded and infinity is never emitted. `observable_revenue_applicability` is
-valid only on the app-level proxy classification above.
+## App-level storage
 
-## Storage and workflows
+The active schema is version 8 and retains the table name
+`app_monetization_profiles`. Each stored market snapshot produces exactly one
+profile, including a NULL observable Revenue or NULL raw Game Theme. The
+active profile columns are:
 
-Schema version 7 adds exactly these tables without changing existing tables or
-columns:
+- scope, cadence, period boundaries, source app ID, and unified app ID;
+- raw Game Theme and raw Game Product Model context;
+- `monetization_policy_version = MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1`;
+- nullable `observable_revenue_usd`;
+- `observable_revenue_state`, `monetization_proxy`, and
+  `classification_reason`; and
+- deterministic `calculated_at`.
 
-- `app_monetization_profiles`
-- `theme_monetization_observability_metrics`
+The active schema contains no Custom-Field audit, Ads state, IAP mechanism
+state, source-record-match state, or superseded proxy columns.
 
-`replace_monetization_period(...)` atomically replaces the two output tables
-for one exact stored market period. The collection bundle method atomically
-replaces `market_snapshots` plus both output tables. Typed validation, identity
-checks, product/theme reconciliation, and internal readback occur before
-commit; failures roll back the transaction. DuckDB remains authoritative.
+## Theme-level storage
 
-The dedicated latest-month command is:
+The active table remains `theme_monetization_observability_metrics`. It has
+one row for every non-NULL raw Game Theme in each requested month. NULL themes
+have no theme row. Empty strings, `Unknown`, and `N/A` remain distinct raw
+labels.
 
-```powershell
-python -m src collect-monetization --month 2026-07 --plan-only
-python -m src collect-monetization --month 2026-07
-python -m src collect-monetization --month 2026-07 --skip-export
+Each row stores product count, observable-Revenue coverage count/ratio/sum,
+the three proxy product counts/shares, Downloads coverage count/ratio/sum,
+Downloads sums/shares by the three proxy classes, scope/month identity, the
+policy version, and `calculated_at`. It does not store class-level
+observable-Revenue shares because those would be tautological under this
+Revenue-defined classifier.
+
+Downloads means stored `units_absolute`. Downloads weighting is descriptive
+evidence only; it does not estimate advertising revenue. Product counts
+reconcile exactly:
+
+```text
+iaa_candidate_product_count
++ iap_or_hybrid_candidate_product_count
++ unknown_product_count
+= product_count
 ```
 
-Plan-only runs before configuration and logging, validates a completed natural
-month, and performs no credential, network, database, directory, or file
-operation. Real execution accepts only the latest stored completed month,
-calls the existing market endpoint once, reuses existing local selection,
-does not call metadata or Feishu, keeps the stored population authoritative,
-and rejects any selected source-ID population that does not exactly match the
-stored latest-month source-ID population. The sanitized mismatch error reports
-only stored, selected, matched, unmatched, and extra counts; it lists no IDs
-and performs no profile/theme replacement or Parquet export.
+Numeric zero is retained as zero. A zero or unavailable denominator produces a
+NULL share. A zero coverage count produces a NULL sum; a covered observed
+numeric zero produces a numeric zero sum. The derived theme identities are
+validated against the existing non-NULL-theme monthly aggregation and model
+summary populations when those populations are present; the identity count is
+calculated from the database, never hard-coded.
 
-The two deterministic atomic ZSTD exports are:
+## Offline range workflow
 
-- `app_monetization_profiles.parquet`
-- `theme_monetization_observability_metrics.parquet`
+The command reads only stored market snapshots. It makes zero Sensor Tower,
+metadata, Feishu, or other network requests and does not require a Sensor Tower
+token, Custom Field response, raw JSON file, weekly CSV, or Game Product Model
+classification.
 
-Future `collect-month` runs reuse their already selected market response and
-do not make a second market request. Historical `backfill-months` explicitly
-does not build monetization rows.
+```powershell
+python -m src derive-monetization --start 2023-08 --end 2026-07 --plan-only
+python -m src derive-monetization --start 2023-08 --end 2026-07 --skip-export
+python -m src derive-monetization --start 2023-08 --end 2026-07
+```
 
-## Historical-versioning limitation
+The range is inclusive and processed oldest to newest. Every requested month
+must have a non-empty stored monthly market period; missing months fail rather
+than being skipped. The complete range is validated before one atomic
+replacement of only the two monetization output tables for the requested
+periods. Existing market, aggregation, MODEL-002, and BACKTEST-001 rows are
+not modified. Both deterministic ZSTD Parquet files are exported once after
+successful persistence unless `--skip-export` is supplied. Calculation or
+persistence failure performs no export.
 
-The current response proves that these Custom Fields are present in the market
-response, but it does not prove that their values are historically versioned as
-of an arbitrary requested month. MONETIZATION-001 therefore does not perform a
-36-month monetization backfill, reinterpret historical Custom Fields, or
-re-stratify BACKTEST-001. The first real run observes only the latest stored
-completed market month; later monthly runs may accumulate prospective
-observations. No historical Revenue result is claimed to be controlled for
-monetization mix.
+`--plan-only` runs before configuration loading and logging. It validates the
+completed-month range only and does not access YAML, `.env`, credentials,
+DuckDB, network, or local output files.
 
-Development and automated tests use synthetic responses, fake or mock clients,
-temporary DuckDB files, and temporary Parquet files only. No real Sensor Tower
-or Feishu request and no real user DuckDB or Parquet file is part of the
-development workflow.
+The superseded `collect-monetization` command is removed; no Sensor Tower
+request is required for monetization derivation. Future `collect-month`
+integration reuses the selected market snapshot rows already available to that
+workflow. It makes no second market request, Custom Fields request, metadata
+request specifically for monetization, or historical recalculation.
+
+## Schema migration
+
+Schema version 8 preserves all schema-v1 through schema-v6 tables and rows. A
+normal upgrade from schema v6 creates the interim v7 tables transactionally,
+then replaces only those empty interim monetization tables with the v8 schema.
+An existing interim v7 database is supported only when both legacy
+monetization tables are empty. If either contains rows, migration fails before
+dropping or overwriting anything; legacy Custom-Field rows are never
+reinterpreted as observable-Revenue rows. Read-only schema verification
+understands the final v8 contract.
+
+## Validation boundary
+
+Automated validation uses synthetic typed rows, mocks, temporary DuckDB, and
+temporary Parquet only. It does not access the real Sensor Tower API, the
+production DuckDB, its verified backup, real exports, or Feishu. Real-
+environment acceptance is a separate step and is not part of implementation.

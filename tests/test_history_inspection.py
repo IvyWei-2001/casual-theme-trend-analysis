@@ -170,7 +170,7 @@ def test_schema_v4_is_inspectable_read_only_without_model_tables(tmp_path: Path)
         schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
     ):
         connection.execute(f"DROP TABLE {table_name}")
-    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7)")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7, 8)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
     writable.close()
 

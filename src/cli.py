@@ -43,8 +43,8 @@ from .workflows import (
     BackfillMonthsRequest,
     BacktestThemesError,
     BacktestThemesRequest,
-    CollectMonetizationRequest,
     CollectMonthRequest,
+    DeriveMonetizationRequest,
     HistoryInspectionRequest,
     InvalidMonthError,
     ModelThemesError,
@@ -55,13 +55,13 @@ from .workflows import (
     aggregate_themes,
     backfill_months,
     backtest_themes,
-    collect_monetization,
     collect_month,
+    derive_monetization,
     format_aggregate_themes_summary,
     format_backfill_summary,
     format_backtest_themes_summary,
-    format_collect_monetization_summary,
     format_collection_summary,
+    format_derive_monetization_summary,
     format_feishu_trend_sync_plan_only,
     format_feishu_trend_sync_summary,
     format_history_inspection_plan,
@@ -105,18 +105,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="store DuckDB rows but skip both Parquet exports",
     )
     monetization_parser = subparsers.add_parser(
-        "collect-monetization",
-        help="collect latest-month monetization observability without historical backfill",
+        "derive-monetization",
+        help="derive observable-Revenue monetization candidates from stored snapshots",
     )
     monetization_parser.add_argument(
-        "--month",
+        "--start",
         required=True,
-        help="latest stored completed natural calendar month in YYYY-MM format",
+        help="oldest completed natural calendar month in YYYY-MM format",
+    )
+    monetization_parser.add_argument(
+        "--end",
+        required=True,
+        help="newest completed natural calendar month in YYYY-MM format",
     )
     monetization_parser.add_argument(
         "--plan-only",
         action="store_true",
-        help="validate and print the fixed plan without config, network, or storage access",
+        help="validate and print the offline plan without config, storage, or file access",
     )
     monetization_parser.add_argument(
         "--skip-export",
@@ -329,11 +334,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested local command and return a categorized exit code."""
 
     args = build_parser().parse_args(argv)
-    if args.command == "collect-monetization" and args.plan_only:
+    if args.command == "derive-monetization" and args.plan_only:
         try:
-            monetization_plan = collect_monetization(
-                CollectMonetizationRequest(
-                    month=args.month,
+            monetization_plan = derive_monetization(
+                DeriveMonetizationRequest(
+                    start_month=args.start,
+                    end_month=args.end,
                     database_path=Path(DEFAULT_DATABASE_PATH),
                     export_directory=Path(DEFAULT_EXPORT_DIRECTORY),
                     plan_only=True,
@@ -343,7 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (InvalidMonthError, WorkflowError) as error:
             _print_error(str(error))
             return 2
-        print(format_collect_monetization_summary(monetization_plan))
+        print(format_derive_monetization_summary(monetization_plan))
         return 0
     if args.command == "provision-feishu-schema" and args.plan_only:
         try:
@@ -592,30 +598,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(format_collection_summary(summary))
         return 0
 
-    if args.command == "collect-monetization":
+    if args.command == "derive-monetization":
         current_utc = datetime.now(UTC)
-        monetization_request = CollectMonetizationRequest(
-            month=args.month,
+        monetization_request = DeriveMonetizationRequest(
+            start_month=args.start,
+            end_month=args.end,
             database_path=config.database_path,
             export_directory=config.export_directory,
             plan_only=args.plan_only,
             skip_export=args.skip_export,
         )
         try:
-            monetization_summary = collect_monetization(
+            monetization_summary = derive_monetization(
                 monetization_request,
-                config,
                 current_utc=current_utc,
             )
         except InvalidMonthError as error:
             _print_error(str(error))
             return 2
-        except SensorTowerConfigurationError as error:
-            _print_error(str(error))
-            return 2
-        except SensorTowerError as error:
-            _print_error(str(error))
-            return 3
         except StorageError as error:
             _print_error(str(error))
             return 4
@@ -623,13 +623,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_error(str(error))
             return 3
         except OSError:
-            _print_error("local monetization storage operation failed")
+            _print_error("local monetization derivation operation failed")
             return 4
         except Exception:
-            _print_error("monetization collection failed")
+            _print_error("monetization derivation failed")
             return 4
 
-        print(format_collect_monetization_summary(monetization_summary))
+        print(format_derive_monetization_summary(monetization_summary))
         return 0
 
     if args.command == "backfill-months":

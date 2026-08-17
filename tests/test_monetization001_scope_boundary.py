@@ -1,4 +1,4 @@
-"""Static boundary checks for the pure MONETIZATION-001 policy module."""
+"""Static boundary checks for the offline MONETIZATION-001 implementation."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _module_ast(path: Path) -> ast.Module:
 def test_pure_modules_have_no_external_service_imports() -> None:
     forbidden_fragments = (
         "feishu",
-        "sensor_tower.client",
+        "sensor_tower",
         "duckdb",
         "httpx",
         "openai",
@@ -41,19 +41,18 @@ def test_pure_modules_have_no_external_service_imports() -> None:
         )
 
 
-def test_product_policy_has_no_revenue_or_model_mapping_inputs() -> None:
+def test_proxy_accepts_only_observable_revenue_and_has_no_model_input() -> None:
     tree = _module_ast(Path("src/analysis/monetization_models.py"))
     function = next(
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
-        and node.name == "classify_product_monetization_proxy"
+        and node.name == "classify_observable_revenue"
     )
     identifiers = {
         node.id.casefold() for node in ast.walk(function) if isinstance(node, ast.Name)
     }
     forbidden_identifiers = {
-        "revenue",
         "downloads",
         "units_absolute",
         "game_product_model",
@@ -61,16 +60,16 @@ def test_product_policy_has_no_revenue_or_model_mapping_inputs() -> None:
         "rpd",
         "iaa",
         "llm",
+        "custom_tags",
     }
     assert identifiers.isdisjoint(forbidden_identifiers)
-    assert [argument.arg for argument in function.args.args] == [
-        "ads_state",
-        "meaningful_iap_states",
-    ]
+    assert [argument.arg for argument in function.args.args] == ["revenue_absolute"]
 
 
-def test_pure_layer_contains_no_decision_or_recommendation_writer() -> None:
-    source = "\n".join(path.read_text(encoding="utf-8") for path in PURE_MODULES).casefold()
-    assert "decision-001" not in source
-    assert "recommendation" not in source
-    assert "feishuclient" not in source
+def test_cli_has_offline_range_command_and_no_network_monetization_command() -> None:
+    source = Path("src/cli.py").read_text(encoding="utf-8")
+    assert '"derive-monetization"' in source
+    assert '"collect-monetization"' not in source
+    assert "SensorTowerClient" not in Path(
+        "src/workflows/derive_monetization.py"
+    ).read_text(encoding="utf-8")

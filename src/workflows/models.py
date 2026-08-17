@@ -97,18 +97,21 @@ class CollectMonthRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class CollectMonetizationRequest:
-    """Validated inputs for the latest-month monetization observation."""
+class DeriveMonetizationRequest:
+    """Validated inputs for offline inclusive-range monetization derivation."""
 
-    month: str
+    start_month: str
+    end_month: str
     database_path: Path
     export_directory: Path
     plan_only: bool = False
     skip_export: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(self.month, str) or not self.month:
-            raise WorkflowError("month must be a non-empty string")
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
         for field_name in ("database_path", "export_directory"):
             value = getattr(self, field_name)
             if not isinstance(value, (Path, str)) or not str(value).strip():
@@ -357,27 +360,20 @@ class CollectMonthSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class CollectMonetizationSummary:
-    """Sanitized result of a plan or completed monetization observation."""
+class DeriveMonetizationSummary:
+    """Sanitized result of an offline monetization range derivation."""
 
-    month: str
-    period_start: date
-    period_end: date
+    start_month: str
+    end_month: str
+    planned_month_count: int
+    planned_months: tuple[str, ...]
+    processed_month_count: int
     scope_name: str
     policy_version: str
-    verified_tag_count: int
-    meaningful_iap_tag_count: int
-    stored_snapshot_count: int
-    candidate_count: int
-    selected_count: int
-    matched_source_record_count: int
-    unmatched_stored_snapshot_count: int
-    extra_selected_record_count: int
+    source_snapshot_row_count: int
     profile_row_count: int
-    classified_profile_count: int
-    unknown_profile_count: int
-    invalid_signal_profile_count: int
     theme_metric_row_count: int
+    expected_theme_identity_count: int
     database_path: Path
     app_profiles_parquet_path: Path | None
     theme_metrics_parquet_path: Path | None

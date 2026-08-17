@@ -175,7 +175,7 @@ def test_schema_initialization_is_idempotent_and_has_no_credential_columns(
     }
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
 
     forbidden_fragments = ("credential", "token", "password", "secret", "url")
     for table_name in tables:

@@ -1,4 +1,4 @@
-"""Synthetic MONETIZATION-001 policy and aggregation tests."""
+"""Synthetic tests for the observable-Revenue MONETIZATION-001 proxy."""
 
 from __future__ import annotations
 
@@ -7,25 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.analysis.errors import MonetizationValidationError
 from src.analysis.monetization_models import (
-    MONETIZATION_MEANINGFUL_IAP_TAG_KEYS,
-    MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS,
+    MONETIZATION_POLICY_VERSION,
     build_app_monetization_profiles,
-    classify_product_monetization_proxy,
-    normalize_source_boolean_state,
+    classify_observable_revenue,
 )
 from src.analysis.monetization_observability import (
     aggregate_theme_monetization_observability,
 )
-from src.sensor_tower import (
-    GAME_IQ_IAP_BUNDLES_TAG,
-    IN_APP_PURCHASES_TAG,
-    MONETIZATION_AD_REMOVAL_TAG,
-    MONETIZATION_ADS_TAG,
-    MONETIZATION_LIVE_OPS_TAG,
-)
 
-OBSERVED_AT = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+CALCULATED_AT = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 PERIOD_START = date(2026, 7, 1)
 PERIOD_END = date(2026, 7, 31)
 
@@ -33,71 +25,28 @@ PERIOD_END = date(2026, 7, 31)
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (True, "true"),
-        (False, "false"),
-        ("True", "true"),
-        (" TRUE ", "true"),
-        ("true", "true"),
-        ("False", "false"),
-        ("FALSE", "false"),
-        (" false ", "false"),
-        (None, "unknown"),
-        (1, "invalid"),
-        (0, "invalid"),
-        ("yes", "invalid"),
-        ("no", "invalid"),
-        ([], "invalid"),
-        ({}, "invalid"),
+        (None, ("unavailable", "unknown", "observable_revenue_unavailable")),
+        (0, ("zero", "iaa_candidate", "observable_revenue_zero")),
+        (0.0, ("zero", "iaa_candidate", "observable_revenue_zero")),
+        (12.5, ("positive", "iap_or_hybrid_candidate", "observable_revenue_positive")),
     ],
 )
-def test_source_boolean_normalization_is_strict(value: object, expected: str) -> None:
-    assert normalize_source_boolean_state(value) == expected
-
-
-def test_absent_source_value_is_unknown() -> None:
-    assert normalize_source_boolean_state() == "unknown"
-
-
-@pytest.mark.parametrize(
-    ("ads_state", "iap_states", "expected"),
-    [
-        ("true", ("false",) * 7, ("ads_dominant_candidate", "low")),
-        ("true", ("unknown",) * 7, ("unknown", "unknown")),
-        ("true", ("false",) * 6 + ("unknown",), ("unknown", "unknown")),
-        ("true", ("true",) + ("unknown",) * 6, ("hybrid_candidate", "partial")),
-        ("true", ("true",) + ("false",) * 6, ("hybrid_candidate", "partial")),
-        ("true", ("true", "true") + ("false",) * 5, ("hybrid_candidate", "partial")),
-        ("false", ("true",) + ("false",) * 6, ("iap_dominant_candidate", "higher")),
-        ("false", ("false",) * 7, ("unknown", "unknown")),
-        ("false", ("unknown",) * 7, ("unknown", "unknown")),
-        ("unknown", ("true",) + ("false",) * 6, ("unknown", "unknown")),
-        ("invalid", ("false",) * 7, ("unknown", "unknown")),
-        ("false", ("invalid",) + ("false",) * 6, ("unknown", "unknown")),
-    ],
-)
-def test_product_proxy_covers_policy_branches(
-    ads_state: str,
-    iap_states: tuple[str, ...],
-    expected: tuple[str, str],
+def test_observable_revenue_proxy_has_exact_boundaries(
+    value: object,
+    expected: tuple[str, ...],
 ) -> None:
-    proxy, applicability, _ = classify_product_monetization_proxy(  # type: ignore[arg-type]
-        ads_state,  # type: ignore[arg-type]
-        iap_states,  # type: ignore[arg-type]
-    )
-    assert (proxy, applicability) == expected
+    assert classify_observable_revenue(value) == expected
 
 
-def test_unmatched_source_is_unknown_before_signal_validation() -> None:
-    result = classify_product_monetization_proxy(
-        "invalid",  # type: ignore[arg-type]
-        ("invalid",) * 7,  # type: ignore[arg-type]
-        source_record_matched=False,
-    )
-    assert result == ("unknown", "unknown", "source_record_unmatched")
+@pytest.mark.parametrize("value", [-1, -0.01, float("nan"), float("inf"), float("-inf")])
+def test_negative_and_non_finite_observable_revenue_is_rejected(value: float) -> None:
+    with pytest.raises(MonetizationValidationError, match="finite, non-negative"):
+        classify_observable_revenue(value)
 
 
 def _snapshot(
-    source_app_id: str,
+    app_id: str,
+    rank: int,
     *,
     theme: str | None,
     units: float | None,
@@ -109,235 +58,99 @@ def _snapshot(
         cadence="monthly",
         period_start=PERIOD_START,
         period_end=PERIOD_END,
-        source_app_id=source_app_id,
-        unified_app_id=f"unified-{source_app_id}",
+        source_app_id=app_id,
+        unified_app_id=f"unified-{app_id}",
         game_theme=theme,
         game_product_model=product_model,
         units_absolute=units,
         revenue_absolute=revenue,
+        rank_position=rank,
     )
 
 
-def _source_record(source_app_id: str, tags: dict[str, object]) -> SimpleNamespace:
-    return SimpleNamespace(app_id=source_app_id, custom_tags=tags)
-
-
-def _profile_rows(
-    snapshots: list[SimpleNamespace],
-    tags_by_app_id: dict[str, dict[str, object]],
-) -> list[object]:
-    return build_app_monetization_profiles(
-        snapshots,
-        [_source_record(app_id, tags) for app_id, tags in tags_by_app_id.items()],
-        observed_at=OBSERVED_AT,
-    )
-
-
-@pytest.mark.parametrize(
-    ("tags", "expected_evidence", "expected_proxy", "expected_applicability"),
-    [
-        ({MONETIZATION_ADS_TAG: True}, "unknown", "unknown", "unknown"),
-        (
-            {
-                MONETIZATION_ADS_TAG: True,
-                **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[:6]},
-            },
-            "unknown",
-            "unknown",
-            "unknown",
-        ),
-        (
-            {
-                MONETIZATION_ADS_TAG: True,
-                **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
-            },
-            "absent",
-            "ads_dominant_candidate",
-            "low",
-        ),
-        (
-            {
-                MONETIZATION_ADS_TAG: True,
-                MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[0]: True,
-            },
-            "present",
-            "hybrid_candidate",
-            "partial",
-        ),
-        ({MONETIZATION_ADS_TAG: False}, "unknown", "unknown", "unknown"),
-        (
-            {MONETIZATION_ADS_TAG: True, MONETIZATION_MEANINGFUL_IAP_TAG_KEYS[0]: 1},
-            "invalid",
-            "unknown",
-            "unknown",
-        ),
-    ],
-)
-def test_meaningful_iap_evidence_distinguishes_missing_from_absent(
-    tags: dict[str, object],
-    expected_evidence: str,
-    expected_proxy: str,
-    expected_applicability: str,
-) -> None:
-    snapshot = _snapshot(
-        f"evidence-{expected_evidence}-{expected_proxy}",
-        theme="Theme",
-        units=1,
-        revenue=0,
-    )
-    profile = _profile_rows([snapshot], {snapshot.source_app_id: tags})[0]
-    assert profile.meaningful_iap_evidence_state == expected_evidence
-    assert profile.monetization_mix_proxy == expected_proxy
-    assert profile.observable_revenue_applicability == expected_applicability
-
-
-def test_contextual_fields_do_not_create_meaningful_iap() -> None:
-    snapshot = _snapshot("contextual", theme="Theme", units=1, revenue=100)
-    tags = {
-        MONETIZATION_AD_REMOVAL_TAG: True,
-        IN_APP_PURCHASES_TAG: True,
-        MONETIZATION_LIVE_OPS_TAG: True,
-    }
-    profile = _profile_rows([snapshot], {"contextual": tags})[0]
-    assert profile.meaningful_iap_mechanism_count == 0
-    assert profile.meaningful_iap_evidence_state == "unknown"
-    assert profile.monetization_mix_proxy == "unknown"
-    assert profile.ads_state == "unknown"
-
-
-def test_raw_audit_is_canonical_and_preserves_source_values() -> None:
-    snapshot = _snapshot("audit", theme="Theme", units=1, revenue=0)
-    tags = {
-        GAME_IQ_IAP_BUNDLES_TAG: " TrUe ",
-        MONETIZATION_ADS_TAG: {"unexpected": object()},
-        "unsupported-tag": "ignored",
-    }
-    profile = _profile_rows([snapshot], {"audit": tags})[0]
-    assert profile.verified_source_tags_json == (
-        '{"Game IQ - IAP Bundles":" TrUe ",'
-        '"Monetization: Ads":{"unexpected":"<unsupported>"}}'
-    )
-    assert profile.source_tag_present_count == 2
-    assert profile.source_tag_invalid_count == 1
-    assert profile.ads_state == "invalid"
-    assert profile.monetization_mix_proxy == "unknown"
-
-
-def test_product_classification_does_not_use_model_downloads_or_revenue() -> None:
-    first = _snapshot("same", theme="Theme", units=1, revenue=0, product_model="A")
-    second = _snapshot("other", theme="Theme", units=999999, revenue=999999, product_model="B")
-    tags = {
-        MONETIZATION_ADS_TAG: True,
-        GAME_IQ_IAP_BUNDLES_TAG: True,
-    }
-    profiles = _profile_rows([first, second], {"same": tags, "other": tags})
-    assert [profile.monetization_mix_proxy for profile in profiles] == [
-        "hybrid_candidate",
-        "hybrid_candidate",
-    ]
-
-
-def test_theme_metrics_retain_raw_downloads_and_revenue_evidence() -> None:
+def test_profiles_cover_null_theme_and_preserve_context_only_product_model() -> None:
     snapshots = [
-        _snapshot("ads", theme="Theme", units=80, revenue=10),
-        _snapshot("iap-1", theme="Theme", units=10, revenue=20),
-        _snapshot("iap-2", theme="Theme", units=10, revenue=0),
+        _snapshot("null-theme", 1, theme=None, units=0, revenue=None, product_model="A"),
+        _snapshot("zero", 2, theme="", units=10, revenue=0, product_model="B"),
+        _snapshot("positive", 3, theme="Unknown", units=None, revenue=25, product_model="C"),
     ]
-    tags = {
-        "ads": {
-            MONETIZATION_ADS_TAG: True,
-            **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
-        },
-        "iap-1": {MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
-        "iap-2": {MONETIZATION_ADS_TAG: False, GAME_IQ_IAP_BUNDLES_TAG: True},
-    }
-    metric = aggregate_theme_monetization_observability(
-        snapshots,
-        _profile_rows(snapshots, tags),
-        calculated_at=OBSERVED_AT,
-    )[0]
-    assert metric.ads_dominant_candidate_product_share == pytest.approx(1 / 3)
-    assert metric.iap_dominant_candidate_product_share == pytest.approx(2 / 3)
-    assert metric.ads_dominant_candidate_downloads_share == pytest.approx(0.8)
-    assert metric.iap_dominant_candidate_downloads_share == pytest.approx(0.2)
-    assert metric.observable_revenue_usd_sum == 30
-    assert metric.iap_dominant_candidate_observable_revenue_share == pytest.approx(2 / 3)
-    assert not hasattr(metric, "dominant_monetization_mix_proxy_by_downloads")
-    assert not hasattr(metric, "observable_revenue_applicability")
+    profiles = build_app_monetization_profiles(snapshots, calculated_at=CALCULATED_AT)
+
+    assert len(profiles) == 3
+    assert [profile.observable_revenue_state for profile in profiles] == [
+        "unavailable",
+        "zero",
+        "positive",
+    ]
+    assert [profile.monetization_proxy for profile in profiles] == [
+        "unknown",
+        "iaa_candidate",
+        "iap_or_hybrid_candidate",
+    ]
+    assert profiles[0].game_theme is None
+    assert profiles[0].game_product_model == "A"
+    assert all(
+        profile.monetization_policy_version == MONETIZATION_POLICY_VERSION
+        for profile in profiles
+    )
 
 
-def test_theme_unknown_coverage_remains_raw_evidence() -> None:
+def test_theme_metrics_preserve_raw_labels_and_reconcile_downloads() -> None:
     snapshots = [
-        _snapshot("unknown", theme="Theme", units=50, revenue=None),
-        _snapshot("ads", theme="Theme", units=50, revenue=0),
+        _snapshot("empty", 1, theme="", units=80, revenue=None),
+        _snapshot("unknown-1", 2, theme="Unknown", units=10, revenue=0),
+        _snapshot("unknown-2", 3, theme="Unknown", units=10, revenue=None),
+        _snapshot("na", 4, theme="N/A", units=None, revenue=25),
+        _snapshot("null", 5, theme=None, units=100, revenue=5),
     ]
-    tags = {
-        "unknown": {},
-        "ads": {
-            MONETIZATION_ADS_TAG: True,
-            **{key: False for key in MONETIZATION_MEANINGFUL_IAP_TAG_KEYS},
-        },
-    }
-    metric = aggregate_theme_monetization_observability(
-        snapshots,
-        _profile_rows(snapshots, tags),
-        calculated_at=OBSERVED_AT,
-    )[0]
-    assert metric.unknown_downloads_share == pytest.approx(0.5)
-    assert metric.source_record_match_ratio == pytest.approx(1.0)
-    assert not hasattr(metric, "applicability_reason")
-
-
-def test_zero_and_null_denominators_remain_distinct() -> None:
-    zero_snapshots = [_snapshot("zero", theme="Zero", units=0, revenue=0)]
-    zero_metric = aggregate_theme_monetization_observability(
-        zero_snapshots,
-        _profile_rows(zero_snapshots, {"zero": {MONETIZATION_ADS_TAG: True}}),
-        calculated_at=OBSERVED_AT,
-    )[0]
-    assert zero_metric.downloads_sum == 0
-    assert zero_metric.ads_dominant_candidate_downloads_sum == 0
-    assert zero_metric.ads_dominant_candidate_downloads_share is None
-    assert not hasattr(zero_metric, "observable_revenue_applicability")
-
-    null_snapshots = [_snapshot("null", theme="Null", units=None, revenue=None)]
-    null_metric = aggregate_theme_monetization_observability(
-        null_snapshots,
-        _profile_rows(null_snapshots, {"null": {MONETIZATION_ADS_TAG: True}}),
-        calculated_at=OBSERVED_AT,
-    )[0]
-    assert null_metric.downloads_sum is None
-    assert null_metric.observable_revenue_usd_sum is None
-    assert null_metric.unknown_downloads_share is None
-
-
-def test_source_match_ratio_and_raw_theme_behavior() -> None:
-    snapshots = [
-        _snapshot("a", theme="", units=10, revenue=None),
-        _snapshot("b", theme="Unknown", units=10, revenue=None),
-        _snapshot("c", theme="N/A", units=10, revenue=None),
-        _snapshot("d", theme=None, units=10, revenue=None),
-        _snapshot("e", theme="Unknown", units=10, revenue=None),
-    ]
-    tags = {
-        "a": {MONETIZATION_ADS_TAG: True},
-        "b": {MONETIZATION_ADS_TAG: True},
-        "c": {MONETIZATION_ADS_TAG: True},
-    }
-    profiles = _profile_rows(snapshots, tags)
+    profiles = build_app_monetization_profiles(snapshots, calculated_at=CALCULATED_AT)
     metrics = aggregate_theme_monetization_observability(
         snapshots,
         profiles,
-        calculated_at=OBSERVED_AT,
+        calculated_at=CALCULATED_AT,
     )
+
     assert [metric.game_theme for metric in metrics] == ["", "N/A", "Unknown"]
-    unknown_metric = next(metric for metric in metrics if metric.game_theme == "Unknown")
-    assert unknown_metric.product_count == 2
-    assert unknown_metric.source_record_match_ratio == 0.5
-    assert not hasattr(unknown_metric, "applicability_reason")
+    unknown = next(metric for metric in metrics if metric.game_theme == "Unknown")
+    assert unknown.product_count == 2
+    assert unknown.observable_revenue_usd_coverage_count == 1
+    assert unknown.observable_revenue_usd_coverage_ratio == pytest.approx(0.5)
+    assert unknown.observable_revenue_usd_sum == 0
+    assert unknown.iaa_candidate_product_count == 1
+    assert unknown.unknown_product_count == 1
+    assert unknown.iaa_candidate_product_share == pytest.approx(0.5)
+    assert unknown.unknown_downloads_sum == 10
+    assert unknown.unknown_downloads_share == pytest.approx(0.5)
+    assert unknown.downloads_sum == 20
+    assert not hasattr(unknown, "iaa_candidate_observable_revenue_share")
 
 
-def test_all_approved_tag_keys_are_exactly_partitioned() -> None:
-    assert len(MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS) == 11
-    assert len(MONETIZATION_MEANINGFUL_IAP_TAG_KEYS) == 7
-    assert len(set(MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS)) == 11
+def test_zero_download_denominator_keeps_class_shares_null() -> None:
+    snapshots = [
+        _snapshot("zero", 1, theme="Theme", units=0, revenue=0),
+        _snapshot("missing", 2, theme="Theme", units=None, revenue=None),
+    ]
+    profiles = build_app_monetization_profiles(snapshots, calculated_at=CALCULATED_AT)
+    metric = aggregate_theme_monetization_observability(
+        snapshots,
+        profiles,
+        calculated_at=CALCULATED_AT,
+    )[0]
+
+    assert metric.downloads_coverage_count == 1
+    assert metric.downloads_sum == 0
+    assert metric.iaa_candidate_downloads_sum == 0
+    assert metric.iaa_candidate_downloads_share is None
+    assert metric.unknown_downloads_sum is None
+
+
+def test_duplicate_app_identity_and_invalid_revenue_fail_before_profiles() -> None:
+    duplicate = [
+        _snapshot("same", 1, theme="Theme", units=1, revenue=1),
+        _snapshot("same", 2, theme="Other", units=1, revenue=2),
+    ]
+    with pytest.raises(MonetizationValidationError, match="duplicate"):
+        build_app_monetization_profiles(duplicate, calculated_at=CALCULATED_AT)
+    invalid = [_snapshot("invalid", 1, theme="Theme", units=1, revenue=-1)]
+    with pytest.raises(MonetizationValidationError):
+        build_app_monetization_profiles(invalid, calculated_at=CALCULATED_AT)
