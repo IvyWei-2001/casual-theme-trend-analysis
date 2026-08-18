@@ -98,7 +98,7 @@ def test_fresh_schema_has_v5_and_exact_existing_columns(tmp_path: Path) -> None:
     connection = repository.open()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
     expected = (
         (
             schema_module.THEME_MARKET_STRUCTURE_METRICS_TABLE,
@@ -169,7 +169,7 @@ def test_version_three_migrates_without_rewriting_existing_rows(tmp_path: Path) 
     repository.initialize_schema()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
     assert connection.execute("SELECT count(*) FROM app_metadata").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM market_snapshots").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM monthly_market_totals").fetchone() == (1,)

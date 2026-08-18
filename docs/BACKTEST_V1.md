@@ -11,8 +11,15 @@ MODEL-002 is completed and real-environment accepted. Sanitized evidence is
 `source_model_summary_row_count=2153`, `legacy_6m_score_row_count=1832`,
 `horizon_metric_row_count=20118`, `seasonality_profile_row_count=52584`,
 `seasonality_profile_group_count=4382`, and `verification=passed`.
-BACKTEST-001 itself is implemented and synthetic/temporary-DuckDB verified;
-real-environment acceptance remains pending.
+BACKTEST-001 is also accepted for the project boundary `2023-08` through
+`2026-07`. Sanitized acceptance evidence is `schema_version=6`,
+`history_month_count=36`, `source_model_summary_row_count=2153`,
+`source_legacy_6m_score_row_count=1832`, `outcome_row_count=5147`,
+`horizon_1_outcome_row_count=1773`, `horizon_2_outcome_row_count=1715`,
+`horizon_3_outcome_row_count=1659`, `feature_metric_row_count=228`,
+`segment_metric_row_count=336`, `future_theme_absent_row_count=295`,
+`downloads_outcome_unavailable_count=0`, `revenue_outcome_unavailable_count=0`,
+`zero_eligible_36m_feature_metric_count=24`, and `verification=passed`.
 
 ## Command boundary
 
@@ -230,10 +237,11 @@ replacement. Export failure does not undo a committed DuckDB replacement.
 
 ## Validation boundary and limitations
 
-Automated validation uses synthetic typed rows, mock/fake repository
-boundaries, temporary DuckDB, and temporary Parquet only. No production
-database, production Parquet, Sensor Tower request, or Feishu request is part
-of development acceptance. The first 36-month history emits 36M feature rows
-but does not validate 36M predictive value. Any final recommendation, score,
-forecast, business dashboard, or scheduled execution requires a later issue
-and separate acceptance.
+Automated development validation uses synthetic typed rows, mock/fake
+repository boundaries, temporary DuckDB, and temporary Parquet only. No
+production database, production Parquet, Sensor Tower request, or Feishu
+request is part of BACKTEST-001 development validation. BACKTEST-001 does not
+claim to control historically for true monetization type. The first
+36-month history emits 36M feature rows but does not validate 36M predictive
+value. Any final recommendation, score, forecast, business dashboard, or
+scheduled execution requires a later issue and separate acceptance.

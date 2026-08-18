@@ -11,6 +11,10 @@ class AggregationValidationError(AggregationError, ValueError):
     """Raised when source rows, metadata, or derived values are invalid."""
 
 
+class MonetizationValidationError(AggregationError, ValueError):
+    """Raised when MONETIZATION-001 inputs or derived evidence are invalid."""
+
+
 class MissingSourcePeriodError(AggregationValidationError):
     """Raised when a requested monthly source period is absent or empty."""
 

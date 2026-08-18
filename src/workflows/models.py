@@ -97,6 +97,32 @@ class CollectMonthRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class DeriveMonetizationRequest:
+    """Validated inputs for offline inclusive-range monetization derivation."""
+
+    start_month: str
+    end_month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in ("start_month", "end_month"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowError(f"{field_name} must be a non-empty string")
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class BackfillMonthRange:
     """Validated inclusive sequence of completed natural calendar months."""
 
@@ -324,6 +350,36 @@ class CollectMonthSummary:
     database_path: Path
     market_parquet_path: Path | None
     metadata_parquet_path: Path | None
+    monetization_profile_rows_written: int
+    theme_monetization_rows_written: int
+    app_profiles_parquet_path: Path | None
+    theme_metrics_parquet_path: Path | None
+    plan_only: bool
+    started_at: datetime
+    completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DeriveMonetizationSummary:
+    """Sanitized result of an offline monetization range derivation."""
+
+    start_month: str
+    end_month: str
+    planned_month_count: int
+    planned_months: tuple[str, ...]
+    processed_month_count: int
+    scope_name: str
+    policy_version: str
+    source_snapshot_row_count: int
+    profile_row_count: int
+    theme_metric_row_count: int
+    expected_theme_identity_count: int
+    database_path: Path
+    app_profiles_parquet_path: Path | None
+    theme_metrics_parquet_path: Path | None
+    verification: str
+    metadata_api: str
+    feishu: str
     plan_only: bool
     started_at: datetime
     completed_at: datetime

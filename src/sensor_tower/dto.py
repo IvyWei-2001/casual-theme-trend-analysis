@@ -31,6 +31,21 @@ PUBLISHER_COUNTRY_TAG: Final = "Publisher Country"
 IS_UNIFIED_TAG: Final = "Is Unified"
 MOST_POPULAR_COUNTRY_BY_REVENUE_TAG: Final = "Most Popular Country by Revenue"
 
+# MONETIZATION-001 uses only these verified Custom Field names.  They are kept
+# at the Sensor Tower DTO boundary so the source spelling is defined once, but
+# the monetization policy itself remains in the pure analysis layer.
+MONETIZATION_ADS_TAG: Final = "Monetization: Ads"
+MONETIZATION_AD_REMOVAL_TAG: Final = "Monetization: Ad Removal"
+IN_APP_PURCHASES_TAG: Final = "In-App Purchases"
+MONETIZATION_LIVE_OPS_TAG: Final = "Monetization: Live Ops"
+GAME_IQ_IAP_BUNDLES_TAG: Final = "Game IQ - IAP Bundles"
+MONETIZATION_CURRENCY_BUNDLES_TAG: Final = "Monetization: Currency Bundles"
+MONETIZATION_SEASON_PASS_TAG: Final = "Monetization: Season Pass"
+MONETIZATION_STARTER_PACK_TAG: Final = "Monetization: Starter Pack"
+MONETIZATION_SUBSCRIPTION_TAG: Final = "Monetization: Subscription"
+IN_APP_SUBSCRIPTION_TAG: Final = "In-App Subscription"
+MONETIZATION_LOOT_BOX_TAG: Final = "Monetization: Loot Box"
+
 VERIFIED_CUSTOM_TAG_KEYS: Final[tuple[str, ...]] = (
     GAME_THEME_TAG,
     GAME_GENRE_TAG,
@@ -43,6 +58,34 @@ VERIFIED_CUSTOM_TAG_KEYS: Final[tuple[str, ...]] = (
     PUBLISHER_COUNTRY_TAG,
     IS_UNIFIED_TAG,
     MOST_POPULAR_COUNTRY_BY_REVENUE_TAG,
+)
+
+MONETIZATION_VERIFIED_CUSTOM_TAG_KEYS: Final[tuple[str, ...]] = (
+    MONETIZATION_ADS_TAG,
+    MONETIZATION_AD_REMOVAL_TAG,
+    IN_APP_PURCHASES_TAG,
+    MONETIZATION_LIVE_OPS_TAG,
+    GAME_IQ_IAP_BUNDLES_TAG,
+    MONETIZATION_CURRENCY_BUNDLES_TAG,
+    MONETIZATION_SEASON_PASS_TAG,
+    MONETIZATION_STARTER_PACK_TAG,
+    MONETIZATION_SUBSCRIPTION_TAG,
+    IN_APP_SUBSCRIPTION_TAG,
+    MONETIZATION_LOOT_BOX_TAG,
+)
+MONETIZATION_MEANINGFUL_IAP_TAG_KEYS: Final[tuple[str, ...]] = (
+    GAME_IQ_IAP_BUNDLES_TAG,
+    MONETIZATION_CURRENCY_BUNDLES_TAG,
+    MONETIZATION_SEASON_PASS_TAG,
+    MONETIZATION_STARTER_PACK_TAG,
+    MONETIZATION_SUBSCRIPTION_TAG,
+    IN_APP_SUBSCRIPTION_TAG,
+    MONETIZATION_LOOT_BOX_TAG,
+)
+MONETIZATION_CONTEXTUAL_TAG_KEYS: Final[tuple[str, ...]] = (
+    MONETIZATION_AD_REMOVAL_TAG,
+    IN_APP_PURCHASES_TAG,
+    MONETIZATION_LIVE_OPS_TAG,
 )
 
 _OPTIONAL_DATE_TAGS: Final[tuple[str, ...]] = (
@@ -158,6 +201,55 @@ class SensorTowerCustomTags(Mapping[str, object]):
         """Return the raw ``Is Unified`` value without coercing its semantics."""
 
         return self._string_value(IS_UNIFIED_TAG)
+
+    def _monetization_value(self, key: str) -> object | None:
+        """Return one approved monetization tag without normalizing its value."""
+
+        return self.tag_values.get(key)
+
+    @property
+    def monetization_ads(self) -> object | None:
+        return self._monetization_value(MONETIZATION_ADS_TAG)
+
+    @property
+    def monetization_ad_removal(self) -> object | None:
+        return self._monetization_value(MONETIZATION_AD_REMOVAL_TAG)
+
+    @property
+    def in_app_purchases(self) -> object | None:
+        return self._monetization_value(IN_APP_PURCHASES_TAG)
+
+    @property
+    def monetization_live_ops(self) -> object | None:
+        return self._monetization_value(MONETIZATION_LIVE_OPS_TAG)
+
+    @property
+    def game_iq_iap_bundles(self) -> object | None:
+        return self._monetization_value(GAME_IQ_IAP_BUNDLES_TAG)
+
+    @property
+    def monetization_currency_bundles(self) -> object | None:
+        return self._monetization_value(MONETIZATION_CURRENCY_BUNDLES_TAG)
+
+    @property
+    def monetization_season_pass(self) -> object | None:
+        return self._monetization_value(MONETIZATION_SEASON_PASS_TAG)
+
+    @property
+    def monetization_starter_pack(self) -> object | None:
+        return self._monetization_value(MONETIZATION_STARTER_PACK_TAG)
+
+    @property
+    def monetization_subscription(self) -> object | None:
+        return self._monetization_value(MONETIZATION_SUBSCRIPTION_TAG)
+
+    @property
+    def in_app_subscription(self) -> object | None:
+        return self._monetization_value(IN_APP_SUBSCRIPTION_TAG)
+
+    @property
+    def monetization_loot_box(self) -> object | None:
+        return self._monetization_value(MONETIZATION_LOOT_BOX_TAG)
 
     @property
     def optional_date_validation_errors(self) -> tuple[str, ...]:

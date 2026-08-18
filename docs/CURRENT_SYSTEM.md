@@ -1,6 +1,7 @@
 # Current System
 
-This document records the audited state of the repository as of BACKTEST-001.
+This document records the audited state of the repository as of
+MONETIZATION-001.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -9,15 +10,15 @@ merged implementation, not the original scaffold roadmap.
 
 Casual Theme Trend Analysis is a typed Python project whose first module is
 Theme Trend Analysis. Sensor Tower is the only approved market-data source.
-Themes come from Sensor Tower Game Theme / Custom Fields; the project does
-not use manual theme tagging, app-name or icon inference, or LLM theme
-classification.
+Themes come from Sensor Tower Game Theme / approved theme fields; the project
+does not use manual theme tagging, app-name or icon inference, or LLM theme
+classification. MONETIZATION-001 does not use monetization Custom Fields.
 
 The current market sample uses category `7012`, country `WW`,
 `device_type=total`, Game Genre `Puzzle` or `Tabletop`, and up to 1200 API
 candidates. Local eligibility filtering retains at most 1000 selected records:
 the `WW Puzzle/Tabletop selected Top-N sample (cap 1000)`. Downloads and
-Revenue (USD) are measured within this selected sample, not the complete
+observable Revenue (USD) are measured within this selected sample, not the complete
 global mobile-games market. The selected sample may contain fewer than 1000
 products; future data-quality output must expose each month's actual
 `snapshot_count`.
@@ -39,7 +40,7 @@ current MVP boundary:
   publisher, entry, rank, and concentration metrics;
 - AGG-002 raw opportunity evidence for market structure, growth sources,
   observed product dimensions, and representative products;
-- sequential schema migrations through version 6, atomic derived-output
+- sequential schema migrations through version 7, atomic derived-output
   replacement, mandatory identity/count readback verification, and
   deterministic ZSTD exports;
 - the current six-month momentum scoring workflow, stored under the unchanged
@@ -132,16 +133,49 @@ and can export three deterministic ZSTD Parquet files.
 
 Development validation uses synthetic rows, fake/mock repository boundaries,
 temporary DuckDB, and temporary Parquet only. The plan-only path is
-credential-free and side-effect-free. The first 36-month history emits the
-36M feature registry rows but has no valid 36M predictive evidence; no real
-BACKTEST-001 production acceptance is claimed here.
+credential-free and side-effect-free. The project-owner-provided accepted
+boundary is 2023-08 through 2026-07 with `outcome_row_count=5147`,
+`feature_metric_row_count=228`, `segment_metric_row_count=336`, and
+`verification=passed`. The first 36-month history emits the 36M feature
+registry rows but does not validate 36M predictive value.
+
+## MONETIZATION-001 implementation status
+
+MONETIZATION-001 adds the pure typed modules
+`src/analysis/monetization_models.py` and
+`src/analysis/monetization_observability.py`, plus the offline
+`derive-monetization` range workflow. It reads only stored
+`market_snapshots` and uses policy
+`MONETIZATION001_OBSERVABLE_REVENUE_PROXY_V1`: NULL observable Revenue is
+`unknown`, zero is `iaa_candidate`, and positive is
+`iap_or_hybrid_candidate`. These are candidate labels, not observed
+monetization types. Zero observable Revenue does not prove zero actual total
+revenue or pure IAA; positive observable Revenue does not distinguish IAP from
+Hybrid; and no IAA advertising revenue is estimated. Game Product Model is
+context only, and historical Custom Fields are not used.
+
+Schema version 8 adds the compact `app_monetization_profiles` and
+`theme_monetization_observability_metrics` tables; schema-v1 through v6
+tables and rows remain unchanged. The inclusive range command covers
+2023-08 through 2026-07 when requested, requires every stored month, makes no
+Sensor Tower, metadata, Feishu, or other network request, and atomically
+replaces only monetization rows. DuckDB is authoritative; the two outputs are
+deterministic atomic ZSTD Parquet exports. Future `collect-month` reuses its
+already selected market rows without a second request.
+
+Development validation uses synthetic rows, mocks, temporary DuckDB, and
+temporary Parquet only; no real Sensor Tower, Feishu, production database,
+backup, or real export operation is included. MONETIZATION-001 does not change
+AGG, MODEL-002, or BACKTEST-001 results, and BACKTEST-001 is not described as
+controlling for true monetization type.
 
 ## Confirmed metric terminology
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
-Downloads (count) and `revenue_absolute` means Revenue (USD). The source names
-remain in adapters and DuckDB for provenance. NULL remains unavailable and
-must not become zero; an observed numeric zero remains zero.
+Downloads (count) and `revenue_absolute` means third-party-platform observable
+Revenue (USD). The source names remain in adapters and DuckDB for provenance.
+NULL remains unavailable and must not become zero; an observed numeric zero
+remains zero. This observable Revenue is not complete total revenue.
 
 The existing score is therefore labeled **6M Momentum Score**. It is not
 Market Size, a 12M or 36M trend score, an investment recommendation, or a

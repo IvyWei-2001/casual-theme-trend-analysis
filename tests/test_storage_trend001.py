@@ -80,7 +80,7 @@ def test_fresh_schema_initializes_sequentially_through_version_four(
     connection = repository.open()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
     assert (
         tuple(
             row[1]
@@ -130,7 +130,7 @@ def test_existing_version_two_upgrades_without_changing_source_or_v2_rows(
     repository.initialize_schema()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
     assert connection.execute("SELECT count(*) FROM app_metadata").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM monthly_market_totals").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM theme_trend_scores").fetchone() == (0,)

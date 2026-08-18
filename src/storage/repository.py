@@ -28,6 +28,11 @@ from ..analysis.model_v2_models import (
     ThemeSeasonalityProfile,
 )
 from ..analysis.models import MonthlyMarketTotal, ThemeMonthlyMetric
+from ..analysis.monetization_models import (
+    MONETIZATION_POLICY_VERSION,
+    AppMonetizationProfile,
+    ThemeMonetizationObservabilityMetric,
+)
 from ..analysis.opportunity_models import (
     DEFAULT_REPRESENTATIVE_GAME_LIMIT,
     ThemeDimensionMonthlyMetric,
@@ -54,6 +59,8 @@ from .models import (
 from .schema import (
     APP_METADATA_COLUMNS,
     APP_METADATA_TABLE,
+    APP_MONETIZATION_PROFILES_COLUMNS,
+    APP_MONETIZATION_PROFILES_TABLE,
     MARKET_SNAPSHOT_COLUMNS,
     MARKET_SNAPSHOTS_TABLE,
     MONTHLY_MARKET_TOTALS_COLUMNS,
@@ -74,6 +81,8 @@ from .schema import (
     THEME_MARKET_STRUCTURE_METRICS_TABLE,
     THEME_MODEL_SUMMARIES_COLUMNS,
     THEME_MODEL_SUMMARIES_TABLE,
+    THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
+    THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
     THEME_MONTHLY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_TABLE,
     THEME_REPRESENTATIVE_GAMES_COLUMNS,
@@ -131,6 +140,16 @@ _THEME_BACKTEST_FEATURE_METRICS_PLACEHOLDERS_SQL = ", ".join(
 _THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL = ", ".join(THEME_BACKTEST_SEGMENT_METRICS_COLUMNS)
 _THEME_BACKTEST_SEGMENT_METRICS_PLACEHOLDERS_SQL = ", ".join(
     "?" for _ in THEME_BACKTEST_SEGMENT_METRICS_COLUMNS
+)
+_APP_MONETIZATION_PROFILES_COLUMNS_SQL = ", ".join(APP_MONETIZATION_PROFILES_COLUMNS)
+_APP_MONETIZATION_PROFILES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in APP_MONETIZATION_PROFILES_COLUMNS
+)
+_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL = ", ".join(
+    THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS
+)
+_THEME_MONETIZATION_OBSERVABILITY_METRICS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS
 )
 
 _DELETE_MARKET_PERIOD_SQL = """
@@ -301,6 +320,29 @@ _INSERT_THEME_BACKTEST_SEGMENT_METRIC_SQL = (
     f"({_THEME_BACKTEST_SEGMENT_METRICS_COLUMNS_SQL}) "
     f"VALUES ({_THEME_BACKTEST_SEGMENT_METRICS_PLACEHOLDERS_SQL})"
 )
+_DELETE_APP_MONETIZATION_PROFILES_SQL = """
+DELETE FROM app_monetization_profiles
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+_DELETE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL = """
+DELETE FROM theme_monetization_observability_metrics
+WHERE scope_name = ?
+  AND cadence = ?
+  AND period_start = ?
+  AND period_end = ?
+"""
+_INSERT_APP_MONETIZATION_PROFILE_SQL = (
+    f"INSERT INTO {APP_MONETIZATION_PROFILES_TABLE} ({_APP_MONETIZATION_PROFILES_COLUMNS_SQL}) "
+    f"VALUES ({_APP_MONETIZATION_PROFILES_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_MONETIZATION_OBSERVABILITY_METRIC_SQL = (
+    f"INSERT INTO {THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE} "
+    f"({_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_MONETIZATION_OBSERVABILITY_METRICS_PLACEHOLDERS_SQL})"
+)
 
 
 class DuckDBRepository:
@@ -392,6 +434,195 @@ class DuckDBRepository:
             _rollback(connection)
             raise
 
+    def replace_monetization_period(
+        self,
+        profiles: Sequence[AppMonetizationProfile],
+        theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+    ) -> None:
+        """Atomically replace MONETIZATION-001 rows for one stored period."""
+
+        profiles_tuple, metrics_tuple, period_key = _validate_monetization_period(
+            profiles,
+            theme_metrics,
+        )
+        connection = self._require_initialized_connection()
+        stored_snapshots = self.get_market_snapshot_period(period_key)
+        _validate_monetization_snapshot_references(
+            stored_snapshots,
+            profiles_tuple,
+            metrics_tuple,
+        )
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            parameters = _period_parameters(period_key)
+            connection.execute(_DELETE_APP_MONETIZATION_PROFILES_SQL, parameters)
+            connection.execute(_DELETE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL, parameters)
+            connection.executemany(
+                _INSERT_APP_MONETIZATION_PROFILE_SQL,
+                [_app_monetization_profile_parameters(row) for row in profiles_tuple],
+            )
+            if metrics_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MONETIZATION_OBSERVABILITY_METRIC_SQL,
+                    [_theme_monetization_metric_parameters(row) for row in metrics_tuple],
+                )
+            _verify_monetization_readback(
+                connection,
+                profiles_tuple,
+                metrics_tuple,
+            )
+            connection.execute("COMMIT")
+        except StorageValidationError:
+            _rollback(connection)
+            raise
+        except Exception:
+            _rollback(connection)
+            raise StorageValidationError("monetization period replacement failed") from None
+
+    def replace_monetization_range(
+        self,
+        profiles: Sequence[AppMonetizationProfile],
+        theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+    ) -> None:
+        """Atomically replace only the supplied monthly monetization range."""
+
+        profiles_tuple = tuple(profiles)
+        metrics_tuple = tuple(theme_metrics)
+        if not profiles_tuple:
+            raise StorageValidationError("monetization range must contain profiles")
+        if any(not isinstance(row, AppMonetizationProfile) for row in profiles_tuple):
+            raise StorageValidationError("monetization profiles contain an invalid typed row")
+        if any(
+            not isinstance(row, ThemeMonetizationObservabilityMetric)
+            for row in metrics_tuple
+        ):
+            raise StorageValidationError("monetization theme metrics contain an invalid typed row")
+
+        profile_periods: dict[
+            tuple[str, str, date, date], list[AppMonetizationProfile]
+        ] = {row.period_key: [] for row in profiles_tuple}
+        for row in profiles_tuple:
+            profile_periods[row.period_key].append(row)
+        metric_periods: dict[
+            tuple[str, str, date, date], list[ThemeMonetizationObservabilityMetric]
+        ] = defaultdict(list)
+        for metric_row in metrics_tuple:
+            metric_periods[metric_row.period_key].append(metric_row)
+        if set(metric_periods) - set(profile_periods):
+            raise StorageValidationError("theme monetization rows have an unknown period")
+
+        validated_periods: list[
+            tuple[
+                tuple[AppMonetizationProfile, ...],
+                tuple[ThemeMonetizationObservabilityMetric, ...],
+                SnapshotPeriodKey,
+            ]
+        ] = []
+        for period_key_tuple in sorted(profile_periods, key=lambda key: key[2]):
+            period_profiles = tuple(profile_periods[period_key_tuple])
+            period_metrics = tuple(metric_periods.get(period_key_tuple, ()))
+            validated_profiles, validated_metrics, snapshot_key = _validate_monetization_period(
+                period_profiles,
+                period_metrics,
+            )
+            stored_snapshots = self.get_market_snapshot_period(snapshot_key)
+            _validate_monetization_snapshot_references(
+                stored_snapshots,
+                validated_profiles,
+                validated_metrics,
+            )
+            validated_periods.append(
+                (validated_profiles, validated_metrics, snapshot_key)
+            )
+
+        connection = self._require_initialized_connection()
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for period_profiles, period_metrics, period_key in validated_periods:
+                parameters = _period_parameters(period_key)
+                connection.execute(_DELETE_APP_MONETIZATION_PROFILES_SQL, parameters)
+                connection.execute(
+                    _DELETE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL,
+                    parameters,
+                )
+                connection.executemany(
+                    _INSERT_APP_MONETIZATION_PROFILE_SQL,
+                    [_app_monetization_profile_parameters(row) for row in period_profiles],
+                )
+                if period_metrics:
+                    connection.executemany(
+                        _INSERT_THEME_MONETIZATION_OBSERVABILITY_METRIC_SQL,
+                        [
+                            _theme_monetization_metric_parameters(row)
+                            for row in period_metrics
+                        ],
+                    )
+            for period_profiles, period_metrics, _period_key_value in validated_periods:
+                _verify_monetization_readback(
+                    connection,
+                    period_profiles,
+                    period_metrics,
+                )
+            connection.execute("COMMIT")
+        except StorageValidationError:
+            _rollback(connection)
+            raise
+        except Exception:
+            _rollback(connection)
+            raise StorageValidationError("monetization range replacement failed") from None
+
+    def replace_market_snapshot_and_monetization_period(
+        self,
+        snapshots: Sequence[MarketSnapshotRow],
+        profiles: Sequence[AppMonetizationProfile],
+        theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+    ) -> None:
+        """Atomically replace one source period and its MONETIZATION-001 rows."""
+
+        snapshots_tuple, period_key = _validate_market_snapshot_period(snapshots)
+        profiles_tuple, metrics_tuple, monetization_key = _validate_monetization_period(
+            profiles,
+            theme_metrics,
+            snapshots=snapshots_tuple,
+        )
+        if monetization_key != period_key:
+            raise StorageValidationError("source and monetization periods do not match")
+        connection = self._require_initialized_connection()
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            parameters = _period_parameters(period_key)
+            connection.execute(_DELETE_MARKET_PERIOD_SQL, parameters)
+            connection.execute(_DELETE_APP_MONETIZATION_PROFILES_SQL, parameters)
+            connection.execute(_DELETE_THEME_MONETIZATION_OBSERVABILITY_METRICS_SQL, parameters)
+            connection.executemany(
+                _INSERT_MARKET_SNAPSHOT_SQL,
+                [_market_snapshot_parameters(row) for row in snapshots_tuple],
+            )
+            connection.executemany(
+                _INSERT_APP_MONETIZATION_PROFILE_SQL,
+                [_app_monetization_profile_parameters(row) for row in profiles_tuple],
+            )
+            if metrics_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MONETIZATION_OBSERVABILITY_METRIC_SQL,
+                    [_theme_monetization_metric_parameters(row) for row in metrics_tuple],
+                )
+            readback_snapshots = _market_snapshots_from_connection(connection, period_key)
+            if readback_snapshots != list(snapshots_tuple):
+                raise StorageValidationError("market snapshot readback did not match payload")
+            _verify_monetization_readback(
+                connection,
+                profiles_tuple,
+                metrics_tuple,
+            )
+            connection.execute("COMMIT")
+        except StorageValidationError:
+            _rollback(connection)
+            raise
+        except Exception:
+            _rollback(connection)
+            raise StorageValidationError("market and monetization replacement failed") from None
+
     def get_market_snapshot_period(
         self,
         key: SnapshotPeriodKey,
@@ -409,6 +640,115 @@ class DuckDBRepository:
             [key.scope_name, key.cadence, key.period_start, key.period_end],
         ).fetchall()
         return [_market_snapshot_from_database_row(row) for row in rows]
+
+    def get_market_snapshot_periods(
+        self,
+        period_start: date,
+        period_end: date,
+    ) -> dict[SnapshotPeriodKey, list[MarketSnapshotRow]]:
+        """Read all stored market periods whose natural month is in a range."""
+
+        if not isinstance(period_start, date) or not isinstance(period_end, date):
+            raise StorageValidationError("period boundaries must be dates")
+        if period_start > period_end:
+            raise StorageValidationError("period_start must be on or before period_end")
+        connection = self._require_initialized_connection()
+        rows = connection.execute(
+            f"SELECT {_MARKET_SNAPSHOT_COLUMNS_SQL} FROM {MARKET_SNAPSHOTS_TABLE} "
+            "WHERE cadence = 'monthly' AND period_start >= ? AND period_start <= ? "
+            "ORDER BY period_start, scope_name, period_end, rank_position",
+            [period_start, period_end],
+        ).fetchall()
+        grouped: dict[SnapshotPeriodKey, list[MarketSnapshotRow]] = defaultdict(list)
+        for raw_row in rows:
+            row = _market_snapshot_from_database_row(raw_row)
+            grouped[row.period_key].append(row)
+        return dict(grouped)
+
+    def get_latest_market_snapshot_period_key(
+        self,
+        scope_name: str,
+        cadence: str = "monthly",
+    ) -> SnapshotPeriodKey | None:
+        """Return the latest stored market period without changing the database."""
+
+        if not isinstance(scope_name, str) or not scope_name.strip():
+            raise StorageValidationError("scope_name must be a non-empty string")
+        if cadence != "monthly":
+            raise StorageValidationError("cadence must equal monthly")
+        connection = self._require_initialized_connection()
+        row = connection.execute(
+            f"SELECT scope_name, cadence, period_start, period_end FROM {MARKET_SNAPSHOTS_TABLE} "
+            "WHERE scope_name = ? AND cadence = ? "
+            "ORDER BY period_start DESC, period_end DESC LIMIT 1",
+            [scope_name, cadence],
+        ).fetchone()
+        if row is None:
+            return None
+        return SnapshotPeriodKey(
+            scope_name=str(row[0]),
+            cadence=str(row[1]),  # type: ignore[arg-type]
+            period_start=row[2],
+            period_end=row[3],
+        )
+
+    def get_app_monetization_profiles(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        unified_app_id: object | None = None,
+        monetization_proxy: str | None = None,
+        observable_revenue_state: str | None = None,
+    ) -> list[AppMonetizationProfile]:
+        """Read product profiles with deterministic identity ordering."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _monetization_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            unified_app_id=unified_app_id,
+            monetization_proxy=monetization_proxy,
+            observable_revenue_state=observable_revenue_state,
+        )
+        rows = connection.execute(
+            f"SELECT {_APP_MONETIZATION_PROFILES_COLUMNS_SQL} "
+            f"FROM {APP_MONETIZATION_PROFILES_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, unified_app_id, cadence",
+            parameters,
+        ).fetchall()
+        return [_app_monetization_profile_from_database_row(row) for row in rows]
+
+    def get_theme_monetization_observability_metrics(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+    ) -> list[ThemeMonetizationObservabilityMetric]:
+        """Read theme observability metrics with deterministic identity ordering."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _monetization_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL} "
+            f"FROM {THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE} "
+            f"{where_sql} "
+            "ORDER BY scope_name, period_start, period_end, game_theme, cadence",
+            parameters,
+        ).fetchall()
+        return [_theme_monetization_metric_from_database_row(row) for row in rows]
 
     def get_monthly_market_totals(
         self,
@@ -1359,6 +1699,23 @@ class DuckDBRepository:
 
         export_theme_backtest_segment_metrics_to_parquet(self, path)
 
+    def export_app_monetization_profiles_to_parquet(self, path: str | Path) -> None:
+        """Atomically export product monetization profiles to Parquet."""
+
+        from .parquet import export_app_monetization_profiles_to_parquet
+
+        export_app_monetization_profiles_to_parquet(self, path)
+
+    def export_theme_monetization_observability_metrics_to_parquet(
+        self,
+        path: str | Path,
+    ) -> None:
+        """Atomically export theme monetization observability to Parquet."""
+
+        from .parquet import export_theme_monetization_observability_metrics_to_parquet
+
+        export_theme_monetization_observability_metrics_to_parquet(self, path)
+
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
 
@@ -1424,6 +1781,211 @@ def _validate_market_snapshot_period(
         raise StorageValidationError("market snapshot ranks must be contiguous and start at 1")
 
     return rows_tuple, period_key
+
+
+def _period_parameters(period_key: SnapshotPeriodKey) -> list[object]:
+    return [
+        period_key.scope_name,
+        period_key.cadence,
+        period_key.period_start,
+        period_key.period_end,
+    ]
+
+
+def _validate_monetization_period(
+    profiles: Sequence[AppMonetizationProfile],
+    theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+    *,
+    snapshots: Sequence[MarketSnapshotRow] | None = None,
+) -> tuple[
+    tuple[AppMonetizationProfile, ...],
+    tuple[ThemeMonetizationObservabilityMetric, ...],
+    SnapshotPeriodKey,
+]:
+    profiles_tuple = tuple(profiles)
+    metrics_tuple = tuple(theme_metrics)
+    if not profiles_tuple:
+        raise StorageValidationError("monetization profiles must contain the stored population")
+    if any(not isinstance(row, AppMonetizationProfile) for row in profiles_tuple):
+        raise StorageValidationError("monetization profiles contain an invalid typed row")
+    if any(not isinstance(row, ThemeMonetizationObservabilityMetric) for row in metrics_tuple):
+        raise StorageValidationError("monetization theme metrics contain an invalid typed row")
+
+    first_profile = profiles_tuple[0]
+    period_key = SnapshotPeriodKey(
+        scope_name=first_profile.scope_name,
+        cadence=first_profile.cadence,  # type: ignore[arg-type]
+        period_start=first_profile.period_start,
+        period_end=first_profile.period_end,
+    )
+    policies = {row.monetization_policy_version for row in profiles_tuple}
+    policies.update(row.monetization_policy_version for row in metrics_tuple)
+    if policies != {MONETIZATION_POLICY_VERSION}:
+        raise StorageValidationError("monetization rows must use one policy version")
+    timestamps = {row.calculated_at for row in profiles_tuple}
+    timestamps.update(row.calculated_at for row in metrics_tuple)
+    if len(timestamps) != 1:
+        raise StorageValidationError("monetization rows must use one timestamp")
+
+    period_tuple = (
+        period_key.scope_name,
+        period_key.cadence,
+        period_key.period_start,
+        period_key.period_end,
+    )
+    if any(row.period_key != period_tuple for row in profiles_tuple):
+        raise StorageValidationError("monetization profiles must share one period")
+    if any(row.period_key != period_tuple for row in metrics_tuple):
+        raise StorageValidationError("monetization theme metrics must share one period")
+    profile_ids = [row.unified_app_id for row in profiles_tuple]
+    if len(set(profile_ids)) != len(profile_ids):
+        raise StorageValidationError("monetization profiles must have unique identities")
+    profile_source_ids = [row.source_app_id for row in profiles_tuple]
+    if len(set(profile_source_ids)) != len(profile_source_ids):
+        raise StorageValidationError("monetization profiles must have unique source identities")
+    theme_ids = [row.game_theme for row in metrics_tuple]
+    if len(set(theme_ids)) != len(theme_ids):
+        raise StorageValidationError("monetization theme metrics must have unique identities")
+
+    if snapshots is not None:
+        snapshot_tuple, snapshot_key = _validate_market_snapshot_period(snapshots)
+        if snapshot_key != period_key:
+            raise StorageValidationError("monetization rows do not match the snapshot period")
+        _validate_monetization_snapshot_references(
+            snapshot_tuple,
+            profiles_tuple,
+            metrics_tuple,
+        )
+    return profiles_tuple, metrics_tuple, period_key
+
+
+def _validate_monetization_snapshot_references(
+    snapshots: Sequence[MarketSnapshotRow],
+    profiles: Sequence[AppMonetizationProfile],
+    theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+) -> None:
+    snapshot_tuple = tuple(snapshots)
+    if not snapshot_tuple:
+        raise StorageValidationError("stored market snapshot period is empty")
+    snapshot_by_id = {row.unified_app_id: row for row in snapshot_tuple}
+    if len(snapshot_by_id) != len(snapshot_tuple):
+        raise StorageValidationError("stored market snapshot identities are duplicated")
+    snapshot_source_ids = [row.source_app_id for row in snapshot_tuple]
+    if len(set(snapshot_source_ids)) != len(snapshot_source_ids):
+        raise StorageValidationError("stored market snapshot source identities are duplicated")
+    profile_by_id = {row.unified_app_id: row for row in profiles}
+    if set(profile_by_id) != set(snapshot_by_id):
+        raise StorageValidationError("monetization profiles do not cover snapshots")
+    for unified_app_id, snapshot in snapshot_by_id.items():
+        profile = profile_by_id[unified_app_id]
+        if (
+            profile.source_app_id != snapshot.source_app_id
+            or profile.game_theme != snapshot.game_theme
+            or profile.game_product_model != snapshot.game_product_model
+            or profile.observable_revenue_usd != snapshot.revenue_absolute
+        ):
+            raise StorageValidationError("monetization profile source reference mismatch")
+
+    expected_theme_ids = {row.game_theme for row in snapshot_tuple if row.game_theme is not None}
+    actual_theme_ids = {row.game_theme for row in theme_metrics}
+    if expected_theme_ids != actual_theme_ids:
+        raise StorageValidationError("monetization theme identities do not match snapshots")
+    expected_counts: dict[str, int] = {}
+    for row in snapshot_tuple:
+        if row.game_theme is not None:
+            expected_counts[row.game_theme] = expected_counts.get(row.game_theme, 0) + 1
+    actual_counts = {row.game_theme: row.product_count for row in theme_metrics}
+    if expected_counts != actual_counts:
+        raise StorageValidationError("monetization theme product counts do not reconcile")
+
+
+def _market_snapshots_from_connection(
+    connection: duckdb.DuckDBPyConnection,
+    period_key: SnapshotPeriodKey,
+) -> list[MarketSnapshotRow]:
+    rows = connection.execute(
+        f"SELECT {_MARKET_SNAPSHOT_COLUMNS_SQL} FROM {MARKET_SNAPSHOTS_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY rank_position",
+        _period_parameters(period_key),
+    ).fetchall()
+    return [_market_snapshot_from_database_row(row) for row in rows]
+
+
+def _verify_monetization_readback(
+    connection: duckdb.DuckDBPyConnection,
+    profiles: Sequence[AppMonetizationProfile],
+    theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+) -> None:
+    period_key = profiles[0].period_key
+    snapshot_key = SnapshotPeriodKey(
+        scope_name=period_key[0],
+        cadence=period_key[1],  # type: ignore[arg-type]
+        period_start=period_key[2],
+        period_end=period_key[3],
+    )
+    profile_rows = connection.execute(
+        f"SELECT {_APP_MONETIZATION_PROFILES_COLUMNS_SQL} "
+        f"FROM {APP_MONETIZATION_PROFILES_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY unified_app_id",
+        _period_parameters(snapshot_key),
+    ).fetchall()
+    metric_rows = connection.execute(
+        f"SELECT {_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL} "
+        f"FROM {THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY game_theme",
+        _period_parameters(snapshot_key),
+    ).fetchall()
+    readback_profiles = [_app_monetization_profile_from_database_row(row) for row in profile_rows]
+    readback_metrics = [_theme_monetization_metric_from_database_row(row) for row in metric_rows]
+    expected_profiles = sorted(profiles, key=lambda row: row.unified_app_id)
+    expected_metrics = sorted(theme_metrics, key=lambda row: row.game_theme)
+    if readback_profiles != expected_profiles or readback_metrics != expected_metrics:
+        raise StorageValidationError("monetization readback did not match payload")
+
+
+def _monetization_filter_sql(
+    *,
+    scope_name: str | None,
+    cadence: str,
+    period_start: date | None,
+    period_end: date | None,
+    unified_app_id: object | None = None,
+    monetization_proxy: str | None = None,
+    observable_revenue_state: str | None = None,
+    game_theme: str | None = None,
+) -> tuple[str, list[object]]:
+    if cadence != "monthly":
+        raise StorageValidationError("cadence must equal monthly")
+    clauses = ["cadence = ?"]
+    parameters: list[object] = [cadence]
+    if scope_name is not None:
+        if not isinstance(scope_name, str) or not scope_name.strip():
+            raise StorageValidationError("scope_name must be a non-empty string")
+        clauses.append("scope_name = ?")
+        parameters.append(scope_name)
+    if period_start is not None:
+        clauses.append("period_start = ?")
+        parameters.append(period_start)
+    if period_end is not None:
+        clauses.append("period_end = ?")
+        parameters.append(period_end)
+    if unified_app_id is not None:
+        normalized_ids = normalize_opaque_id_sequence([unified_app_id])
+        clauses.append("unified_app_id = ?")
+        parameters.append(normalized_ids[0])
+    if monetization_proxy is not None:
+        clauses.append("monetization_proxy = ?")
+        parameters.append(monetization_proxy)
+    if observable_revenue_state is not None:
+        clauses.append("observable_revenue_state = ?")
+        parameters.append(observable_revenue_state)
+    if game_theme is not None:
+        clauses.append("game_theme = ?")
+        parameters.append(game_theme)
+    return "WHERE " + " AND ".join(clauses), parameters
 
 
 def _market_snapshot_parameters(row: MarketSnapshotRow) -> tuple[object, ...]:
@@ -1631,6 +2193,18 @@ def _theme_backtest_segment_metric_parameters(
     return tuple(getattr(row, column) for column in THEME_BACKTEST_SEGMENT_METRICS_COLUMNS)
 
 
+def _app_monetization_profile_parameters(row: AppMonetizationProfile) -> tuple[object, ...]:
+    return tuple(getattr(row, column) for column in APP_MONETIZATION_PROFILES_COLUMNS)
+
+
+def _theme_monetization_metric_parameters(
+    row: ThemeMonetizationObservabilityMetric,
+) -> tuple[object, ...]:
+    return tuple(
+        getattr(row, column) for column in THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS
+    )
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -1720,6 +2294,22 @@ def _theme_backtest_segment_metric_from_database_row(
 ) -> ThemeBacktestSegmentMetric:
     values = dict(zip(THEME_BACKTEST_SEGMENT_METRICS_COLUMNS, row, strict=True))
     return ThemeBacktestSegmentMetric(**cast(Any, values))
+
+
+def _app_monetization_profile_from_database_row(
+    row: Sequence[object],
+) -> AppMonetizationProfile:
+    values = dict(zip(APP_MONETIZATION_PROFILES_COLUMNS, row, strict=True))
+    return AppMonetizationProfile(**cast(Any, values))
+
+
+def _theme_monetization_metric_from_database_row(
+    row: Sequence[object],
+) -> ThemeMonetizationObservabilityMetric:
+    values = dict(
+        zip(THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS, row, strict=True)
+    )
+    return ThemeMonetizationObservabilityMetric(**cast(Any, values))
 
 
 def _validate_theme_monthly_range(

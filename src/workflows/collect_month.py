@@ -10,6 +10,14 @@ from datetime import time as datetime_time
 from pathlib import Path
 from typing import Protocol
 
+from ..analysis.monetization_models import (
+    AppMonetizationProfile,
+    ThemeMonetizationObservabilityMetric,
+    build_app_monetization_profiles,
+)
+from ..analysis.monetization_observability import (
+    aggregate_theme_monetization_observability,
+)
 from ..config import AppConfig
 from ..sensor_tower import (
     SensorTowerClient,
@@ -89,11 +97,28 @@ class CollectionRepository(Protocol):
     def replace_market_snapshot_period(self, rows: Sequence[MarketSnapshotRow]) -> None:
         """Atomically replace one complete market period."""
 
+    def replace_market_snapshot_and_monetization_period(
+        self,
+        snapshots: Sequence[MarketSnapshotRow],
+        profiles: Sequence[AppMonetizationProfile],
+        theme_metrics: Sequence[ThemeMonetizationObservabilityMetric],
+    ) -> None:
+        """Atomically replace source and prospective monetization rows."""
+
     def export_market_snapshots_to_parquet(self, path: str | Path) -> None:
         """Export market snapshots through the repository boundary."""
 
     def export_app_metadata_to_parquet(self, path: str | Path) -> None:
         """Export metadata through the repository boundary."""
+
+    def export_app_monetization_profiles_to_parquet(self, path: str | Path) -> None:
+        """Export product monetization profiles through the repository boundary."""
+
+    def export_theme_monetization_observability_metrics_to_parquet(
+        self,
+        path: str | Path,
+    ) -> None:
+        """Export theme monetization metrics through the repository boundary."""
 
     def close(self) -> None:
         """Close the local database."""
@@ -116,6 +141,7 @@ def collect_month(
     repository: CollectionRepository | None = None,
     repository_factory: RepositoryFactory | None = None,
     repository_initialized: bool = False,
+    include_monetization: bool = True,
     metadata_sleep: MetadataSleep = time_module.sleep,
     market_exporter: ExportFunction | None = None,
     metadata_exporter: ExportFunction | None = None,
@@ -134,6 +160,8 @@ def collect_month(
         raise WorkflowError("provide either repository or repository_factory, not both")
     if not isinstance(repository_initialized, bool):
         raise WorkflowError("repository_initialized must be a boolean")
+    if not isinstance(include_monetization, bool):
+        raise WorkflowError("include_monetization must be a boolean")
 
     if current_utc is None:
         if utc_clock is None:
@@ -250,12 +278,34 @@ def collect_month(
             fetched_at=started_at,
         )
 
+        monetization_profiles: list[AppMonetizationProfile] = []
+        theme_monetization_metrics: list[ThemeMonetizationObservabilityMetric] = []
+        if include_monetization:
+            monetization_profiles = build_app_monetization_profiles(
+                snapshot_rows,
+                calculated_at=started_at,
+            )
+            theme_monetization_metrics = aggregate_theme_monetization_observability(
+                snapshot_rows,
+                monetization_profiles,
+                calculated_at=started_at,
+            )
+
         if newly_fetched_metadata_rows:
             active_repository.upsert_app_metadata(newly_fetched_metadata_rows)
-        active_repository.replace_market_snapshot_period(snapshot_rows)
+        if include_monetization:
+            active_repository.replace_market_snapshot_and_monetization_period(
+                snapshot_rows,
+                monetization_profiles,
+                theme_monetization_metrics,
+            )
+        else:
+            active_repository.replace_market_snapshot_period(snapshot_rows)
 
         market_parquet_path: Path | None = None
         metadata_parquet_path: Path | None = None
+        app_profiles_parquet_path: Path | None = None
+        theme_metrics_parquet_path: Path | None = None
         if not request.skip_export:
             market_parquet_path = request.export_directory / "market_snapshots.parquet"
             metadata_parquet_path = request.export_directory / "app_metadata.parquet"
@@ -271,6 +321,20 @@ def collect_month(
             )
             market_export(active_repository, market_parquet_path)
             metadata_export(active_repository, metadata_parquet_path)
+            if include_monetization:
+                app_profiles_parquet_path = (
+                    request.export_directory / "app_monetization_profiles.parquet"
+                )
+                theme_metrics_parquet_path = (
+                    request.export_directory
+                    / "theme_monetization_observability_metrics.parquet"
+                )
+                active_repository.export_app_monetization_profiles_to_parquet(
+                    app_profiles_parquet_path
+                )
+                active_repository.export_theme_monetization_observability_metrics_to_parquet(
+                    theme_metrics_parquet_path
+                )
 
         completed_at = _completion_timestamp(started_at, utc_clock)
         return _build_summary(
@@ -290,6 +354,10 @@ def collect_month(
             completed_at=completed_at,
             market_parquet_path=market_parquet_path,
             metadata_parquet_path=metadata_parquet_path,
+            monetization_profile_rows_written=len(monetization_profiles),
+            theme_monetization_rows_written=len(theme_monetization_metrics),
+            app_profiles_parquet_path=app_profiles_parquet_path,
+            theme_metrics_parquet_path=theme_metrics_parquet_path,
         )
     finally:
         if owns_repository and active_repository is not None:
@@ -352,6 +420,8 @@ def format_collection_summary(summary: CollectMonthSummary) -> str:
         f"metadata_returned_count={summary.metadata_returned_count} "
         f"metadata_unresolved_count={summary.metadata_unresolved_count} "
         f"snapshot_rows_written={summary.snapshot_rows_written} "
+        f"monetization_profile_rows_written={summary.monetization_profile_rows_written} "
+        f"theme_monetization_rows_written={summary.theme_monetization_rows_written} "
         f"database_path={summary.database_path} {export_text}"
     )
 
@@ -457,6 +527,10 @@ def _build_summary(
     completed_at: datetime,
     market_parquet_path: Path | None = None,
     metadata_parquet_path: Path | None = None,
+    monetization_profile_rows_written: int = 0,
+    theme_monetization_rows_written: int = 0,
+    app_profiles_parquet_path: Path | None = None,
+    theme_metrics_parquet_path: Path | None = None,
 ) -> CollectMonthSummary:
     return CollectMonthSummary(
         month=period.month,
@@ -478,6 +552,10 @@ def _build_summary(
         plan_only=request.plan_only,
         started_at=started_at,
         completed_at=completed_at,
+        monetization_profile_rows_written=monetization_profile_rows_written,
+        theme_monetization_rows_written=theme_monetization_rows_written,
+        app_profiles_parquet_path=app_profiles_parquet_path,
+        theme_metrics_parquet_path=theme_metrics_parquet_path,
     )
 
 

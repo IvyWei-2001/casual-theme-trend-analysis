@@ -16,7 +16,7 @@ at most 1000 selected records in the `WW Puzzle/Tabletop selected Top-N sample
 (cap 1000)`, with the optional exclusion based on `Most Popular Country by
 Revenue = China`.
 
-Downloads and Revenue (USD) in this model are measured inside that selected
+Downloads and observable Revenue (USD) in this model are measured inside that selected
 project sample. Stored values must not be described as the complete global
 mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`.
@@ -42,11 +42,12 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 6 contains fifteen business tables plus the `schema_migrations` control
-table. Version 4 adds four V2 evidence tables, version 5 adds three MODEL-002
-evidence tables, and version 6 adds three BACKTEST-001 evidence tables without
-changing source tables, schema-v2 monthly aggregation rows, schema-v3 trend
-scores, or prior evidence rows:
+version 8 contains seventeen business tables plus the `schema_migrations`
+control table. Version 4 adds four V2 evidence tables, version 5 adds three
+MODEL-002 evidence tables, version 6 adds three BACKTEST-001 evidence tables,
+and version 8 adds two MONETIZATION-001 evidence tables without changing
+source tables, schema-v2 monthly aggregation rows, schema-v3 trend scores, or
+prior evidence rows:
 
 - `app_metadata` is the normalized, persistent metadata cache keyed by
   `unified_app_id`. It stores only returned metadata, keeps unavailable values
@@ -54,7 +55,7 @@ scores, or prior evidence rows:
 - `market_snapshots` stores one final selected product per stored market period.
   It retains the verified source metric and tag names, including
   `units_absolute` and `revenue_absolute` with their confirmed business
-  aliases Downloads (count) and Revenue (USD). It also retains
+  aliases Downloads (count) and observable Revenue (USD). It also retains
   `current_units_value` and `current_revenue_value`, whose meanings remain
   unresolved for the fields themselves; no cross-field substitution is made.
   Raw source-tag values are preserved literally, including `"Unknown"` and
@@ -131,8 +132,28 @@ collection is deferred to DB-002. AGG-001 adds the two derived tables described
 below without changing the source-table columns. AGG-002 adds the separate
 schema-v4 evidence tables described after the AGG-001 contract. TREND-001 adds
 the schema-v3 score table, MODEL-002 adds the schema-v5 evidence tables, and
-BACKTEST-001 adds the schema-v6 evidence tables, without changing earlier
-table contracts.
+BACKTEST-001 adds the schema-v6 evidence tables, and MONETIZATION-001 adds the
+schema-v8 monetization evidence tables, without changing earlier table
+contracts. Schema-v7 is an interim legacy migration state only; its empty
+Custom-Field tables are replaced transactionally during the v8 upgrade and
+are never reinterpreted.
+
+## MONETIZATION-001 schema-v8 contract
+
+`app_monetization_profiles` stores one row per stored market snapshot. It
+retains scope/month identity, source and unified IDs, raw Game Theme, raw Game
+Product Model context, policy version, nullable third-party-platform
+observable Revenue (USD), its `unavailable`/`zero`/`positive` state, the
+`unknown`/`iaa_candidate`/`iap_or_hybrid_candidate` proxy, the exact
+classification reason, and deterministic calculation time.
+
+`theme_monetization_observability_metrics` stores one row per non-NULL raw
+Game Theme and month. It retains observable-Revenue coverage and total sum,
+three product counts/shares, Downloads coverage and total sum, and Downloads
+sums/shares by the three candidate classes. Product counts reconcile to the
+theme population. No class-level observable-Revenue shares are stored because
+they would restate the classifier definition. Observable Revenue is not total
+revenue and does not estimate IAA advertising revenue.
 
 ## AGG-001 schema-v2 derived storage contract
 
@@ -386,7 +407,7 @@ The source currently verifies the existence of a `Game Theme` custom-tag label, 
 | `ranking_metric` | Optional internal descriptor | The ranking basis used by the source request, once verified. |
 | `rank_position` | Optional integer | Ranking position in the market result after its semantics are verified. |
 | `units_absolute` | Optional numeric value | Retained DuckDB source column. Confirmed business alias: Downloads, count. NULL is unavailable; an observed zero remains zero. |
-| `revenue_absolute` | Optional numeric value | Retained DuckDB source column. Confirmed business alias: Revenue (USD). NULL is unavailable; an observed zero remains zero. |
+| `revenue_absolute` | Optional numeric value | Retained DuckDB source column. Confirmed business alias: third-party-platform observable Revenue (USD). NULL is unavailable; an observed zero remains zero. |
 | `theme_ids` | Zero or more internal identifiers | Normalized theme assignments from the verified `Game Theme` source tag. Cardinality and missing behavior remain TODO. |
 | `availability` | Structured status | Whether each optional measure is observed, unavailable, or not requested. |
 
@@ -486,7 +507,8 @@ ST-004 does not change the schema version.
 
 All verified source metric fields remain under their actual source names.
 `units_absolute` is the confirmed Downloads count and `revenue_absolute` is
-the confirmed Revenue (USD) measure. Missing optional fields become
+the third-party-platform observable Revenue (USD) measure. Missing optional
+fields become
 unavailable/SQL `NULL`; neither field is copied into
 `current_units_value`/`current_revenue_value`, and those comparison/current
 fields retain their own unresolved semantics. No storage or workflow layer

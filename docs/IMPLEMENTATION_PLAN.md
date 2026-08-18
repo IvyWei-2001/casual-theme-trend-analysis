@@ -22,7 +22,7 @@ work. Current behavior includes:
   manual ranked view.
 
 `units_absolute` is the source-preserving field for Downloads (count), and
-`revenue_absolute` is the source-preserving field for Revenue (USD), by
+`revenue_absolute` is the source-preserving field for observable Revenue (USD), by
 project-owner confirmation on 2026-08-12. Missing values remain NULL and
 observed zero remains zero. The selected sample is not the complete global
 mobile-games market.
@@ -86,24 +86,39 @@ adds schema-v6 raw outcomes, fixed continuous-feature metrics, and observed
 categorical-segment metrics; preserves NULL/zero semantics; validates exact
 future-month identities; and atomically replaces/readbacks the three output
 tables. The credential-free plan-only path reports the 36-month registry
-counts without storage or file access. Synthetic/mock validation is complete;
-BACKTEST-001 real-environment acceptance and the decision/recommendation layer
-remain out of scope.
+counts without storage or file access. The accepted project boundary covers
+2023-08 through 2026-07 with `outcome_row_count=5147`,
+`feature_metric_row_count=228`, `segment_metric_row_count=336`, and
+`verification=passed`.
 
-### 6. DECISION-001 - recommendation, risk, confidence, category fit, and
+### 6. MONETIZATION-001 - monetization proxy observability (current)
+
+Derive an explicitly labeled candidate heuristic offline from stored
+`market_snapshots` only. `revenue_absolute` is third-party-platform observable
+Revenue (USD): NULL is `unknown`, zero is `iaa_candidate`, and positive is
+`iap_or_hybrid_candidate`. Schema version 8 adds exactly two compact output
+tables, covers every requested stored month including 2023-08 through 2026-07,
+and atomically replaces only those monetization rows. The issue must not
+estimate IAA revenue, treat a candidate as an observed type, map Game Product
+Model to monetization, use historical Custom Fields, change BACKTEST-001, add
+DECISION-001 scores, create Feishu views, or make a Sensor Tower request.
+Future `collect-month` reuses its already selected market rows without a second
+request or historical recalculation.
+
+### 7. DECISION-001 - recommendation, risk, confidence, category fit, and
 migration evidence
 
 Compose explainable recommendations from the approved dimensions. Separate
 validated Game Sub-genre fit from migration hypotheses and expose risk,
 confidence, evidence coverage, and next validation actions.
 
-### 7. FEISHU-004 - business tables, role views, and dashboards
+### 8. FEISHU-004 - business tables, role views, and dashboards
 
 Implement the accepted V2 business tables and role-specific dashboards only
 after V2 metrics and backtests are accepted. Tables remain the drill-down and
 evidence layer; dashboards remain presentation surfaces.
 
-### 8. AUTOMATION-001 - monthly automated execution after V2 acceptance
+### 9. AUTOMATION-001 - monthly automated execution after V2 acceptance
 
 Automate the accepted monthly workflow only after FEISHU-004 and
 cross-functional acceptance. AUTOMATION-001 is intentionally paused until

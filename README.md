@@ -16,19 +16,19 @@ confidence. It will keep each decision explainable rather than presenting one
 opaque score.
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
-Downloads (count) and `revenue_absolute` means Revenue (USD). The source names
-remain in adapters and DuckDB for provenance; NULL remains unavailable and an
-observed zero remains zero. These measures are scoped to the WW
+Downloads (count) and `revenue_absolute` means third-party-platform observable
+Revenue (USD). The source names remain in adapters and DuckDB for provenance;
+NULL remains unavailable and an observed zero remains zero. These measures are scoped to the WW
 Puzzle/Tabletop selected Top-N sample (cap 1000), not the complete global
 mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002, HIST-002, and AGG-002 are completed and real-environment
-accepted. MODEL-002 is completed and real-environment accepted; BACKTEST-001 is
-the current implementation boundary. DECISION-001, FEISHU-004, and
-AUTOMATION-001 remain later issues. Automation is intentionally deferred until
-FEISHU-004 and cross-functional V2 acceptance.
+CONTRACT-002, HIST-002, AGG-002, MODEL-002, and BACKTEST-001 are completed at
+the accepted project boundary. MONETIZATION-001 adds descriptive monetization
+proxy observability without changing BACKTEST-001 or adding a recommendation.
+DECISION-001, FEISHU-004, and AUTOMATION-001 remain later issues. Automation is
+intentionally deferred until FEISHU-004 and cross-functional V2 acceptance.
 
 ## Requirements
 
@@ -314,13 +314,13 @@ Schema version 2 adds the DuckDB derived tables `monthly_market_totals` and
 `theme_monthly_metrics`. Monthly totals contain population, theme presence,
 current normalized-metadata coverage, and `units_absolute`/
 `revenue_absolute` source coverage and sums. These source fields mean
-Downloads (count) and Revenue (USD), respectively, within the selected
+Downloads (count) and observable Revenue (USD), respectively, within the selected
 monthly sample. Theme metrics contain product share, Top-100/Top-500 counts,
 arithmetic average rank, deterministic median rank, publisher
 coverage/concentration, and the equivalent source metric sums and shares. A
 source metric sum is NULL when its coverage is zero; observed zero remains
 zero. Source names remain `units_absolute` and `revenue_absolute` for
-provenance; business-facing labels are Downloads and Revenue (USD). Theme
+provenance; business-facing labels are Downloads and observable Revenue (USD). Theme
 shares use month-wide denominators that include rows with a
 missing theme, so visible theme shares may sum below 1. A zero or unavailable
 denominator produces a NULL share.
@@ -483,7 +483,39 @@ values. Decision-month features never read future MODEL-002, trend, growth, or
 seasonality rows. BACKTEST-001 is evidence only: it does not create a final
 score, forecast, investment recommendation, Feishu view, or automation. See
 [`docs/BACKTEST_V1.md`](docs/BACKTEST_V1.md) for the registry, leakage rules,
-schema-v6 tables, storage contract, and known 36M limitation.
+schema-v6 tables, storage contract, and accepted 36-month boundary.
+
+## Monetization proxy observability (MONETIZATION-001)
+
+MONETIZATION-001 is an offline observable-Revenue candidate heuristic over
+stored `market_snapshots`. `revenue_absolute` means third-party-platform
+observable Revenue (USD), not complete total revenue. NULL maps to `unknown`,
+zero maps to `iaa_candidate`, and positive values map to
+`iap_or_hybrid_candidate`. These are candidates, not observed monetization
+types: zero does not prove zero actual revenue or pure IAA, and positive does
+not distinguish IAP from Hybrid. Game Product Model remains context only;
+historical Custom Fields are not used. See
+[`docs/MONETIZATION_OBSERVABILITY.md`](docs/MONETIZATION_OBSERVABILITY.md) for
+the complete contract and limitations.
+
+Schema version 8 adds the compact `app_monetization_profiles` and
+`theme_monetization_observability_metrics` tables. The offline inclusive range
+command reads stored market snapshots only and makes no Sensor Tower,
+metadata, Feishu, or other network request:
+
+```powershell
+python -m src derive-monetization --start 2023-08 --end 2026-07 --plan-only
+python -m src derive-monetization --start 2023-08 --end 2026-07 --skip-export
+python -m src derive-monetization --start 2023-08 --end 2026-07
+```
+
+The requested months are processed oldest to newest, and every month must have
+a non-empty stored market period. DuckDB is authoritative; the two output
+Parquet files are deterministic atomic ZSTD exports written once after
+successful persistence unless `--skip-export` is supplied. Plan-only runs
+before configuration and logging and touches no database, network, credentials,
+or local output files. Future `collect-month` runs reuse their already selected
+market rows without a second request. No IAA advertising revenue is estimated.
 
 ## FEISHU-001 read-only field inspection
 

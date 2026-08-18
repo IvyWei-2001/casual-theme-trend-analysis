@@ -17,6 +17,14 @@ class WorkflowMetadataIntegrityError(WorkflowError):
     """Raised when cached and newly fetched metadata cannot be joined safely."""
 
 
+class MonetizationWorkflowError(WorkflowError):
+    """Raised when the dedicated MONETIZATION-001 workflow cannot complete safely."""
+
+
+class MonetizationReadbackVerificationError(MonetizationWorkflowError):
+    """Raised when committed MONETIZATION-001 rows do not match the payload."""
+
+
 class ModelThemesError(WorkflowError):
     """Raised when the MODEL-002 workflow cannot complete safely."""
 
