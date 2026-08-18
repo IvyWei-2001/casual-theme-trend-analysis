@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: MONETIZATION-001 monetization proxy observability
+Current focus: Phase A explainable decision policy and pure calculation
 
 ## Development principles
 
@@ -50,14 +50,16 @@ Implement the next issues in exactly this order:
    seasonality (completed and real-environment accepted)**
 5. **BACKTEST-001 - leakage-safe T+1, T+2, and T+3 launch-window validation
    (completed and real-environment accepted)**
-6. **MONETIZATION-001 - monetization proxy observability (current issue)**
+6. **MONETIZATION-001 - monetization proxy observability (completed and
+   real-environment accepted)**
 7. **DECISION-001 - recommendation, risk, confidence, category fit, and
-   migration evidence**
+   migration evidence (current issue; Phase A)**
 8. **FEISHU-004 - business tables, role views, and dashboards**
 9. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
-CONTRACT-002, HIST-002, AGG-002, MODEL-002, and BACKTEST-001 are completed and
-real-environment accepted; MONETIZATION-001 is the current focus. The recorded
+CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001, and MONETIZATION-001
+are completed and real-environment accepted; DECISION-001 Phase A is the
+current focus. The recorded
 HIST-002 evidence is 36 completed months, 35,525 source snapshots, monthly
 `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
 structural completeness. Sanitized MODEL-002 acceptance evidence is
@@ -68,7 +70,10 @@ structural completeness. Sanitized MODEL-002 acceptance evidence is
 The accepted BACKTEST-001 evidence covers 36 completed months and reports
 `outcome_row_count=5147`, `feature_metric_row_count=228`,
 `segment_metric_row_count=336`, and `verification=passed`. MONETIZATION-001
-does not change those results. Final model weights are not selected in
+does not change those results. Its accepted schema version is 8, with
+35,525 monetization app profiles and 2,153 monetization theme metrics; the
+proxy distribution is `iaa_candidate=6373`,
+`iap_or_hybrid_candidate=29152`, and `unknown=0`. Final model weights are not selected in
 CONTRACT-002. AUTOMATION-001 is paused until FEISHU-004 and cross-functional
 acceptance. The one-issue/one-PR rule continues throughout this sequence.
 
@@ -90,6 +95,15 @@ MONETIZATION-001 uses policy version
 2023-08 through 2026-07 when that inclusive range is requested. It is not an
 observed monetization type, does not estimate IAA advertising revenue, and
 requires no Sensor Tower request.
+
+DECISION-001 Phase A uses policy version `DECISION001_V1`. It freezes the
+explainable recommendation, risk, confidence, category-fit, migration, and
+non-forecast launch-window contracts and implements only pure typed
+calculation. Persistence, schema migration, repository readers/writers, CLI,
+Parquet, Feishu, automation, and real-environment execution are not yet
+implemented. Business-facing metric wording in this issue is
+`observable Revenue (USD)`; `revenue_absolute` remains the technical source
+field.
 
 The V2 product must keep theme opportunity separate from Product Greenlight.
 The latter additionally requires product quality, marketability, creative

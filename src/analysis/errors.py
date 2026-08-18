@@ -25,3 +25,7 @@ class MissingSourcePeriodError(AggregationValidationError):
 
 class BacktestValidationError(AggregationValidationError):
     """Raised when normalized BACKTEST-001 evidence cannot be evaluated safely."""
+
+
+class DecisionValidationError(AggregationValidationError):
+    """Raised when DECISION-001 inputs or pure outputs are incompatible."""

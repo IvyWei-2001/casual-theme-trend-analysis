@@ -11,6 +11,31 @@ from .backtest_models import (
     ThemeLaunchWindowBacktestResult,
     ThemeLaunchWindowOutcome,
 )
+from .decision_models import (
+    DECISION_HORIZONS,
+    DECISION_POLICY_VERSION,
+    SEASONALITY_RISK_PERCENTILE,
+    CategoryEvidenceLimitation,
+    CategoryFitState,
+    CompetitiveStructureRiskBand,
+    DecisionConfidence,
+    DecisionRecommendation,
+    EvidenceAvailability,
+    GrowthQualityState,
+    LaunchWindowEvidenceState,
+    MarketSizeBand,
+    MigrationHypothesisStatus,
+    NextValidationActionCode,
+    PrimaryReasonCode,
+    RiskCode,
+    RiskSeverity,
+    ThemeCategoryFitAssessment,
+    ThemeDecisionResult,
+    ThemeDecisionRisk,
+    ThemeDecisionSummary,
+    ThemeLaunchWindowAssessment,
+    ThemeMigrationHypothesis,
+)
 from .model_v2 import (
     ACCELERATION_NORMALIZED_SLOPE_MARGIN,
     DIRECTION_MIN_R_SQUARED,
@@ -72,6 +97,30 @@ def calculate_theme_launch_window_backtest(*args: object, **kwargs: object) -> o
     return calculate(*args, **kwargs)  # type: ignore[arg-type]
 
 
+def calculate_theme_decisions(*args: object, **kwargs: object) -> object:
+    """Lazily expose DECISION-001 without introducing an import cycle."""
+
+    from .decision_v1 import calculate_theme_decisions as calculate
+
+    return calculate(*args, **kwargs)  # type: ignore[arg-type]
+
+
+def calculate_theme_decision_policy(*args: object, **kwargs: object) -> object:
+    """Lazily expose the DECISION-001 policy-oriented operation name."""
+
+    from .decision_v1 import calculate_theme_decision_policy as calculate
+
+    return calculate(*args, **kwargs)
+
+
+def calculate_theme_decision(*args: object, **kwargs: object) -> object:
+    """Lazily expose the singular DECISION-001 operation name."""
+
+    from .decision_v1 import calculate_theme_decision as calculate
+
+    return calculate(*args, **kwargs)
+
+
 __all__ = [
     "BACKTEST_FEATURE_DEFINITIONS",
     "BACKTEST_OUTCOME_HORIZONS",
@@ -82,6 +131,32 @@ __all__ = [
     "ThemeBacktestSegmentMetric",
     "ThemeLaunchWindowBacktestResult",
     "ThemeLaunchWindowOutcome",
+    "DECISION_HORIZONS",
+    "DECISION_POLICY_VERSION",
+    "SEASONALITY_RISK_PERCENTILE",
+    "CategoryEvidenceLimitation",
+    "CategoryFitState",
+    "CompetitiveStructureRiskBand",
+    "DecisionConfidence",
+    "DecisionRecommendation",
+    "EvidenceAvailability",
+    "GrowthQualityState",
+    "LaunchWindowEvidenceState",
+    "MarketSizeBand",
+    "MigrationHypothesisStatus",
+    "NextValidationActionCode",
+    "PrimaryReasonCode",
+    "RiskCode",
+    "RiskSeverity",
+    "ThemeCategoryFitAssessment",
+    "ThemeDecisionResult",
+    "ThemeDecisionRisk",
+    "ThemeDecisionSummary",
+    "ThemeLaunchWindowAssessment",
+    "ThemeMigrationHypothesis",
+    "calculate_theme_decision",
+    "calculate_theme_decision_policy",
+    "calculate_theme_decisions",
     "calculate_theme_launch_window_backtest",
     "ConfidenceWeights",
     "MVP_CONFIDENCE_WEIGHTS",

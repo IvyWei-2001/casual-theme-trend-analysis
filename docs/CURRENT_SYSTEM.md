@@ -1,7 +1,7 @@
 # Current System
 
 This document records the audited state of the repository as of
-MONETIZATION-001.
+DECISION-001 Phase A.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -169,6 +169,31 @@ backup, or real export operation is included. MONETIZATION-001 does not change
 AGG, MODEL-002, or BACKTEST-001 results, and BACKTEST-001 is not described as
 controlling for true monetization type.
 
+## DECISION-001 Phase A implementation status
+
+DECISION-001 is the current issue. Phase A adds the pure typed modules
+`src/analysis/decision_models.py` and `src/analysis/decision_v1.py`, plus the
+authoritative [`DECISION_V1.md`](DECISION_V1.md) policy document and focused
+synthetic contract tests. Policy version `DECISION001_V1` maps accepted
+MODEL-002 lifecycle evidence, current-month cross-theme Market Size and
+competitive-risk percentiles, confidence boundaries, category fit, migration
+hypotheses, normalized risks, recommendations, and exactly three non-forecast
+launch-window rows.
+
+The calculation preserves raw non-NULL theme and Game Sub-genre labels,
+requires exact target-population reconciliation, injects one timezone-aware
+timestamp, and rejects future or incompatible typed rows. It uses only
+normalized project models and has no database, configuration, HTTP, Sensor
+Tower, Feishu, CLI, workflow, or export dependency. Business-facing metric
+wording is `observable Revenue (USD)`; `revenue_absolute` remains the
+technical source field. Observable Revenue limitations remain explicit even
+with complete field coverage.
+
+Phase A does not add schema or database tables, repository readers/writers,
+Parquet exports, a CLI, Feishu fields/records/views, automation, or real
+DECISION-001 execution. Those belong to a later persistence and integration
+phase.
+
 ## Confirmed metric terminology
 
 The project owner confirmed on 2026-08-12 that `units_absolute` means
@@ -186,12 +211,9 @@ backtesting.
 
 The following V2 capabilities are not yet implemented:
 
-- the market-size decision product or Market Size Score;
-- a Growth Quality score or recommendation layer;
-- competitive white-space metrics;
-- business category-fit or migration decisions;
-- investment recommendation;
-- final business tables and dashboards; and
+- DECISION-001 persistence and repository read/write integration;
+- a DECISION-001 CLI, workflow, Parquet export, and Feishu projection;
+- final business tables and dashboards;
 - automation.
 
 The current six-month MVP is not the final business product. In particular,

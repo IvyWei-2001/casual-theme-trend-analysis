@@ -24,11 +24,12 @@ mobile-games market. The selected sample may contain fewer than 1000 products;
 future data-quality output must expose each month's actual `snapshot_count`
 rather than implying a fixed denominator.
 
-CONTRACT-002, HIST-002, AGG-002, MODEL-002, and BACKTEST-001 are completed at
-the accepted project boundary. MONETIZATION-001 adds descriptive monetization
-proxy observability without changing BACKTEST-001 or adding a recommendation.
-DECISION-001, FEISHU-004, and AUTOMATION-001 remain later issues. Automation is
-intentionally deferred until FEISHU-004 and cross-functional V2 acceptance.
+CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001, and MONETIZATION-001
+are completed and real-environment accepted at the accepted project boundary.
+DECISION-001 is the current issue; Phase A adds only its frozen policy and pure
+calculation layer. Persistence, CLI, Parquet, Feishu, and automation remain
+later scope. Automation is intentionally deferred until FEISHU-004 and
+cross-functional V2 acceptance.
 
 ## Requirements
 
@@ -516,6 +517,32 @@ successful persistence unless `--skip-export` is supplied. Plan-only runs
 before configuration and logging and touches no database, network, credentials,
 or local output files. Future `collect-month` runs reuse their already selected
 market rows without a second request. No IAA advertising revenue is estimated.
+
+## Explainable theme decision policy (DECISION-001 Phase A)
+
+DECISION-001 Phase A freezes policy version `DECISION001_V1` and calculates
+deterministic, explainable theme-exploration recommendations from normalized
+AGG-002, MODEL-002, BACKTEST-001, legacy 6M Momentum, and MONETIZATION-001
+evidence. It emits immutable decision summaries, normalized risk rows,
+category-fit assessments, explicitly unvalidated migration hypotheses, and
+exactly three T+1/T+2/T+3 evidence-only launch-window rows. The outputs never
+contain predicted Downloads, predicted observable Revenue (USD), or success
+probability, and they never approve a specific game for publishing.
+
+The policy preserves raw non-NULL Game Theme and Game Sub-genre labels, uses
+average-rank cross-theme percentiles, retains NULL versus observed zero, and
+rejects duplicate, mixed-scope, mixed-period, or future source identities. The
+business-facing metric name in this decision layer is **observable Revenue
+(USD)**; `revenue_absolute` remains the technical source field. Observable
+Revenue is third-party-platform observable Revenue only, excludes complete IAA
+advertising revenue, and does not prove actual total revenue or monetization
+type. See [`docs/DECISION_V1.md`](docs/DECISION_V1.md) for the complete enum,
+threshold, risk, category-fit, migration, confidence, launch-window, and phase
+boundary contract.
+
+Phase A does not implement DuckDB schema or tables, repository readers/writers,
+CLI, workflow orchestration, Parquet export, Feishu output, automation, Sensor
+Tower requests, or real-environment DECISION-001 execution.
 
 ## FEISHU-001 read-only field inspection
 
