@@ -44,6 +44,8 @@ from .workflows import (
     BacktestThemesError,
     BacktestThemesRequest,
     CollectMonthRequest,
+    DecideThemesRequest,
+    DecisionThemesError,
     DeriveMonetizationRequest,
     HistoryInspectionRequest,
     InvalidMonthError,
@@ -61,6 +63,7 @@ from .workflows import (
     format_backfill_summary,
     format_backtest_themes_summary,
     format_collection_summary,
+    format_decide_themes_summary,
     format_derive_monetization_summary,
     format_feishu_trend_sync_plan_only,
     format_feishu_trend_sync_summary,
@@ -70,6 +73,7 @@ from .workflows import (
     format_score_themes_summary,
     inspect_history,
     model_themes,
+    run_theme_decision_workflow,
     score_themes,
     sync_feishu_trends,
 )
@@ -103,6 +107,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-export",
         action="store_true",
         help="store DuckDB rows but skip both Parquet exports",
+    )
+    decision_parser = subparsers.add_parser(
+        "decide-themes",
+        help="calculate one stored-evidence DECISION-001 theme decision month",
+    )
+    decision_parser.add_argument(
+        "--month",
+        required=True,
+        help="one completed natural calendar month in YYYY-MM format",
+    )
+    decision_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="validate month syntax and semantics without config, storage, or file access",
+    )
+    decision_parser.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="commit and verify DuckDB rows but skip all five decision Parquet exports",
     )
     monetization_parser = subparsers.add_parser(
         "derive-monetization",
@@ -351,6 +374,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(format_derive_monetization_summary(monetization_plan))
         return 0
+    if args.command == "decide-themes" and args.plan_only:
+        try:
+            decision_plan = run_theme_decision_workflow(
+                DecideThemesRequest(
+                    month=args.month,
+                    database_path=Path(DEFAULT_DATABASE_PATH),
+                    export_directory=Path(DEFAULT_EXPORT_DIRECTORY),
+                    plan_only=True,
+                    skip_export=args.skip_export,
+                ),
+                current_utc=datetime.now(UTC),
+            )
+        except (InvalidMonthError, WorkflowError) as error:
+            _print_error(str(error))
+            return 2
+        print(format_decide_themes_summary(decision_plan))
+        return 0
     if args.command == "provision-feishu-schema" and args.plan_only:
         try:
             print(format_feishu_schema_plan_only())
@@ -596,6 +636,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
 
         print(format_collection_summary(summary))
+        return 0
+
+    if args.command == "decide-themes":
+        decision_request = DecideThemesRequest(
+            month=args.month,
+            database_path=config.database_path,
+            export_directory=config.export_directory,
+            plan_only=False,
+            skip_export=args.skip_export,
+        )
+        try:
+            decision_summary = run_theme_decision_workflow(
+                decision_request,
+                config,
+                current_utc=datetime.now(UTC),
+            )
+        except InvalidMonthError as error:
+            _print_error(str(error))
+            return 2
+        except DecisionThemesError:
+            _print_error("DECISION-001 workflow failed")
+            return 4
+        except StorageError:
+            _print_error("local DECISION-001 storage operation failed")
+            return 4
+        except WorkflowError as error:
+            _print_error(str(error))
+            return 2
+        except OSError:
+            _print_error("local DECISION-001 storage operation failed")
+            return 4
+        except Exception:
+            _print_error("theme decision workflow failed")
+            return 4
+
+        print(format_decide_themes_summary(decision_summary))
         return 0
 
     if args.command == "derive-monetization":

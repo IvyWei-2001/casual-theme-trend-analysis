@@ -110,12 +110,12 @@ def _aggregate(rows: list[MarketSnapshotRow], metadata: dict[str, AppMetadataRow
     )
 
 
-def test_fresh_schema_has_version_four_tables_and_exact_columns(tmp_path: Path) -> None:
+def test_fresh_schema_retains_existing_tables_and_exact_columns(tmp_path: Path) -> None:
     repository = _initialized_repository(tmp_path / "fresh.duckdb")
     connection = repository.open()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
     assert (
         tuple(
             row[1]
@@ -158,7 +158,7 @@ def test_existing_version_one_rows_survive_sequential_upgrade(tmp_path: Path) ->
     repository.initialize_schema()
     assert connection.execute(
         "SELECT version FROM schema_migrations ORDER BY version"
-    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
+    ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
     assert connection.execute("SELECT count(*) FROM app_metadata").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM market_snapshots").fetchone() == (1,)
     assert connection.execute("SELECT count(*) FROM monthly_market_totals").fetchone() == (0,)

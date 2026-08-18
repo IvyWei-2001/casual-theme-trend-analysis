@@ -499,7 +499,7 @@ def test_internal_readback_includes_end_boundary_and_rolls_back_all_three_tables
     repository.close()
 
 
-def test_version_five_to_six_migration_preserves_prior_rows(tmp_path: Path) -> None:
+def test_version_five_migrates_to_current_without_rewriting_prior_rows(tmp_path: Path) -> None:
     repository = DuckDBRepository(tmp_path / "v5-to-v6.duckdb")
     repository.open()
     repository.initialize_schema()
@@ -534,9 +534,14 @@ def test_version_five_to_six_migration_preserves_prior_rows(tmp_path: Path) -> N
         schema_module.THEME_BACKTEST_SEGMENT_METRICS_TABLE,
         schema_module.APP_MONETIZATION_PROFILES_TABLE,
         schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
+        schema_module.THEME_DECISION_SUMMARIES_TABLE,
+        schema_module.THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE,
+        schema_module.THEME_DECISION_RISKS_TABLE,
+        schema_module.THEME_CATEGORY_FIT_ASSESSMENTS_TABLE,
+        schema_module.THEME_MIGRATION_HYPOTHESES_TABLE,
     ):
         connection.execute(f"DROP TABLE {table}")
-    connection.execute("DELETE FROM schema_migrations WHERE version IN (6, 7, 8)")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (6, 7, 8, 9)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (5,)
 
     repository.initialize_schema()
@@ -549,7 +554,7 @@ def test_version_five_to_six_migration_preserves_prior_rows(tmp_path: Path) -> N
         for table in prior_tables
     }
     assert after == before
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (9,)
     assert (
         "future_top_quintile_eligible_count"
         in schema_module.THEME_BACKTEST_SEGMENT_METRICS_COLUMNS

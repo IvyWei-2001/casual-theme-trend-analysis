@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added DECISION-001 Phase B local persistence and execution boundaries:
+  schema version 9 adds five typed DuckDB output tables with deterministic
+  readers and atomic exact-target-month replacement; the stored-evidence
+  `decide-themes` CLI calls the frozen Phase A calculation once and writes
+  five complete deterministic ZSTD Parquet exports after commit. Plan-only
+  performs no configuration, database, network, or file access, and
+  `--skip-export` verifies DuckDB while writing no decision Parquet. Category
+  fit, migration, non-forecast T+1/T+2/T+3, and observable Revenue (USD)
+  limitations remain explicit. Validation uses synthetic models, fake
+  repositories, temporary DuckDB, and temporary Parquet only; FEISHU-004,
+  AUTOMATION-001, and real-environment DECISION-001 acceptance remain later
+  work.
 - Replaced MONETIZATION-001 Custom-Field collection with the schema-v8 offline
   observable-Revenue proxy. Stored `revenue_absolute` maps NULL to `unknown`,
   zero to `iaa_candidate`, and positive values to

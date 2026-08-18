@@ -26,9 +26,10 @@ rather than implying a fixed denominator.
 
 CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001, and MONETIZATION-001
 are completed and real-environment accepted at the accepted project boundary.
-DECISION-001 is the current issue; Phase A adds only its frozen policy and pure
-calculation layer. Persistence, CLI, Parquet, Feishu, and automation remain
-later scope. Automation is intentionally deferred until FEISHU-004 and
+DECISION-001 Phase B adds local persistence, a stored-evidence workflow, CLI,
+and deterministic Parquet exports for the frozen Phase A policy. Feishu
+projection and automation remain later scope. Automation is intentionally
+deferred until FEISHU-004 and
 cross-functional V2 acceptance.
 
 ## Requirements
@@ -518,9 +519,9 @@ before configuration and logging and touches no database, network, credentials,
 or local output files. Future `collect-month` runs reuse their already selected
 market rows without a second request. No IAA advertising revenue is estimated.
 
-## Explainable theme decision policy (DECISION-001 Phase A)
+## Explainable theme decision policy (DECISION-001 Phase B)
 
-DECISION-001 Phase A freezes policy version `DECISION001_V1` and calculates
+DECISION-001 Phase A freezes policy version `DECISION001_V1`; Phase B calculates
 deterministic, explainable theme-exploration recommendations from normalized
 AGG-002, MODEL-002, BACKTEST-001, legacy 6M Momentum, and MONETIZATION-001
 evidence. It emits immutable decision summaries, normalized risk rows,
@@ -540,9 +541,38 @@ type. See [`docs/DECISION_V1.md`](docs/DECISION_V1.md) for the complete enum,
 threshold, risk, category-fit, migration, confidence, launch-window, and phase
 boundary contract.
 
-Phase A does not implement DuckDB schema or tables, repository readers/writers,
-CLI, workflow orchestration, Parquet export, Feishu output, automation, Sensor
-Tower requests, or real-environment DECISION-001 execution.
+Schema version 9 persists five output tables in DuckDB: summaries,
+non-forecast T+1/T+2/T+3 launch-window assessments, normalized risks,
+category-fit assessments, and non-validated migration hypotheses. The
+repository validates and atomically replaces one exact target month, removes
+stale variable-cardinality children, and exposes deterministic filtered
+readers. DuckDB is the source of truth.
+
+The stored-evidence workflow reads only the target month and at most twelve
+completed trailing months of category evidence, calls the Phase A pure
+calculation once, never reads raw future launch outcomes, and never
+recalculates upstream AGG-002, MODEL-002, BACKTEST-001, or MONETIZATION-001
+results. It does not construct Sensor Tower, metadata, Feishu, or HTTP
+clients.
+
+```powershell
+python -m src decide-themes --month YYYY-MM --plan-only
+python -m src decide-themes --month YYYY-MM --skip-export
+python -m src decide-themes --month YYYY-MM
+```
+
+Plan-only validates only the exact completed natural-month argument before
+configuration and logging, opens no database, and creates no files or output
+directory. Normal execution writes DuckDB and exports the complete five
+tables as deterministic ZSTD Parquet. `--skip-export` commits and verifies
+DuckDB but writes no decision Parquet and reports `parquet_export=skipped`.
+Development validation uses synthetic models, fake repositories, temporary
+DuckDB, and temporary export directories only. DECISION-001 is not yet
+real-environment accepted; FEISHU-004 and AUTOMATION-001 remain unimplemented.
+Observable Revenue (USD) means incomplete third-party-platform observable
+Revenue, not actual total revenue; it excludes complete IAA advertising
+revenue, and proxy labels are candidates rather than verified monetization
+types. Decision output remains separate from Product Greenlight.
 
 ## FEISHU-001 read-only field inspection
 

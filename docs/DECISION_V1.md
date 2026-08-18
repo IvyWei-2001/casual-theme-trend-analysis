@@ -1,9 +1,11 @@
 # DECISION-001 Explainable Theme-Opportunity Policy
 
-Status: Phase A implemented locally on the
-`feature/decision-001-explainable-policy` branch. The policy and pure
-calculation layer are implemented; persistence, CLI, Parquet, Feishu, and
-automation are not implemented by this phase.
+Status: Phase B implemented locally on the
+`feature/decision-001-explainable-policy` branch. The frozen policy, pure
+calculation, schema-v9 persistence, stored-evidence workflow, CLI, and
+deterministic Parquet exports are locally validated with temporary data only.
+Feishu projection and automation remain unimplemented; real-environment
+DECISION-001 acceptance has not occurred.
 
 ## 1. Product boundary
 
@@ -24,8 +26,9 @@ forecast, predicted observable Revenue (USD), success probability, or
 AI-generated narrative.
 
 MONETIZATION-001 is completed and real-environment accepted. DECISION-001 is
-the current issue. Phase A freezes the policy and implements only immutable
-typed outputs and pure calculation over existing normalized models.
+the current issue. Phase A freezes the policy and pure calculation over
+existing normalized models. Phase B persists those exact outputs without
+redesigning the policy.
 
 ## 2. Accepted evidence and policy version
 
@@ -415,9 +418,87 @@ selected WW Puzzle/Tabletop Top-N sample. The sample is not the complete global
 mobile-games market. Observable Revenue (USD) is incomplete commercial-revenue
 coverage, and the monetization labels remain unverified candidates.
 
-Phase A includes only this policy document, immutable enums/models, pure
-calculation, and focused synthetic unit/contract tests. It deliberately does
-not implement DuckDB tables or schema migration, repository readers/writers,
-CLI, workflow orchestration, Parquet export, Feishu output, automation, live
-Sensor Tower requests, or real-environment execution. Those activities belong
-to later DECISION-001 phases and require separate acceptance.
+Phase A includes this policy document, immutable enums/models, pure
+calculation, and focused synthetic unit/contract tests. Phase B adds local
+schema-v9 persistence, typed readers and atomic target-month replacement,
+stored-evidence orchestration, the `decide-themes` CLI, and deterministic
+Parquet exports. Phase B does not call Sensor Tower, Custom Fields or
+metadata, Feishu, HTTP, automation, or production storage, and it does not
+constitute real-environment acceptance.
+
+## 17. Phase B persistence and execution boundary
+
+Schema version 9 adds exactly five DECISION-001 tables. DuckDB is the source of truth;
+Parquet remains a
+complete deterministic export of each table and is never the transactional
+store.
+
+`theme_decision_summaries` stores one row per target-month raw Game Theme. Its
+identity is `(scope_name, cadence, period_start, period_end, game_theme)` and
+it stores every `ThemeDecisionSummary` field, including
+`DECISION001_V1`, source-policy references, component bands, recommendation,
+reason/action codes, visible evidence values, and timezone-aware
+`calculated_at`.
+
+`theme_launch_window_assessments` stores exactly three rows per summary. Its
+additional identity is `horizon_months` in `{1, 2, 3}`. It stores evidence
+state, confidence, reason code, `is_forecast=false`, inherited source-policy
+references, and `calculated_at`; it stores no predicted Downloads, predicted
+Revenue, probability, expected return, or forecast value.
+
+`theme_decision_risks` stores zero or more rows per summary with additional
+`risk_code` identity, severity, evidence availability, optional source metric,
+policy version, and `calculated_at`.
+
+`theme_category_fit_assessments` stores one row per observed target theme and
+raw Game Sub-genre. Its identity adds `game_subgenre`. SQL NULL Game
+Sub-genre creates no row, while empty string, `Unknown`, and `N/A` remain
+literal labels. The row retains observation history, target product,
+Downloads, observable-Revenue, representative-product, and limitation
+evidence.
+
+`theme_migration_hypotheses` stores zero or more rows with identity adding
+`validated_source_game_subgenre` and `target_observed_game_subgenre`. Every
+row remains `is_validated_fit=false` and `requires_product_validation=true`;
+source and target must differ. A zero-row target month is valid.
+
+The repository validates all five complete payloads before a transaction,
+including one target scope/cadence/period, one calculation timestamp, exact
+summary-population reconciliation, three launch rows per summary, child
+parent identities, policy/enums, NULL-versus-zero values, and migration
+invariants. It deletes and inserts only the exact requested target month,
+rereads all five tables before COMMIT, and rolls the five-table replacement
+back on any failure. Reruns remove stale variable-cardinality risks,
+category-fit rows, and migration hypotheses without changing upstream
+source, aggregation, model, backtest, or monetization tables.
+
+The stored-evidence workflow accepts one completed natural UTC month, reads
+only the target upstream evidence and at most the trailing twelve completed
+months of category dimensions and representative evidence, calls the Phase A
+pure calculation once, performs a sanitized post-commit readback, and then
+exports all five complete tables unless export is skipped. It never reads raw
+future launch-window outcome rows and never recalculates AGG-002, MODEL-002,
+BACKTEST-001, or MONETIZATION-001.
+
+The CLI boundary is:
+
+```powershell
+python -m src decide-themes --month YYYY-MM --plan-only
+python -m src decide-themes --month YYYY-MM --skip-export
+python -m src decide-themes --month YYYY-MM
+```
+
+Plan-only validates only syntax and completed-month semantics before
+configuration and logging, opens no database, creates no directory or file,
+and constructs no external client. Normal execution uses configured DuckDB
+and export paths with no network. `--skip-export` commits and verifies DuckDB
+rows and explicitly reports `parquet_export=skipped`.
+
+All five exports use explicit stable columns and identity ordering, ZSTD
+compression, temporary sibling files, and atomic replacement. They preserve
+raw labels, SQL NULL, observed zero, source-policy fields, and timezone-aware
+calculation timestamps. Development validation for Phase B uses synthetic
+models, fake repositories, temporary DuckDB files, and temporary export
+directories only. Real-environment acceptance remains a later authorized
+step; FEISHU-004 and AUTOMATION-001 remain unimplemented. Decision output is
+not Product Greenlight.

@@ -75,7 +75,7 @@ def test_project_plan_contains_the_authoritative_v2_order() -> None:
     )
 
 
-def test_decision001_phase_a_documentation_freezes_policy_and_scope() -> None:
+def test_decision001_phase_b_documentation_freezes_policy_and_scope() -> None:
     decision = _read("docs/DECISION_V1.md").lower()
     project_plan = _read("PROJECT_PLAN.md").lower()
     current_system = _read("docs/CURRENT_SYSTEM.md").lower()
@@ -92,8 +92,21 @@ def test_decision001_phase_a_documentation_freezes_policy_and_scope() -> None:
         "success probability",
         "monetization-001 is completed and real-environment accepted",
         "phase a",
-        "duckdb tables or schema migration",
-        "feishu output",
+        "schema version 9",
+        "theme_decision_summaries",
+        "theme_launch_window_assessments",
+        "theme_decision_risks",
+        "theme_category_fit_assessments",
+        "theme_migration_hypotheses",
+        "stored-evidence",
+        "decide-themes",
+        "plan-only",
+        "skip-export",
+        "no network",
+        "real-environment acceptance",
+        "feishu-004",
+        "automation-001",
+        "duckdb is the source of truth",
     )
     for term in required_terms:
         assert term in decision

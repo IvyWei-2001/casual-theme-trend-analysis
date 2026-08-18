@@ -2,7 +2,7 @@
 
 Project: Casual Theme Trend Analysis
 Status: Active
-Current focus: Phase A explainable decision policy and pure calculation
+Current focus: Phase B local explainable-decision persistence and stored-evidence workflow
 
 ## Development principles
 
@@ -53,13 +53,14 @@ Implement the next issues in exactly this order:
 6. **MONETIZATION-001 - monetization proxy observability (completed and
    real-environment accepted)**
 7. **DECISION-001 - recommendation, risk, confidence, category fit, and
-   migration evidence (current issue; Phase A)**
+   migration evidence (current issue; Phase B local implementation)**
 8. **FEISHU-004 - business tables, role views, and dashboards**
 9. **AUTOMATION-001 - monthly automated execution after V2 acceptance**
 
 CONTRACT-002, HIST-002, AGG-002, MODEL-002, BACKTEST-001, and MONETIZATION-001
-are completed and real-environment accepted; DECISION-001 Phase A is the
-current focus. The recorded
+are completed and real-environment accepted; DECISION-001 Phase A and Phase B
+are locally implemented, but DECISION-001 is not real-environment accepted.
+The recorded
 HIST-002 evidence is 36 completed months, 35,525 source snapshots, monthly
 `snapshot_count` bounds of 964 and 1,000, zero structural issues, and
 structural completeness. Sanitized MODEL-002 acceptance evidence is
@@ -98,12 +99,19 @@ requires no Sensor Tower request.
 
 DECISION-001 Phase A uses policy version `DECISION001_V1`. It freezes the
 explainable recommendation, risk, confidence, category-fit, migration, and
-non-forecast launch-window contracts and implements only pure typed
-calculation. Persistence, schema migration, repository readers/writers, CLI,
-Parquet, Feishu, automation, and real-environment execution are not yet
-implemented. Business-facing metric wording in this issue is
+non-forecast launch-window contracts. Phase B adds schema version 9, five
+DuckDB output tables, validated deterministic readers, atomic exact-month
+replacement, a stored-evidence-only workflow, the `decide-themes` CLI, and
+complete deterministic ZSTD Parquet exports. It reads no network or future
+outcome evidence, and it does not alter upstream AGG, MODEL, BACKTEST, or
+MONETIZATION outputs. Development uses only synthetic models, fake
+repositories, temporary DuckDB, and temporary Parquet. Real-environment
+acceptance remains later work. Business-facing metric wording in this issue is
 `observable Revenue (USD)`; `revenue_absolute` remains the technical source
-field.
+field. Observable Revenue is incomplete third-party-platform observable
+Revenue, not actual total revenue; it excludes complete IAA advertising
+revenue, and proxy labels are candidates rather than verified monetization
+types.
 
 The V2 product must keep theme opportunity separate from Product Greenlight.
 The latter additionally requires product quality, marketability, creative

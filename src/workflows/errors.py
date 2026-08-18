@@ -41,6 +41,14 @@ class BacktestReadbackVerificationError(BacktestThemesError):
     """Raised when committed BACKTEST-001 rows do not match the payload."""
 
 
+class DecisionThemesError(WorkflowError):
+    """Raised when the stored-evidence DECISION-001 workflow cannot complete safely."""
+
+
+class DecisionReadbackVerificationError(DecisionThemesError):
+    """Raised when committed DECISION-001 rows do not match the payload."""
+
+
 type BackfillFailureKind = Literal[
     "configuration",
     "sensor_tower",

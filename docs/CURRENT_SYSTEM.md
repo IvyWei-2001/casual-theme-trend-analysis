@@ -1,7 +1,7 @@
 # Current System
 
 This document records the audited state of the repository as of
-DECISION-001 Phase A.
+DECISION-001 Phase B.
 It distinguishes implemented and accepted technical behavior from the
 future V2 decision product. The descriptions below are based on the current
 merged implementation, not the original scaffold roadmap.
@@ -169,7 +169,7 @@ backup, or real export operation is included. MONETIZATION-001 does not change
 AGG, MODEL-002, or BACKTEST-001 results, and BACKTEST-001 is not described as
 controlling for true monetization type.
 
-## DECISION-001 Phase A implementation status
+## DECISION-001 Phase A and Phase B implementation status
 
 DECISION-001 is the current issue. Phase A adds the pure typed modules
 `src/analysis/decision_models.py` and `src/analysis/decision_v1.py`, plus the
@@ -189,10 +189,24 @@ wording is `observable Revenue (USD)`; `revenue_absolute` remains the
 technical source field. Observable Revenue limitations remain explicit even
 with complete field coverage.
 
-Phase A does not add schema or database tables, repository readers/writers,
-Parquet exports, a CLI, Feishu fields/records/views, automation, or real
-DECISION-001 execution. Those belong to a later persistence and integration
-phase.
+Phase A did not add schema or database tables, repository readers/writers,
+Parquet exports, or a CLI. Phase B now adds schema version 9 persistence and exactly five
+DECISION-001 tables, typed deterministic readers, atomic exact-target-month
+replacement, a stored-evidence-only workflow, the `decide-themes` CLI, and
+five complete deterministic ZSTD Parquet exports. The Phase B workflow reads
+only stored target-month evidence and at most twelve trailing completed
+months of category evidence, calls the Phase A calculation once, never reads
+raw future launch outcomes, and never recalculates upstream AGG, MODEL,
+BACKTEST, or MONETIZATION results.
+
+Plan-only runs before configuration and logging, opens no database, creates no
+files, and constructs no external client. `--skip-export` commits and
+verifies DuckDB rows but writes no decision Parquet. DuckDB is the source of
+truth. Development validation uses synthetic models, fake repositories,
+temporary DuckDB, and temporary Parquet only. No Sensor Tower, metadata,
+Custom Fields, Feishu, HTTP, production database, automation, push, or PR
+operation is part of this phase. DECISION-001 has not been real-environment
+accepted; FEISHU-004 and AUTOMATION-001 remain later work.
 
 ## Confirmed metric terminology
 
@@ -211,8 +225,7 @@ backtesting.
 
 The following V2 capabilities are not yet implemented:
 
-- DECISION-001 persistence and repository read/write integration;
-- a DECISION-001 CLI, workflow, Parquet export, and Feishu projection;
+- DECISION-001 Feishu projection;
 - final business tables and dashboards;
 - automation.
 
