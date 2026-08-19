@@ -215,6 +215,12 @@ def test_complete_synthetic_workflow_persists_and_exports_with_temp_duckdb(
         summary.category_fits_parquet_path,
         summary.migrations_parquet_path,
     ))
+    stored_summary = repository.get_theme_decision_summaries()[0]
+    stored_launches = repository.get_theme_launch_window_assessments()
+    assert len(stored_launches) == 3
+    assert {
+        row.source_policy_references for row in stored_launches
+    } == {stored_summary.source_policy_references}
     assert total.period_start == TARGET_MONTH
     assert structures
     repository.close()

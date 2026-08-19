@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Corrected DECISION-001 acceptance boundaries without changing
+  `DECISION001_V1`, schema version 9, thresholds, or recommendation order:
+  non-actionable gating now uses only the exact raw `game_theme` labels
+  `""`, `"Unknown"`, and `"N/A"`; competition confidence counts each
+  available structure or growth metric independently; volatile risks record
+  the deterministic first volatile MODEL-002 horizon; launch-window rows
+  inherit and round-trip parent source-policy references; and migration rows
+  require exact same-theme/category-fit relationships with frozen evidence and
+  validation invariants.
 - Added DECISION-001 Phase B local persistence and execution boundaries:
   schema version 9 adds five typed DuckDB output tables with deterministic
   readers and atomic exact-target-month replacement; the stored-evidence

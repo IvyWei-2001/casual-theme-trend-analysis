@@ -69,6 +69,23 @@ The accepted BACKTEST-001 interpretation is conservative:
 
 8. A `volatile` stability band is a risk signal.
 
+9. The non-actionable theme-label gate applies only when the exact raw
+   `game_theme` is `""`, `"Unknown"`, or `"N/A"`. It does not inherit legacy
+   6M Momentum exclusions such as insufficient product count, history, or
+   metric coverage. A missing legacy score therefore does not weaken this
+   source-label rule, and a legacy score remains optional secondary evidence.
+
+10. Competition evidence is counted per available metric. The two product-HHI
+    measures come from the current market-structure row even when the optional
+    growth-source row is absent. A missing growth row removes only the two
+    growth-contribution measures; unavailable values remain unavailable rather
+    than becoming zero.
+
+11. When multiple MODEL-002 stability horizons are volatile, the normalized
+    volatile-evidence risk records the first available source in this fixed
+    order: `stability_band_6m`, `stability_band_12m`, then
+    `stability_band_36m`.
+
 The source policy references carried by summary rows identify the accepted
 AGG-002, MODEL-002, and BACKTEST-001 evidence boundaries. When observable
 Revenue (USD) evidence is used, the MONETIZATION-001 policy reference is also
@@ -316,7 +333,13 @@ The output retains the source and target raw values, supporting evidence codes,
 `migration_not_validated`, `is_validated_fit=false`, and
 `requires_product_validation=true`. It never labels a target proven,
 compatible, validated, or successful; it never invents adjacency mappings; and
-it never creates an unobserved target. Zero migration rows is valid.
+it never creates an unobserved target. Persisted migration rows must point to
+same-scope, same-period, same-theme category-fit rows with a
+`validated_fit` source and an `observed_fit` target. Their frozen evidence
+codes are exactly `validated_source_fit`, `observed_target_fit`, and
+`migration_not_validated`; the hypothesis status is
+`requires_product_validation`, with `is_validated_fit=false` and
+`requires_product_validation=true`. Zero migration rows is valid.
 
 ## 12. Recommendation rule order
 
@@ -373,7 +396,8 @@ Every decision summary emits exactly three immutable rows for T+1, T+2, and
 T+3 (horizon months 1, 2, and 3). Each row carries `is_forecast=false`. It has
 an evidence state,
 confidence, and reason code, but no predicted Downloads, predicted observable
-Revenue, target value, or success probability.
+Revenue, target value, or success probability. Each row inherits the exact
+`source_policy_references` tuple of its parent summary; a mismatch is invalid.
 
 The current Market Size is the primary scale evidence:
 

@@ -452,6 +452,7 @@ class ThemeLaunchWindowAssessment:
     confidence: DecisionConfidence
     reason_code: PrimaryReasonCode
     is_forecast: bool
+    source_policy_references: tuple[str, ...]
     calculated_at: datetime
 
     @property
@@ -497,6 +498,13 @@ class ThemeLaunchWindowAssessment:
         )
         if self.is_forecast is not False:
             raise DecisionValidationError("is_forecast must always be false")
+        references = _normalize_text_tuple(
+            self.source_policy_references,
+            field_name="source_policy_references",
+        )
+        if not references:
+            raise DecisionValidationError("source_policy_references must not be empty")
+        object.__setattr__(self, "source_policy_references", references)
 
 
 @dataclass(frozen=True, slots=True)
@@ -770,6 +778,7 @@ class ThemeDecisionResult:
         if len(set(summary_ids)) != len(summary_ids):
             raise DecisionValidationError("decision summaries contain duplicate identities")
         summary_set = set(summary_ids)
+        summaries_by_identity = {row.identity: row for row in summaries}
 
         launch_ids = tuple(row.identity for row in launches)
         if len(set(launch_ids)) != len(launch_ids):
@@ -780,8 +789,14 @@ class ThemeDecisionResult:
                 raise DecisionValidationError(
                     "every decision summary must have exactly T+1, T+2, and T+3 rows"
                 )
-        if any(row.identity[:-1] not in summary_set for row in launches):
-            raise DecisionValidationError("launch-window row has no decision summary")
+        for row in launches:
+            parent = summaries_by_identity.get(row.identity[:-1])
+            if parent is None:
+                raise DecisionValidationError("launch-window row has no decision summary")
+            if row.source_policy_references != parent.source_policy_references:
+                raise DecisionValidationError(
+                    "launch-window source_policy_references must match parent summary"
+                )
 
         risk_ids = tuple(row.identity for row in risks)
         if len(set(risk_ids)) != len(risk_ids):
@@ -800,6 +815,56 @@ class ThemeDecisionResult:
             raise DecisionValidationError("migration hypotheses contain duplicate identities")
         if any(row.identity[:5] not in summary_set for row in migrations):
             raise DecisionValidationError("migration hypothesis has no decision summary")
+        fits_by_identity = {row.identity: row for row in fits}
+        expected_supporting_codes = (
+            "validated_source_fit",
+            "observed_target_fit",
+        )
+        expected_limitation_codes = (RiskCode.MIGRATION_NOT_VALIDATED,)
+        for migration_row in migrations:
+            source_identity = (
+                *migration_row.period_key,
+                migration_row.game_theme,
+                migration_row.validated_source_game_subgenre,
+            )
+            target_identity = (
+                *migration_row.period_key,
+                migration_row.game_theme,
+                migration_row.target_observed_game_subgenre,
+            )
+            source_fit = fits_by_identity.get(source_identity)
+            if source_fit is None:
+                raise DecisionValidationError("migration source category fit is missing")
+            if source_fit.fit_state != CategoryFitState.VALIDATED_FIT:
+                raise DecisionValidationError(
+                    "migration source category fit must be validated_fit"
+                )
+            target_fit = fits_by_identity.get(target_identity)
+            if target_fit is None:
+                raise DecisionValidationError("migration target category fit is missing")
+            if target_fit.fit_state != CategoryFitState.OBSERVED_FIT:
+                raise DecisionValidationError(
+                    "migration target category fit must be observed_fit"
+                )
+            if migration_row.supporting_evidence_codes != expected_supporting_codes:
+                raise DecisionValidationError(
+                    "migration supporting_evidence_codes must match the frozen evidence"
+                )
+            if migration_row.risk_limitation_codes != expected_limitation_codes:
+                raise DecisionValidationError(
+                    "migration risk_limitation_codes must contain only migration_not_validated"
+                )
+            if (
+                migration_row.hypothesis_status
+                != MigrationHypothesisStatus.REQUIRES_PRODUCT_VALIDATION
+            ):
+                raise DecisionValidationError(
+                    "migration hypothesis_status must require product validation"
+                )
+            if migration_row.is_validated_fit is not False:
+                raise DecisionValidationError("migration hypotheses cannot be validated fit")
+            if migration_row.requires_product_validation is not True:
+                raise DecisionValidationError("migration hypotheses require product validation")
 
         timestamped_rows: tuple[_DecisionOutputRow, ...] = (
             *summaries,

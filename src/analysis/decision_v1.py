@@ -92,6 +92,7 @@ _POSITIVE_GROWTH_STATES = {
     GrowthQualityState.OBSERVABLE_REVENUE_GROWTH_SUPPORT,
 }
 _HIGH_RISK_STABILITY_BANDS = {"volatile"}
+_NON_ACTIONABLE_THEME_LABELS = frozenset(("", "Unknown", "N/A"))
 
 
 def calculate_theme_decisions(
@@ -248,7 +249,7 @@ def calculate_theme_decisions(
             monetization=monetization,
             category_fits=theme_fits,
         )
-        non_actionable = trend_score is not None and not trend_score.is_actionable
+        non_actionable = _is_non_actionable_theme_label(theme)
         volatile = _has_volatile_stability(model_summary)
         recommendation = _recommend(
             market_size=market_size,
@@ -315,7 +316,6 @@ def calculate_theme_decisions(
             structure=structure,
             growth=growth,
             model_summary=model_summary,
-            trend_score=trend_score,
             monetization=monetization,
             market_size=market_size,
             competitive_band=competitive_band,
@@ -352,6 +352,7 @@ def calculate_theme_decisions(
                 confidence=confidence,
                 reason_code=launch_reason,
                 is_forecast=False,
+                source_policy_references=source_policy_references,
                 calculated_at=calculated_at,
             )
             for horizon in DECISION_HORIZONS
@@ -603,7 +604,7 @@ def _classify_confidence(
         getattr(structure, source_field) is not None
         for source_field, _field_name in _MARKET_METRICS
     )
-    competition_count = 0 if growth is None else sum(
+    competition_count = sum(
         _competitive_value(structure, growth, source_field) is not None
         for source_field, _field_name in _COMPETITIVE_METRICS
     )
@@ -634,15 +635,23 @@ def _summarize_category_fit(
     return CategoryFitState.INSUFFICIENT_EVIDENCE
 
 
+def _volatile_stability_source(summary: ThemeModelSummary) -> str | None:
+    for field_name in (
+        "stability_band_6m",
+        "stability_band_12m",
+        "stability_band_36m",
+    ):
+        if getattr(summary, field_name) in _HIGH_RISK_STABILITY_BANDS:
+            return field_name
+    return None
+
+
 def _has_volatile_stability(summary: ThemeModelSummary) -> bool:
-    return any(
-        value in _HIGH_RISK_STABILITY_BANDS
-        for value in (
-            summary.stability_band_6m,
-            summary.stability_band_12m,
-            summary.stability_band_36m,
-        )
-    )
+    return _volatile_stability_source(summary) is not None
+
+
+def _is_non_actionable_theme_label(game_theme: str) -> bool:
+    return game_theme in _NON_ACTIONABLE_THEME_LABELS
 
 
 def _recommend(
@@ -850,7 +859,6 @@ def _build_risks(
     structure: ThemeMarketStructureMetric,
     growth: ThemeGrowthSourceMetric | None,
     model_summary: ThemeModelSummary,
-    trend_score: ThemeTrendScore | None,
     monetization: ThemeMonetizationObservabilityMetric | None,
     market_size: MarketSizeBand,
     competitive_band: CompetitiveStructureRiskBand,
@@ -866,7 +874,7 @@ def _build_risks(
         specs[RiskCode.VOLATILE_EVIDENCE] = (
             RiskSeverity.HIGH,
             EvidenceAvailability.OBSERVED,
-            "stability_band_12m",
+            _volatile_stability_source(model_summary),
         )
     if model_summary.lifecycle_stage == "mixed":
         specs[RiskCode.MIXED_LIFECYCLE] = (
@@ -932,11 +940,11 @@ def _build_risks(
             EvidenceAvailability.PARTIAL,
             "has_12m_history",
         )
-    if trend_score is not None and not trend_score.is_actionable:
+    if _is_non_actionable_theme_label(theme):
         specs[RiskCode.NON_ACTIONABLE_THEME_LABEL] = (
             RiskSeverity.MEDIUM,
             EvidenceAvailability.OBSERVED,
-            "is_actionable",
+            "game_theme",
         )
 
     if revenue_evidence_used:

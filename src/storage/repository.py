@@ -26,6 +26,9 @@ from ..analysis.backtest_models import (
 from ..analysis.decision_models import (
     DECISION_HORIZONS,
     DECISION_POLICY_VERSION,
+    CategoryFitState,
+    MigrationHypothesisStatus,
+    RiskCode,
     ThemeCategoryFitAssessment,
     ThemeDecisionResult,
     ThemeDecisionRisk,
@@ -1457,10 +1460,7 @@ class DuckDBRepository:
                 connection.executemany(
                     _INSERT_THEME_LAUNCH_WINDOW_ASSESSMENT_SQL,
                     [
-                        _theme_launch_window_assessment_parameters(
-                            row,
-                            source_policy_references[row.game_theme],
-                        )
+                        _theme_launch_window_assessment_parameters(row)
                         for row in launches_tuple
                     ],
                 )
@@ -2607,16 +2607,9 @@ def _theme_decision_summary_parameters(row: ThemeDecisionSummary) -> tuple[objec
 
 def _theme_launch_window_assessment_parameters(
     row: ThemeLaunchWindowAssessment,
-    source_policy_references: Sequence[str],
 ) -> tuple[object, ...]:
-    values = {
-        column: getattr(row, column)
-        for column in THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS
-        if column != "source_policy_references"
-    }
-    values["source_policy_references"] = tuple(source_policy_references)
     return tuple(
-        _decision_db_value(values[column])
+        _decision_db_value(getattr(row, column))
         for column in THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS
     )
 
@@ -2764,7 +2757,6 @@ def _theme_launch_window_assessment_from_database_row(
     row: Sequence[object],
 ) -> ThemeLaunchWindowAssessment:
     values = dict(zip(THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS, row, strict=True))
-    values.pop("source_policy_references", None)
     return ThemeLaunchWindowAssessment(**cast(Any, values))
 
 
@@ -2912,6 +2904,17 @@ def _validate_theme_decision_result(
         raise StorageValidationError("decision summary population does not reconcile to launches")
     if any(row.identity[:-1] not in summary_identities for row in launches):
         raise StorageValidationError("launch-window row has no decision summary")
+    summary_source_policies = {
+        row.identity: row.source_policy_references for row in summaries
+    }
+    for row in launches:
+        parent_references = summary_source_policies.get(row.identity[:-1])
+        if parent_references is None:
+            raise StorageValidationError("launch-window row has no decision summary")
+        if row.source_policy_references != parent_references:
+            raise StorageValidationError(
+                "launch-window source_policy_references must match parent summary"
+            )
     if any(row.identity[:5] not in summary_identities for row in risks):
         raise StorageValidationError("risk row has no decision summary")
     if any(row.identity[:5] not in summary_identities for row in fits):
@@ -2934,6 +2937,56 @@ def _validate_theme_decision_result(
         raise StorageValidationError("migration hypotheses cannot be validated fit")
     if any(row.requires_product_validation is not True for row in migrations):
         raise StorageValidationError("migration hypotheses require product validation")
+    fits_by_identity = {row.identity: row for row in fits}
+    expected_supporting_codes = (
+        "validated_source_fit",
+        "observed_target_fit",
+    )
+    expected_limitation_codes = (RiskCode.MIGRATION_NOT_VALIDATED,)
+    for migration_row in migrations:
+        source_identity = (
+            *migration_row.period_key,
+            migration_row.game_theme,
+            migration_row.validated_source_game_subgenre,
+        )
+        target_identity = (
+            *migration_row.period_key,
+            migration_row.game_theme,
+            migration_row.target_observed_game_subgenre,
+        )
+        source_fit = fits_by_identity.get(source_identity)
+        if source_fit is None:
+            raise StorageValidationError("migration source category fit is missing")
+        if source_fit.fit_state != CategoryFitState.VALIDATED_FIT:
+            raise StorageValidationError(
+                "migration source category fit must be validated_fit"
+            )
+        target_fit = fits_by_identity.get(target_identity)
+        if target_fit is None:
+            raise StorageValidationError("migration target category fit is missing")
+        if target_fit.fit_state != CategoryFitState.OBSERVED_FIT:
+            raise StorageValidationError(
+                "migration target category fit must be observed_fit"
+            )
+        if migration_row.supporting_evidence_codes != expected_supporting_codes:
+            raise StorageValidationError(
+                "migration supporting_evidence_codes must match the frozen evidence"
+            )
+        if migration_row.risk_limitation_codes != expected_limitation_codes:
+            raise StorageValidationError(
+                "migration risk_limitation_codes must contain only migration_not_validated"
+            )
+        if (
+            migration_row.hypothesis_status
+            != MigrationHypothesisStatus.REQUIRES_PRODUCT_VALIDATION
+        ):
+            raise StorageValidationError(
+                "migration hypothesis_status must require product validation"
+            )
+        if migration_row.is_validated_fit is not False:
+            raise StorageValidationError("migration hypotheses cannot be validated fit")
+        if migration_row.requires_product_validation is not True:
+            raise StorageValidationError("migration hypotheses require product validation")
 
     policies = {row.decision_policy_version for row in summaries}
     policies.update(row.decision_policy_version for row in launches)

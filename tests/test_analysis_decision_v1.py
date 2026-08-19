@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from test_analysis_theme_monthly import _metadata, _row
+from test_storage_trend001 import _score as _trend_score
 
 from src.analysis.decision_models import (
     DECISION_POLICY_VERSION,
@@ -19,6 +20,7 @@ from src.analysis.decision_models import (
     LaunchWindowEvidenceState,
     MarketSizeBand,
     RiskCode,
+    ThemeDecisionResult,
 )
 from src.analysis.decision_v1 import (
     _classify_competitive_risk,
@@ -26,10 +28,12 @@ from src.analysis.decision_v1 import (
     _launch_window_state,
     _percentiles_for_values,
     _recommend,
+    _volatile_stability_source,
     calculate_theme_decisions,
 )
 from src.analysis.errors import DecisionValidationError
 from src.analysis.model_v2_models import MODEL_POLICY_VERSION, ThemeModelSummary
+from src.analysis.monetization_models import MONETIZATION_POLICY_VERSION
 from src.analysis.opportunity_aggregation import aggregate_theme_opportunity_metrics
 from src.analysis.opportunity_models import ThemeMarketStructureMetric
 from src.storage import MonthlyMarketTotal
@@ -170,6 +174,7 @@ def _decision(
     missing_downloads: frozenset[str] = frozenset(),
     missing_revenue: frozenset[str] = frozenset(),
     growth_override: tuple | None = None,
+    trend_override: tuple | None = None,
 ):
     total, default_structures, aggregate = _aggregate(
         themes,
@@ -185,6 +190,7 @@ def _decision(
     )
     if growth_override is not None:
         target_growth = growth_override
+    target_trend_scores = () if trend_override is None else trend_override
     target_dimensions = tuple(
         row
         for row in aggregate.theme_dimension_monthly_metrics
@@ -202,6 +208,17 @@ def _decision(
         target_summaries,
         target_dimensions,
         target_representatives,
+        theme_trend_scores=target_trend_scores,
+        calculated_at=CALCULATED_AT,
+    )
+
+
+def _trend_score_for_target(theme: str, *, actionable: bool) -> object:
+    return replace(
+        _trend_score(theme, actionable=actionable),
+        period_start=TARGET_MONTH,
+        period_end=_period_end(TARGET_MONTH),
+        window_start=date(2026, 2, 1),
         calculated_at=CALCULATED_AT,
     )
 
@@ -495,6 +512,52 @@ def test_observable_revenue_limitations_remain_with_complete_field_coverage() ->
     assert RiskCode.OBSERVABLE_REVENUE_COVERAGE_GAP not in codes
 
 
+@pytest.mark.parametrize("label", ("", "Unknown", "N/A"))
+def test_exact_non_actionable_labels_gate_without_legacy_score(label: str) -> None:
+    result = _decision(themes=(label,))
+    summary = result.summaries[0]
+    risk = next(row for row in result.risks if row.risk_code == RiskCode.NON_ACTIONABLE_THEME_LABEL)
+    assert summary.recommendation == DecisionRecommendation.MONITOR
+    assert all(
+        row.evidence_state == LaunchWindowEvidenceState.CAUTION_OR_MONITOR
+        for row in result.launch_windows
+    )
+    assert risk.source_metric_name == "game_theme"
+
+
+def test_normal_label_without_legacy_score_is_actionable() -> None:
+    result = _decision(themes=("Normal",))
+    assert result.summaries[0].recommendation == DecisionRecommendation.SELECTIVE_VALIDATION
+    assert not any(
+        row.risk_code == RiskCode.NON_ACTIONABLE_THEME_LABEL for row in result.risks
+    )
+
+
+def test_normal_label_ignores_unrelated_legacy_non_actionable_reason() -> None:
+    without_score = _decision(themes=("Normal",))
+    with_score = _decision(
+        themes=("Normal",),
+        trend_override=(_trend_score_for_target("Normal", actionable=False),),
+    )
+    assert with_score.summaries[0].recommendation == without_score.summaries[0].recommendation
+    assert with_score.launch_windows == without_score.launch_windows
+    assert not any(
+        row.risk_code == RiskCode.NON_ACTIONABLE_THEME_LABEL for row in with_score.risks
+    )
+
+
+@pytest.mark.parametrize("label", ("", "Unknown", "N/A", "Normal"))
+def test_source_label_behavior_is_identical_with_optional_legacy_score(label: str) -> None:
+    without_score = _decision(themes=(label,))
+    with_score = _decision(
+        themes=(label,),
+        trend_override=(_trend_score_for_target(label, actionable=False),),
+    )
+    assert with_score.summaries[0].recommendation == without_score.summaries[0].recommendation
+    assert with_score.launch_windows == without_score.launch_windows
+    assert with_score.risks == without_score.risks
+
+
 def test_category_fit_uses_exact_thresholds_and_does_not_require_observable_revenue() -> None:
     result = _category_decision()
     validated = next(row for row in result.category_fits if row.game_subgenre == "Validated")
@@ -526,6 +589,65 @@ def test_migration_requires_validated_source_and_observed_target_only() -> None:
     assert RiskCode.MIGRATION_NOT_VALIDATED in {row.risk_code for row in result.risks}
 
 
+def test_immutable_result_rejects_launch_source_policy_mismatch() -> None:
+    result = _decision()
+    mismatched_launch = replace(
+        result.launch_windows[0],
+        source_policy_references=("AGG002_V1",),
+    )
+    with pytest.raises(DecisionValidationError, match="source_policy_references"):
+        ThemeDecisionResult(
+            result.summaries,
+            (mismatched_launch, *result.launch_windows[1:]),
+            result.risks,
+            result.category_fits,
+            result.migration_hypotheses,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing_source", "missing_target", "source_state", "target_state", "supporting"),
+)
+def test_immutable_result_rejects_invalid_migration_category_relationship(
+    mutation: str,
+) -> None:
+    result = _category_decision()
+    migration = result.migration_hypotheses[0]
+    fits = result.category_fits
+    if mutation == "missing_source":
+        fits = tuple(row for row in fits if row.game_subgenre != "Validated")
+    elif mutation == "missing_target":
+        fits = tuple(row for row in fits if row.game_subgenre != "Observed")
+    elif mutation == "source_state":
+        fits = tuple(
+            replace(row, fit_state=CategoryFitState.OBSERVED_FIT)
+            if row.game_subgenre == "Validated"
+            else row
+            for row in fits
+        )
+    elif mutation == "target_state":
+        fits = tuple(
+            replace(row, fit_state=CategoryFitState.VALIDATED_FIT)
+            if row.game_subgenre == "Observed"
+            else row
+            for row in fits
+        )
+    else:
+        migration = replace(
+            migration,
+            supporting_evidence_codes=("observed_target_fit", "validated_source_fit"),
+        )
+    with pytest.raises(DecisionValidationError, match="migration"):
+        ThemeDecisionResult(
+            result.summaries,
+            result.launch_windows,
+            result.risks,
+            fits,
+            (migration,),
+        )
+
+
 def test_no_unobserved_migration_target_and_empty_migration_output_are_valid() -> None:
     result = _category_decision(include_observed=False)
     assert result.migration_hypotheses == ()
@@ -545,6 +667,78 @@ def test_confidence_high_medium_low_boundaries() -> None:
         ).summaries[0].confidence
         == DecisionConfidence.LOW
     )
+
+
+def test_confidence_counts_structure_competition_without_growth() -> None:
+    result = _decision(growth_override=())
+    assert result.summaries[0].confidence == DecisionConfidence.MEDIUM
+
+
+def test_one_structure_hhi_without_growth_is_insufficient_competition_evidence() -> None:
+    total, structures, _aggregate_result = _aggregate(("Theme",))
+    structure = replace(
+        structures[0],
+        revenue_usd_coverage_count=0,
+        revenue_usd_coverage_ratio=0.0,
+        revenue_usd_sum=None,
+        revenue_usd_share=None,
+        revenue_usd_mean_per_covered_product=None,
+        revenue_usd_median_per_covered_product=None,
+        revenue_usd_top_1_product_share=None,
+        revenue_usd_top_3_product_share=None,
+        revenue_usd_top_10_product_share=None,
+        revenue_usd_product_hhi=None,
+    )
+    result = _decision(structures=(structure,), growth_override=())
+    assert total.period_start == TARGET_MONTH
+    assert result.summaries[0].confidence == DecisionConfidence.LOW
+
+
+def test_partial_growth_counts_only_available_competition_metrics() -> None:
+    total, structures, aggregate = _aggregate(("Theme",))
+    structure = replace(
+        structures[0],
+        revenue_usd_coverage_count=0,
+        revenue_usd_coverage_ratio=0.0,
+        revenue_usd_sum=None,
+        revenue_usd_share=None,
+        revenue_usd_mean_per_covered_product=None,
+        revenue_usd_median_per_covered_product=None,
+        revenue_usd_top_1_product_share=None,
+        revenue_usd_top_3_product_share=None,
+        revenue_usd_top_10_product_share=None,
+        revenue_usd_product_hhi=None,
+    )
+    growth = next(
+        row
+        for row in aggregate.theme_growth_source_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    partial_growth = replace(
+        growth,
+        downloads_top_10_positive_contribution_share=0.25,
+        revenue_usd_decomposition_complete=False,
+        revenue_usd_mom_change=None,
+        revenue_usd_mom_growth_rate=None,
+        revenue_usd_market_new_entry_sum=None,
+        revenue_usd_market_new_entry_share_of_current=None,
+        revenue_usd_theme_entry_contribution=None,
+        revenue_usd_continuing_contribution=None,
+        revenue_usd_theme_exit_contribution=None,
+        revenue_usd_positive_contribution_sum=None,
+        revenue_usd_negative_contribution_sum=None,
+        revenue_usd_positive_contributor_count=None,
+        revenue_usd_negative_contributor_count=None,
+        revenue_usd_unchanged_contributor_count=None,
+        revenue_usd_market_new_entry_positive_contribution_share=None,
+        revenue_usd_continuing_positive_contribution_share=None,
+        revenue_usd_top_1_positive_contribution_share=None,
+        revenue_usd_top_3_positive_contribution_share=None,
+        revenue_usd_top_10_positive_contribution_share=None,
+    )
+    result = _decision(structures=(structure,), growth_override=(partial_growth,))
+    assert total.period_start == TARGET_MONTH
+    assert result.summaries[0].confidence == DecisionConfidence.MEDIUM
 
 
 def test_volatile_lifecycle_concentration_and_seasonality_are_normalized_risks() -> None:
@@ -601,6 +795,36 @@ def test_volatile_lifecycle_concentration_and_seasonality_are_normalized_risks()
     }
 
 
+@pytest.mark.parametrize(
+    ("bands", "expected_source"),
+    (
+        (("volatile", "stable", "insufficient_history"), "stability_band_6m"),
+        (("stable", "volatile", "insufficient_history"), "stability_band_12m"),
+        (("stable", "stable", "volatile"), "stability_band_36m"),
+        (("volatile", "volatile", "volatile"), "stability_band_6m"),
+    ),
+)
+def test_volatile_risk_records_deterministic_source_metric(
+    bands: tuple[str, str, str],
+    expected_source: str,
+) -> None:
+    summary = replace(
+        _summary("Theme"),
+        stability_band_6m=bands[0],
+        stability_band_12m=bands[1],
+        stability_band_36m=bands[2],
+    )
+    result = _decision(summaries=(summary,))
+    risk = next(row for row in result.risks if row.risk_code == RiskCode.VOLATILE_EVIDENCE)
+    assert _volatile_stability_source(summary) == expected_source
+    assert risk.source_metric_name == expected_source
+    assert result.summaries[0].recommendation == DecisionRecommendation.MONITOR
+    assert all(
+        row.evidence_state == LaunchWindowEvidenceState.CAUTION_OR_MONITOR
+        for row in result.launch_windows
+    )
+
+
 def test_emerging_launch_windows_obey_market_and_actionability_gates() -> None:
     assert (
         _launch_window_state(
@@ -651,6 +875,19 @@ def test_launch_window_is_exactly_three_non_forecast_rows() -> None:
     assert all(not hasattr(row, "predicted_downloads") for row in result.launch_windows)
     assert all(
         row.decision_policy_version == DECISION_POLICY_VERSION
+        for row in result.launch_windows
+    )
+    assert all(
+        row.source_policy_references == result.summaries[0].source_policy_references
+        for row in result.launch_windows
+    )
+
+
+def test_launch_window_inherits_monetization_source_policy_references() -> None:
+    result = _category_decision(revenue=True)
+    assert result.summaries[0].source_policy_references[-1] == MONETIZATION_POLICY_VERSION
+    assert all(
+        row.source_policy_references == result.summaries[0].source_policy_references
         for row in result.launch_windows
     )
 

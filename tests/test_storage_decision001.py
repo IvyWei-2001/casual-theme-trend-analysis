@@ -215,6 +215,9 @@ def test_decision_result_round_trips_all_five_output_sets_and_filters(tmp_path: 
     assert repository.get_theme_decision_summaries(game_theme="Theme") == list(
         result.decision_summaries
     )
+    assert repository.get_theme_launch_window_assessments(game_theme="Theme") == list(
+        result.launch_window_assessments
+    )
     assert repository.get_theme_launch_window_assessments(horizon_months=2) == [
         row for row in result.launch_window_assessments if row.horizon_months == 2
     ]
@@ -228,6 +231,80 @@ def test_decision_result_round_trips_all_five_output_sets_and_filters(tmp_path: 
         validated_source_game_subgenre="Validated",
         target_observed_game_subgenre="Observed",
     ) == list(result.migration_hypotheses)
+    repository.close()
+
+
+def test_launch_source_policy_references_round_trip_for_both_allowed_policies(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    for result in (_decision(), _category_decision(revenue=True)):
+        _store(repository, result)
+        assert repository.get_theme_launch_window_assessments() == list(
+            result.launch_window_assessments
+        )
+        assert {
+            row.source_policy_references for row in repository.get_theme_launch_window_assessments()
+        } == {result.decision_summaries[0].source_policy_references}
+    repository.close()
+
+
+def test_repository_rejects_launch_source_policy_mismatch_before_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path)
+    result = _decision()
+    object.__setattr__(
+        result.launch_window_assessments[0],
+        "source_policy_references",
+        ("AGG002_V1",),
+    )
+    monkeypatch.setattr(
+        repository,
+        "_require_initialized_connection",
+        lambda: pytest.fail("repository connection must not be accessed"),
+    )
+    with pytest.raises(StorageValidationError, match="source_policy_references"):
+        _store(repository, result)
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing_source", "missing_target", "source_state", "target_state", "supporting"),
+)
+def test_repository_rejects_invalid_migration_relationship_before_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    repository = _repository(tmp_path)
+    result = _category_decision()
+    migration = result.migration_hypotheses[0]
+    if mutation == "missing_source":
+        object.__setattr__(migration, "validated_source_game_subgenre", "Missing")
+    elif mutation == "missing_target":
+        object.__setattr__(migration, "target_observed_game_subgenre", "Missing")
+    elif mutation == "source_state":
+        source_fit = next(row for row in result.category_fits if row.game_subgenre == "Validated")
+        object.__setattr__(source_fit, "fit_state", "observed_fit")
+    elif mutation == "target_state":
+        target_fit = next(row for row in result.category_fits if row.game_subgenre == "Observed")
+        object.__setattr__(target_fit, "fit_state", "validated_fit")
+    else:
+        object.__setattr__(
+            migration,
+            "supporting_evidence_codes",
+            ("observed_target_fit", "validated_source_fit"),
+        )
+    monkeypatch.setattr(
+        repository,
+        "_require_initialized_connection",
+        lambda: pytest.fail("repository connection must not be accessed"),
+    )
+    with pytest.raises(StorageValidationError, match="migration"):
+        _store(repository, result)
     repository.close()
 
 
