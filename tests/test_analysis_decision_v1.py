@@ -41,6 +41,7 @@ from src.storage import MonthlyMarketTotal
 CALCULATED_AT = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
 TARGET_MONTH = date(2026, 7, 1)
 SCOPE = "casual_puzzle_tabletop"
+HISTORICAL_THEME = "Historical Only"
 
 
 def _period_end(month_start: date) -> date:
@@ -209,6 +210,47 @@ def _decision(
         target_dimensions,
         target_representatives,
         theme_trend_scores=target_trend_scores,
+        calculated_at=CALCULATED_AT,
+    )
+
+
+def _decision_with_trailing_evidence(
+    themes: tuple[str, ...] = ("Theme",),
+    *,
+    dimensions: tuple = (),
+    representatives: tuple = (),
+):
+    total, structures, aggregate = _aggregate(
+        themes,
+        subgenres={theme: "Validated" for theme in themes},
+    )
+    target_structures = tuple(
+        row
+        for row in structures
+        if row.period_start == TARGET_MONTH
+    )
+    target_growth = tuple(
+        row
+        for row in aggregate.theme_growth_source_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    target_dimensions = tuple(
+        row
+        for row in aggregate.theme_dimension_monthly_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    target_representatives = tuple(
+        row
+        for row in aggregate.theme_representative_games
+        if row.period_start == TARGET_MONTH
+    )
+    return calculate_theme_decisions(
+        total,
+        target_structures,
+        target_growth,
+        tuple(_summary(theme) for theme in themes),
+        (*target_dimensions, *dimensions),
+        (*target_representatives, *representatives),
         calculated_at=CALCULATED_AT,
     )
 
@@ -575,6 +617,242 @@ def test_category_fit_uses_exact_thresholds_and_does_not_require_observable_reve
     assert observed.fit_state == CategoryFitState.OBSERVED_FIT
     assert observed.target_month_product_count == 1
     assert result.summaries[0].category_fit_summary == CategoryFitState.VALIDATED_FIT
+
+
+def test_historical_only_dimension_rows_are_ignored() -> None:
+    _total, _structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    source = next(
+        row
+        for row in aggregate.theme_dimension_monthly_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    historical = replace(
+        source,
+        game_theme=HISTORICAL_THEME,
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    baseline = _decision_with_trailing_evidence()
+    result = _decision_with_trailing_evidence(dimensions=(historical,))
+    assert result == baseline
+    assert HISTORICAL_THEME not in {
+        row.game_theme
+        for row in (
+            *result.summaries,
+            *result.launch_windows,
+            *result.risks,
+            *result.category_fits,
+            *result.migration_hypotheses,
+        )
+    }
+
+
+def test_historical_only_representative_rows_are_ignored() -> None:
+    _total, _structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    source = next(
+        row
+        for row in aggregate.theme_representative_games
+        if row.period_start == TARGET_MONTH
+    )
+    historical = replace(
+        source,
+        game_theme=HISTORICAL_THEME,
+        source_app_id="historical-source-app",
+        unified_app_id="historical-unified-app",
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    baseline = _decision_with_trailing_evidence()
+    result = _decision_with_trailing_evidence(representatives=(historical,))
+    assert result == baseline
+    assert all(
+        row.game_theme != HISTORICAL_THEME
+        and (
+            not hasattr(row, "unified_app_id")
+            or row.unified_app_id != "historical-unified-app"
+        )
+        for row in (
+            *result.summaries,
+            *result.launch_windows,
+            *result.risks,
+            *result.category_fits,
+            *result.migration_hypotheses,
+        )
+    )
+
+
+def test_combined_historical_only_trailing_evidence_does_not_expand_population() -> None:
+    themes = ("Theme A", "Theme B")
+    _total, _structures, aggregate = _aggregate(
+        themes,
+        subgenres={theme: "Validated" for theme in themes},
+    )
+    target_dimensions = tuple(
+        row
+        for row in aggregate.theme_dimension_monthly_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    target_representatives = tuple(
+        row
+        for row in aggregate.theme_representative_games
+        if row.period_start == TARGET_MONTH
+    )
+    historical_dimension = replace(
+        target_dimensions[0],
+        game_theme=HISTORICAL_THEME,
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    historical_representative = replace(
+        target_representatives[0],
+        game_theme=HISTORICAL_THEME,
+        source_app_id="historical-source-app",
+        unified_app_id="historical-unified-app",
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    assert {row.game_theme for row in target_dimensions} == set(themes)
+    assert {
+        row.game_theme for row in (*target_dimensions, historical_dimension)
+    } == {*themes, HISTORICAL_THEME}
+    result = _decision_with_trailing_evidence(
+        themes,
+        dimensions=(historical_dimension,),
+        representatives=(historical_representative,),
+    )
+    assert {row.game_theme for row in result.summaries} == set(themes)
+    assert len(result.launch_windows) == len(themes) * 3
+    assert all(
+        row.game_theme in themes
+        for row in (
+            *result.summaries,
+            *result.launch_windows,
+            *result.risks,
+            *result.category_fits,
+            *result.migration_hypotheses,
+        )
+    )
+
+
+def test_current_target_historical_category_evidence_is_retained() -> None:
+    result = _category_decision()
+    validated = next(row for row in result.category_fits if row.game_subgenre == "Validated")
+    assert validated.observation_month_count == 3
+
+
+@pytest.mark.parametrize("evidence_kind", ("dimension", "representative"))
+def test_target_month_orphan_trailing_rows_still_fail(evidence_kind: str) -> None:
+    _total, _structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    if evidence_kind == "dimension":
+        source = next(
+            row
+            for row in aggregate.theme_dimension_monthly_metrics
+            if row.period_start == TARGET_MONTH
+        )
+        orphan = replace(source, game_theme=HISTORICAL_THEME)
+        with pytest.raises(DecisionValidationError, match="dimension rows contain themes"):
+            _decision_with_trailing_evidence(dimensions=(orphan,))
+    else:
+        source = next(
+            row
+            for row in aggregate.theme_representative_games
+            if row.period_start == TARGET_MONTH
+        )
+        orphan = replace(
+            source,
+            game_theme=HISTORICAL_THEME,
+            source_app_id="historical-source-app",
+            unified_app_id="historical-unified-app",
+        )
+        with pytest.raises(
+            DecisionValidationError,
+            match="representative rows contain themes",
+        ):
+            _decision_with_trailing_evidence(representatives=(orphan,))
+
+
+@pytest.mark.parametrize(
+    ("evidence_kind", "period_start", "message"),
+    (
+        ("dimension", date(2025, 7, 1), "exceed the trailing 12-month window"),
+        ("dimension", date(2026, 8, 1), "after the target"),
+        ("representative", date(2025, 7, 1), "exceed the trailing 12-month evidence window"),
+        ("representative", date(2026, 8, 1), "after the target"),
+    ),
+)
+def test_historical_only_rows_keep_period_boundaries_strict(
+    evidence_kind: str,
+    period_start: date,
+    message: str,
+) -> None:
+    _total, _structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    period_end = _period_end(period_start)
+    if evidence_kind == "dimension":
+        source = next(iter(aggregate.theme_dimension_monthly_metrics))
+        historical = replace(
+            source,
+            game_theme=HISTORICAL_THEME,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        with pytest.raises(DecisionValidationError, match=message):
+            _decision_with_trailing_evidence(dimensions=(historical,))
+    else:
+        source = next(iter(aggregate.theme_representative_games))
+        historical = replace(
+            source,
+            game_theme=HISTORICAL_THEME,
+            source_app_id="historical-source-app",
+            unified_app_id="historical-unified-app",
+            period_start=period_start,
+            period_end=period_end,
+        )
+        with pytest.raises(DecisionValidationError, match=message):
+            _decision_with_trailing_evidence(representatives=(historical,))
+
+
+@pytest.mark.parametrize("evidence_kind", ("dimension", "representative"))
+def test_duplicate_historical_only_rows_still_fail(evidence_kind: str) -> None:
+    _total, _structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    if evidence_kind == "dimension":
+        source = next(iter(aggregate.theme_dimension_monthly_metrics))
+        historical = replace(
+            source,
+            game_theme=HISTORICAL_THEME,
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+        )
+        with pytest.raises(DecisionValidationError, match="duplicate"):
+            _decision_with_trailing_evidence(dimensions=(historical, historical))
+    else:
+        source = next(iter(aggregate.theme_representative_games))
+        historical = replace(
+            source,
+            game_theme=HISTORICAL_THEME,
+            source_app_id="historical-source-app",
+            unified_app_id="historical-unified-app",
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+        )
+        with pytest.raises(DecisionValidationError, match="duplicate"):
+            _decision_with_trailing_evidence(
+                representatives=(historical, historical),
+            )
 
 
 def test_migration_requires_validated_source_and_observed_target_only() -> None:

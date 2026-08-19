@@ -226,6 +226,111 @@ def test_complete_synthetic_workflow_persists_and_exports_with_temp_duckdb(
     repository.close()
 
 
+def test_workflow_ignores_historical_only_trailing_evidence(tmp_path: Path) -> None:
+    total, structures, aggregate = _aggregate(
+        ("Theme",),
+        subgenres={"Theme": "Validated"},
+    )
+    historical_dimension_source = next(
+        row
+        for row in aggregate.theme_dimension_monthly_metrics
+        if row.period_start == TARGET_MONTH
+    )
+    historical_dimension = replace(
+        historical_dimension_source,
+        game_theme="Historical Only",
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    historical_theme_metric = replace(
+        next(
+            row
+            for row in aggregate.theme_metrics
+            if row.period_start == date(2026, 6, 1)
+        ),
+        game_theme="Historical Only",
+    )
+    historical_structure = replace(
+        next(
+            row
+            for row in aggregate.theme_market_structure_metrics
+            if row.period_start == date(2026, 6, 1)
+        ),
+        game_theme="Historical Only",
+    )
+    historical_growth = replace(
+        next(
+            row
+            for row in aggregate.theme_growth_source_metrics
+            if row.period_start == date(2026, 6, 1)
+        ),
+        game_theme="Historical Only",
+    )
+    historical_representative_source = next(
+        row
+        for row in aggregate.theme_representative_games
+        if row.period_start == TARGET_MONTH
+    )
+    historical_representative = replace(
+        historical_representative_source,
+        game_theme="Historical Only",
+        source_app_id="historical-source-app",
+        unified_app_id="historical-unified-app",
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 30),
+    )
+    database_path = tmp_path / "decision.duckdb"
+    repository = DuckDBRepository(database_path)
+    repository.open()
+    repository.initialize_schema()
+    repository.replace_theme_opportunity_range(
+        aggregate.monthly_totals,
+        (*aggregate.theme_metrics, historical_theme_metric),
+        (*aggregate.theme_market_structure_metrics, historical_structure),
+        (*aggregate.theme_growth_source_metrics, historical_growth),
+        (*aggregate.theme_dimension_monthly_metrics, historical_dimension),
+        (*aggregate.theme_representative_games, historical_representative),
+    )
+    key = SnapshotPeriodKey(SCOPE, "monthly", TARGET_MONTH, _period_end(TARGET_MONTH))
+    repository.replace_theme_model_range(
+        (),
+        (),
+        (_summary("Theme"),),
+        (),
+        target_periods=(key,),
+    )
+    summary = run_theme_decision_workflow(
+        _request(tmp_path),
+        _config(tmp_path),
+        current_utc=NOW,
+        repository=repository,
+    )
+    assert summary.verification == "passed"
+    assert summary.summary_row_count == 1
+    assert summary.launch_window_row_count == 3
+    stored_rows = (
+        *repository.get_theme_decision_summaries(),
+        *repository.get_theme_launch_window_assessments(),
+        *repository.get_theme_decision_risks(),
+        *repository.get_theme_category_fit_assessments(),
+        *repository.get_theme_migration_hypotheses(),
+    )
+    assert all(row.game_theme != "Historical Only" for row in stored_rows)
+    assert all(
+        path is not None and path.is_file()
+        for path in (
+            summary.summaries_parquet_path,
+            summary.launch_windows_parquet_path,
+            summary.risks_parquet_path,
+            summary.category_fits_parquet_path,
+            summary.migrations_parquet_path,
+        )
+    )
+    assert total.period_start == TARGET_MONTH
+    assert structures
+    repository.close()
+
+
 def test_workflow_calls_pure_calculation_once_and_uses_no_future_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

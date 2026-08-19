@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- DECISION-001 trailing dimension and representative evidence now accepts
+  structurally valid pre-target rows for historical-only themes without
+  expanding the target decision population. Target-month orphan themes,
+  malformed, future, out-of-window, mixed-scope, unsupported, and duplicate
+  rows remain rejected; schema version 9 and DECISION001_V1 are unchanged.
 - Corrected DECISION-001 acceptance boundaries without changing
   `DECISION001_V1`, schema version 9, thresholds, or recommendation order:
   non-actionable gating now uses only the exact raw `game_theme` labels

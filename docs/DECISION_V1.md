@@ -504,6 +504,16 @@ exports all five complete tables unless export is skipped. It never reads raw
 future launch-window outcome rows and never recalculates AGG-002, MODEL-002,
 BACKTEST-001, or MONETIZATION-001.
 
+Trailing dimension and representative-game evidence may contain themes that
+were present earlier in the twelve-month window but are no longer present in
+the target month. Structurally valid pre-target rows for those historical-only
+themes are excluded from the current decision calculation; they do not expand
+the target population and cannot create decision outputs. Target-month orphan
+themes remain invalid. All supplied rows still require normalized models,
+monthly natural periods, the inclusive trailing-window boundary, supported
+types, and unique identities; malformed, future, mixed-scope, and duplicate
+rows remain invalid.
+
 The CLI boundary is:
 
 ```powershell

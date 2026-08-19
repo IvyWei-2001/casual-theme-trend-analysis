@@ -460,21 +460,25 @@ def _validate_dimension_rows(
 ) -> tuple[ThemeDimensionMonthlyMetric, ...]:
     window_start = _month_shift(target.period_start, -11)
     indexed: dict[tuple[str, date, str, str], ThemeDimensionMonthlyMetric] = {}
+    seen_identities: set[tuple[str, date, str, str]] = set()
     for row in tuple(rows):
         if not isinstance(row, ThemeDimensionMonthlyMetric):
             raise DecisionValidationError("dimension rows must use normalized typed models")
         _validate_row_period(row, target=target, label="dimension", allow_before=True)
         if row.period_start < window_start:
             raise DecisionValidationError("dimension rows exceed the trailing 12-month window")
-        if row.game_theme not in expected_themes:
-            raise DecisionValidationError(
-                "dimension rows contain themes outside the target population"
-            )
         if row.dimension_type not in OPPORTUNITY_DIMENSION_TYPES:
             raise DecisionValidationError("dimension row uses an unsupported dimension type")
         identity = (row.game_theme, row.period_start, row.dimension_type, row.dimension_value)
-        if identity in indexed:
+        if identity in seen_identities:
             raise DecisionValidationError("dimension rows contain duplicate identities")
+        seen_identities.add(identity)
+        if row.game_theme not in expected_themes:
+            if row.period_start == target.period_start:
+                raise DecisionValidationError(
+                    "dimension rows contain themes outside the target population"
+                )
+            continue
         indexed[identity] = row
     return tuple(
         sorted(
@@ -497,6 +501,7 @@ def _validate_representative_rows(
 ) -> tuple[ThemeRepresentativeGame, ...]:
     window_start = _month_shift(target.period_start, -11)
     indexed: dict[tuple[str, date, str, int], ThemeRepresentativeGame] = {}
+    seen_identities: set[tuple[str, date, str, int]] = set()
     for row in tuple(rows):
         if not isinstance(row, ThemeRepresentativeGame):
             raise DecisionValidationError("representative rows must use normalized typed models")
@@ -505,13 +510,16 @@ def _validate_representative_rows(
             raise DecisionValidationError(
                 "representative rows exceed the trailing 12-month evidence window"
             )
-        if row.game_theme not in expected_themes:
-            raise DecisionValidationError(
-                "representative rows contain themes outside the target population"
-            )
         identity = (row.game_theme, row.period_start, row.evidence_type, row.evidence_rank)
-        if identity in indexed:
+        if identity in seen_identities:
             raise DecisionValidationError("representative rows contain duplicate identities")
+        seen_identities.add(identity)
+        if row.game_theme not in expected_themes:
+            if row.period_start == target.period_start:
+                raise DecisionValidationError(
+                    "representative rows contain themes outside the target population"
+                )
+            continue
         indexed[identity] = row
     return tuple(
         sorted(
