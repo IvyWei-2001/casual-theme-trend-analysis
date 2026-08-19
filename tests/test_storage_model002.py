@@ -109,7 +109,7 @@ def _store_model(repository: DuckDBRepository, payload: Any, *, calculated_at: d
     return model
 
 
-def test_fresh_schema_adds_only_the_three_model_tables_with_exact_columns(
+def test_fresh_schema_retains_model_tables_with_exact_columns(
     tmp_path: Path,
 ) -> None:
     repository = _initialized(tmp_path / "fresh.duckdb")
@@ -143,7 +143,7 @@ def test_fresh_schema_adds_only_the_three_model_tables_with_exact_columns(
             row[1] for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
         )
         assert actual_columns == expected_columns
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (9,)
     repository.close()
 
 
@@ -226,13 +226,18 @@ def test_version_four_database_migrates_without_rewriting_existing_rows(tmp_path
         schema_module.THEME_BACKTEST_SEGMENT_METRICS_TABLE,
         schema_module.APP_MONETIZATION_PROFILES_TABLE,
         schema_module.THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE,
+        schema_module.THEME_DECISION_SUMMARIES_TABLE,
+        schema_module.THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE,
+        schema_module.THEME_DECISION_RISKS_TABLE,
+        schema_module.THEME_CATEGORY_FIT_ASSESSMENTS_TABLE,
+        schema_module.THEME_MIGRATION_HYPOTHESES_TABLE,
     ):
         connection.execute(f"DROP TABLE {table_name}")
-    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7, 8)")
+    connection.execute("DELETE FROM schema_migrations WHERE version IN (5, 6, 7, 8, 9)")
     assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (4,)
 
     repository.initialize_schema()
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (9,)
     assert connection.execute(
         "SELECT unified_app_id, publisher_display_name FROM app_metadata"
     ).fetchone() == ("app-existing", "Publisher")

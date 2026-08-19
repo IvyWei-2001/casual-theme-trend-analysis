@@ -42,7 +42,8 @@ future data-quality output must expose each month's actual `snapshot_count`.
 ## DB-001 persistent storage contract
 
 DuckDB is the local source of truth for normalized analytical records. Schema
-version 8 contains seventeen business tables plus the `schema_migrations`
+version 9 contains the version-8 business tables plus five DECISION-001
+business tables and the `schema_migrations`
 control table. Version 4 adds four V2 evidence tables, version 5 adds three
 MODEL-002 evidence tables, version 6 adds three BACKTEST-001 evidence tables,
 and version 8 adds two MONETIZATION-001 evidence tables without changing
@@ -136,7 +137,62 @@ BACKTEST-001 adds the schema-v6 evidence tables, and MONETIZATION-001 adds the
 schema-v8 monetization evidence tables, without changing earlier table
 contracts. Schema-v7 is an interim legacy migration state only; its empty
 Custom-Field tables are replaced transactionally during the v8 upgrade and
-are never reinterpreted.
+are never reinterpreted. Version 9 does not rewrite any version-1-through-8
+object.
+
+## DECISION-001 schema-v9 persistence contract
+
+The five decision tables persist the accepted Phase A output models exactly.
+They use monthly natural-period identities, VARCHAR-backed enum values,
+nullable numeric evidence, BOOLEAN forecast/invariant fields, array columns
+for immutable text/code sequences, and timezone-aware `TIMESTAMPTZ`
+`calculated_at` values. Application validation is authoritative; the database
+also checks policy versions, enum domains, natural-month identities, horizon
+values, and the required migration booleans.
+
+- `theme_decision_summaries` has one row per raw target-month Game Theme. Its
+  primary key is `(scope_name, cadence, period_start, period_end,
+  game_theme)` and its explicit columns include all summary bands, confidence,
+  recommendation, reason/action codes, source-policy references, visible
+  evidence values, and calculation time.
+- `theme_launch_window_assessments` has primary key
+  `(scope_name, cadence, period_start, period_end, game_theme,
+  horizon_months)`. Every summary has exactly horizons 1, 2, and 3. Rows are
+  explicitly non-forecast and carry inherited policy references; no predicted
+  metric or probability is stored.
+- `theme_decision_risks` has primary key
+  `(scope_name, cadence, period_start, period_end, game_theme, risk_code)`.
+  `source_metric_name` remains nullable and zero risk rows are valid.
+- `theme_category_fit_assessments` has primary key
+  `(scope_name, cadence, period_start, period_end, game_theme,
+  game_subgenre)`. SQL NULL Game Sub-genre creates no row. Empty string,
+  `Unknown`, and `N/A` remain literal raw labels; NULL numeric evidence is not
+  converted to zero.
+- `theme_migration_hypotheses` has primary key
+  `(scope_name, cadence, period_start, period_end, game_theme,
+  validated_source_game_subgenre, target_observed_game_subgenre)`. Source and
+  target differ, `is_validated_fit` is always false, and product validation is
+  always required. Zero migration rows are valid.
+
+`DuckDBRepository.replace_theme_decision_result` validates all five payloads
+before opening its transaction. It deletes only the exact target
+scope/cadence/month from all five tables, inserts all five sets, rereads exact
+counts and identities before COMMIT, and rolls all five back on any failure.
+This removes stale variable-cardinality risk, category-fit, and migration
+rows. It never changes source, AGG-001/AGG-002, MODEL-002, BACKTEST-001, or
+MONETIZATION-001 rows. Typed readers support exact scope, cadence, target
+period, policy, theme, launch horizon, risk code, and raw Game Sub-genre
+filters with stable identity ordering.
+
+The stored-evidence `decide-themes` workflow reads the target month plus at
+most twelve completed trailing months of category dimensions and
+representative evidence. It calls the Phase A calculation once, performs a
+sanitized exact post-commit readback, and exports the complete five tables to
+deterministic ZSTD Parquet after commit. Plan-only performs no configuration,
+database, network, or file operation; `--skip-export` leaves DuckDB verified
+and writes no decision Parquet. Sensor Tower, Custom Fields/metadata,
+Feishu, HTTP, raw future launch outcomes, forecasting, and automation are
+outside this phase. DuckDB is the source of truth.
 
 ## MONETIZATION-001 schema-v8 contract
 

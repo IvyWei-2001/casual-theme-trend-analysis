@@ -12,7 +12,7 @@ import duckdb
 
 from .errors import SchemaInitializationError, UnsupportedSchemaVersionError
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 APP_METADATA_TABLE = "app_metadata"
@@ -32,6 +32,11 @@ THEME_BACKTEST_FEATURE_METRICS_TABLE = "theme_backtest_feature_metrics"
 THEME_BACKTEST_SEGMENT_METRICS_TABLE = "theme_backtest_segment_metrics"
 APP_MONETIZATION_PROFILES_TABLE = "app_monetization_profiles"
 THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE = "theme_monetization_observability_metrics"
+THEME_DECISION_SUMMARIES_TABLE = "theme_decision_summaries"
+THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE = "theme_launch_window_assessments"
+THEME_DECISION_RISKS_TABLE = "theme_decision_risks"
+THEME_CATEGORY_FIT_ASSESSMENTS_TABLE = "theme_category_fit_assessments"
+THEME_MIGRATION_HYPOTHESES_TABLE = "theme_migration_hypotheses"
 
 SCHEMA_MIGRATIONS_COLUMNS: tuple[str, ...] = ("version", "applied_at")
 APP_METADATA_COLUMNS: tuple[str, ...] = (
@@ -770,6 +775,102 @@ THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS: tuple[str, ...] = (
     "iap_or_hybrid_candidate_downloads_share",
     "unknown_downloads_sum",
     "unknown_downloads_share",
+    "calculated_at",
+)
+THEME_DECISION_SUMMARIES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "decision_policy_version",
+    "market_size_band",
+    "growth_quality_state",
+    "competitive_structure_risk_band",
+    "category_fit_summary",
+    "confidence",
+    "recommendation",
+    "primary_reason_code",
+    "next_validation_action_code",
+    "source_policy_references",
+    "calculated_at",
+    "market_size_product_share_percentile",
+    "market_size_downloads_share_percentile",
+    "market_size_observable_revenue_share_percentile",
+    "competitive_downloads_hhi_percentile",
+    "competitive_observable_revenue_hhi_percentile",
+    "competitive_downloads_top10_growth_percentile",
+    "competitive_observable_revenue_top10_growth_percentile",
+    "current_market_new_entry_share",
+    "current_top_500_turnover_rate",
+    "downloads_trend_slope_6m",
+    "downloads_trend_slope_12m",
+    "downloads_trend_slope_36m",
+    "downloads_seasonality_amplitude",
+    "observable_revenue_seasonality_amplitude",
+    "legacy_6m_momentum_score",
+)
+THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "decision_policy_version",
+    "horizon_months",
+    "evidence_state",
+    "confidence",
+    "reason_code",
+    "is_forecast",
+    "source_policy_references",
+    "calculated_at",
+)
+THEME_DECISION_RISKS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "decision_policy_version",
+    "risk_code",
+    "severity",
+    "evidence_availability",
+    "source_metric_name",
+    "calculated_at",
+)
+THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "decision_policy_version",
+    "game_subgenre",
+    "fit_state",
+    "observation_month_count",
+    "target_month_product_count",
+    "target_month_downloads_coverage_count",
+    "target_month_downloads_sum",
+    "target_month_observable_revenue_coverage_count",
+    "target_month_observable_revenue_usd_sum",
+    "supporting_representative_product_count",
+    "evidence_limitations",
+    "calculated_at",
+)
+THEME_MIGRATION_HYPOTHESES_COLUMNS: tuple[str, ...] = (
+    "scope_name",
+    "cadence",
+    "period_start",
+    "period_end",
+    "game_theme",
+    "decision_policy_version",
+    "validated_source_game_subgenre",
+    "target_observed_game_subgenre",
+    "hypothesis_status",
+    "supporting_evidence_codes",
+    "risk_limitation_codes",
+    "is_validated_fit",
+    "requires_product_validation",
     "calculated_at",
 )
 
@@ -2028,6 +2129,299 @@ CREATE TABLE IF NOT EXISTS theme_monetization_observability_metrics (
 )
 """
 
+_CREATE_THEME_DECISION_SUMMARIES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_decision_summaries (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    decision_policy_version VARCHAR NOT NULL CHECK (decision_policy_version = 'DECISION001_V1'),
+    market_size_band VARCHAR NOT NULL CHECK (
+        market_size_band IN ('strong', 'moderate', 'limited', 'insufficient_evidence')
+    ),
+    growth_quality_state VARCHAR NOT NULL CHECK (
+        growth_quality_state IN (
+            'balanced_growth',
+            'observable_revenue_growth_support',
+            'durable_established',
+            'experimental_emerging',
+            'cautious_recovery',
+            'declining',
+            'mixed_or_uncertain',
+            'insufficient_evidence'
+        )
+    ),
+    competitive_structure_risk_band VARCHAR NOT NULL CHECK (
+        competitive_structure_risk_band IN (
+            'lower_structural_risk',
+            'mixed_structural_risk',
+            'higher_structural_risk',
+            'insufficient_evidence'
+        )
+    ),
+    category_fit_summary VARCHAR NOT NULL CHECK (
+        category_fit_summary IN ('validated_fit', 'observed_fit', 'insufficient_evidence')
+    ),
+    confidence VARCHAR NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    recommendation VARCHAR NOT NULL CHECK (
+        recommendation IN (
+            'prioritize_validation',
+            'selective_validation',
+            'small_experiment',
+            'monitor',
+            'deprioritize'
+        )
+    ),
+    primary_reason_code VARCHAR NOT NULL CHECK (
+        primary_reason_code IN (
+            'strong_current_market_scale',
+            'balanced_growing_evidence',
+            'observable_revenue_growth_evidence',
+            'durable_established_market',
+            'emerging_requires_experiment',
+            'recovery_requires_validation',
+            'mixed_or_volatile_evidence',
+            'declining_evidence',
+            'insufficient_evidence'
+        )
+    ),
+    next_validation_action_code VARCHAR NOT NULL CHECK (
+        next_validation_action_code IN (
+            'prioritize_theme_validation',
+            'run_selective_concept_validation',
+            'run_small_controlled_experiment',
+            'monitor_next_completed_month',
+            'deprioritize_current_theme',
+            'validate_category_fit',
+            'validate_migration_hypothesis'
+        )
+    ),
+    source_policy_references VARCHAR[] NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    market_size_product_share_percentile DOUBLE NULL CHECK (
+        market_size_product_share_percentile IS NULL
+        OR market_size_product_share_percentile BETWEEN 0 AND 1
+    ),
+    market_size_downloads_share_percentile DOUBLE NULL CHECK (
+        market_size_downloads_share_percentile IS NULL
+        OR market_size_downloads_share_percentile BETWEEN 0 AND 1
+    ),
+    market_size_observable_revenue_share_percentile DOUBLE NULL CHECK (
+        market_size_observable_revenue_share_percentile IS NULL
+        OR market_size_observable_revenue_share_percentile BETWEEN 0 AND 1
+    ),
+    competitive_downloads_hhi_percentile DOUBLE NULL CHECK (
+        competitive_downloads_hhi_percentile IS NULL
+        OR competitive_downloads_hhi_percentile BETWEEN 0 AND 1
+    ),
+    competitive_observable_revenue_hhi_percentile DOUBLE NULL CHECK (
+        competitive_observable_revenue_hhi_percentile IS NULL
+        OR competitive_observable_revenue_hhi_percentile BETWEEN 0 AND 1
+    ),
+    competitive_downloads_top10_growth_percentile DOUBLE NULL CHECK (
+        competitive_downloads_top10_growth_percentile IS NULL
+        OR competitive_downloads_top10_growth_percentile BETWEEN 0 AND 1
+    ),
+    competitive_observable_revenue_top10_growth_percentile DOUBLE NULL CHECK (
+        competitive_observable_revenue_top10_growth_percentile IS NULL
+        OR competitive_observable_revenue_top10_growth_percentile BETWEEN 0 AND 1
+    ),
+    current_market_new_entry_share DOUBLE NULL CHECK (
+        current_market_new_entry_share IS NULL OR current_market_new_entry_share BETWEEN 0 AND 1
+    ),
+    current_top_500_turnover_rate DOUBLE NULL CHECK (
+        current_top_500_turnover_rate IS NULL OR current_top_500_turnover_rate BETWEEN 0 AND 1
+    ),
+    downloads_trend_slope_6m DOUBLE NULL,
+    downloads_trend_slope_12m DOUBLE NULL,
+    downloads_trend_slope_36m DOUBLE NULL,
+    downloads_seasonality_amplitude DOUBLE NULL,
+    observable_revenue_seasonality_amplitude DOUBLE NULL,
+    legacy_6m_momentum_score DOUBLE NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme),
+    CHECK (period_start <= period_end),
+    CHECK (period_start = date_trunc('month', period_start)::DATE),
+    CHECK (
+        period_end = (date_trunc('month', period_start) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+    ),
+    CHECK (array_length(source_policy_references) > 0)
+)
+"""
+
+_CREATE_THEME_LAUNCH_WINDOW_ASSESSMENTS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_launch_window_assessments (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    decision_policy_version VARCHAR NOT NULL CHECK (decision_policy_version = 'DECISION001_V1'),
+    horizon_months INTEGER NOT NULL CHECK (horizon_months IN (1, 2, 3)),
+    evidence_state VARCHAR NOT NULL CHECK (
+        evidence_state IN (
+            'supported_validation_window',
+            'selective_validation_window',
+            'experimental_window',
+            'caution_or_monitor'
+        )
+    ),
+    confidence VARCHAR NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    reason_code VARCHAR NOT NULL CHECK (
+        reason_code IN (
+            'strong_current_market_scale',
+            'balanced_growing_evidence',
+            'observable_revenue_growth_evidence',
+            'durable_established_market',
+            'emerging_requires_experiment',
+            'recovery_requires_validation',
+            'mixed_or_volatile_evidence',
+            'declining_evidence',
+            'insufficient_evidence'
+        )
+    ),
+    is_forecast BOOLEAN NOT NULL CHECK (is_forecast = FALSE),
+    source_policy_references VARCHAR[] NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme, horizon_months),
+    CHECK (period_start <= period_end),
+    CHECK (period_start = date_trunc('month', period_start)::DATE),
+    CHECK (
+        period_end = (date_trunc('month', period_start) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+    ),
+    CHECK (array_length(source_policy_references) > 0)
+)
+"""
+
+_CREATE_THEME_DECISION_RISKS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_decision_risks (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    decision_policy_version VARCHAR NOT NULL CHECK (decision_policy_version = 'DECISION001_V1'),
+    risk_code VARCHAR NOT NULL CHECK (
+        risk_code IN (
+            'volatile_evidence',
+            'mixed_lifecycle',
+            'declining_lifecycle',
+            'high_product_concentration',
+            'top10_growth_concentration',
+            'seasonality_timing_dependence',
+            'insufficient_market_evidence',
+            'insufficient_model_history',
+            'non_actionable_theme_label',
+            'observable_revenue_only',
+            'observable_revenue_coverage_gap',
+            'monetization_type_unverified',
+            'migration_not_validated'
+        )
+    ),
+    severity VARCHAR NOT NULL CHECK (severity IN ('low', 'medium', 'high')),
+    evidence_availability VARCHAR NOT NULL CHECK (
+        evidence_availability IN ('observed', 'partial', 'unavailable')
+    ),
+    source_metric_name VARCHAR NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme, risk_code),
+    CHECK (period_start <= period_end),
+    CHECK (period_start = date_trunc('month', period_start)::DATE),
+    CHECK (
+        period_end = (date_trunc('month', period_start) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+    )
+)
+"""
+
+_CREATE_THEME_CATEGORY_FIT_ASSESSMENTS_SQL = """
+CREATE TABLE IF NOT EXISTS theme_category_fit_assessments (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    decision_policy_version VARCHAR NOT NULL CHECK (decision_policy_version = 'DECISION001_V1'),
+    game_subgenre VARCHAR NOT NULL,
+    fit_state VARCHAR NOT NULL CHECK (
+        fit_state IN ('validated_fit', 'observed_fit', 'insufficient_evidence')
+    ),
+    observation_month_count INTEGER NOT NULL CHECK (observation_month_count >= 0),
+    target_month_product_count INTEGER NOT NULL CHECK (target_month_product_count >= 0),
+    target_month_downloads_coverage_count INTEGER NULL CHECK (
+        target_month_downloads_coverage_count IS NULL
+        OR target_month_downloads_coverage_count >= 0
+    ),
+    target_month_downloads_sum DOUBLE NULL CHECK (
+        target_month_downloads_sum IS NULL OR target_month_downloads_sum >= 0
+    ),
+    target_month_observable_revenue_coverage_count INTEGER NULL CHECK (
+        target_month_observable_revenue_coverage_count IS NULL
+        OR target_month_observable_revenue_coverage_count >= 0
+    ),
+    target_month_observable_revenue_usd_sum DOUBLE NULL CHECK (
+        target_month_observable_revenue_usd_sum IS NULL
+        OR target_month_observable_revenue_usd_sum >= 0
+    ),
+    supporting_representative_product_count INTEGER NULL CHECK (
+        supporting_representative_product_count IS NULL
+        OR supporting_representative_product_count >= 0
+    ),
+    evidence_limitations VARCHAR[] NOT NULL,
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (scope_name, cadence, period_start, period_end, game_theme, game_subgenre),
+    CHECK (period_start <= period_end),
+    CHECK (period_start = date_trunc('month', period_start)::DATE),
+    CHECK (
+        period_end = (date_trunc('month', period_start) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+    ),
+    CHECK (
+        target_month_downloads_coverage_count IS NULL
+        OR target_month_downloads_coverage_count <= target_month_product_count
+    ),
+    CHECK (
+        target_month_observable_revenue_coverage_count IS NULL
+        OR target_month_observable_revenue_coverage_count <= target_month_product_count
+    ),
+    CHECK (array_length(evidence_limitations) >= 0)
+)
+"""
+
+_CREATE_THEME_MIGRATION_HYPOTHESES_SQL = """
+CREATE TABLE IF NOT EXISTS theme_migration_hypotheses (
+    scope_name VARCHAR NOT NULL,
+    cadence VARCHAR NOT NULL CHECK (cadence = 'monthly'),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    game_theme VARCHAR NOT NULL,
+    decision_policy_version VARCHAR NOT NULL CHECK (decision_policy_version = 'DECISION001_V1'),
+    validated_source_game_subgenre VARCHAR NOT NULL,
+    target_observed_game_subgenre VARCHAR NOT NULL,
+    hypothesis_status VARCHAR NOT NULL CHECK (hypothesis_status = 'requires_product_validation'),
+    supporting_evidence_codes VARCHAR[] NOT NULL,
+    risk_limitation_codes VARCHAR[] NOT NULL,
+    is_validated_fit BOOLEAN NOT NULL CHECK (is_validated_fit = FALSE),
+    requires_product_validation BOOLEAN NOT NULL CHECK (requires_product_validation = TRUE),
+    calculated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (
+        scope_name,
+        cadence,
+        period_start,
+        period_end,
+        game_theme,
+        validated_source_game_subgenre,
+        target_observed_game_subgenre
+    ),
+    CHECK (period_start <= period_end),
+    CHECK (period_start = date_trunc('month', period_start)::DATE),
+    CHECK (
+        period_end = (date_trunc('month', period_start) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+    ),
+    CHECK (validated_source_game_subgenre <> target_observed_game_subgenre),
+    CHECK (array_length(supporting_evidence_codes) >= 0),
+    CHECK (array_length(risk_limitation_codes) >= 0)
+)
+"""
+
 _V1_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (SCHEMA_MIGRATIONS_TABLE, _CREATE_SCHEMA_MIGRATIONS_SQL, SCHEMA_MIGRATIONS_COLUMNS),
     (APP_METADATA_TABLE, _CREATE_APP_METADATA_SQL, APP_METADATA_COLUMNS),
@@ -2136,6 +2530,33 @@ _V8_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
     ),
 )
+_V9_TABLE_DEFINITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        THEME_DECISION_SUMMARIES_TABLE,
+        _CREATE_THEME_DECISION_SUMMARIES_SQL,
+        THEME_DECISION_SUMMARIES_COLUMNS,
+    ),
+    (
+        THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE,
+        _CREATE_THEME_LAUNCH_WINDOW_ASSESSMENTS_SQL,
+        THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS,
+    ),
+    (
+        THEME_DECISION_RISKS_TABLE,
+        _CREATE_THEME_DECISION_RISKS_SQL,
+        THEME_DECISION_RISKS_COLUMNS,
+    ),
+    (
+        THEME_CATEGORY_FIT_ASSESSMENTS_TABLE,
+        _CREATE_THEME_CATEGORY_FIT_ASSESSMENTS_SQL,
+        THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS,
+    ),
+    (
+        THEME_MIGRATION_HYPOTHESES_TABLE,
+        _CREATE_THEME_MIGRATION_HYPOTHESES_SQL,
+        THEME_MIGRATION_HYPOTHESES_COLUMNS,
+    ),
+)
 _TABLE_DEFINITIONS = (
     *_TABLE_DEFINITIONS,
     *_V3_TABLE_DEFINITIONS,
@@ -2143,6 +2564,7 @@ _TABLE_DEFINITIONS = (
     *_V5_TABLE_DEFINITIONS,
     *_V6_TABLE_DEFINITIONS,
     *_V8_TABLE_DEFINITIONS,
+    *_V9_TABLE_DEFINITIONS,
 )
 
 
@@ -2226,6 +2648,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
                 [8],
             )
+
+        if newest_version < 9:
+            _apply_version_nine(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                [9],
+            )
+
+        _assert_table_definitions(connection, _V9_TABLE_DEFINITIONS)
 
         _assert_required_tables(connection)
 
@@ -2312,6 +2743,13 @@ def _apply_version_eight(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(create_sql)
 
 
+def _apply_version_nine(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create only the DECISION-001 persistence tables."""
+
+    for _table_name, create_sql, _columns in _V9_TABLE_DEFINITIONS:
+        connection.execute(create_sql)
+
+
 def _count_rows(connection: duckdb.DuckDBPyConnection, table_name: str) -> int:
     result = connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
     if result is None or result[0] is None:
@@ -2343,6 +2781,8 @@ def _table_definitions_for_version(
         definitions += _V7_TABLE_DEFINITIONS
     elif schema_version >= 8:
         definitions += _V8_TABLE_DEFINITIONS
+    if schema_version >= 9:
+        definitions += _V9_TABLE_DEFINITIONS
     return definitions
 
 

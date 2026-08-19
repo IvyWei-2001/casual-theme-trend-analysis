@@ -162,12 +162,12 @@ def _insert_legacy_v7_app_row(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def test_fresh_schema_reaches_final_v8_with_compact_active_columns(tmp_path: Path) -> None:
+def test_fresh_schema_reaches_final_v9_with_compact_active_columns(tmp_path: Path) -> None:
     repository = DuckDBRepository(tmp_path / "fresh.duckdb")
     connection = repository.open()
     repository.initialize_schema()
 
-    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (8,)
+    assert connection.execute("SELECT max(version) FROM schema_migrations").fetchone() == (9,)
     assert [row[1] for row in connection.execute(
         "PRAGMA table_info('app_monetization_profiles')"
     ).fetchall()] == list(schema_module.APP_MONETIZATION_PROFILES_COLUMNS)
@@ -184,7 +184,7 @@ def test_fresh_schema_reaches_final_v8_with_compact_active_columns(tmp_path: Pat
     repository.close()
 
 
-def test_v6_migrates_to_final_v8_and_preserves_protected_rows(tmp_path: Path) -> None:
+def test_v6_migrates_to_final_v9_and_preserves_protected_rows(tmp_path: Path) -> None:
     database_path = tmp_path / "v6.duckdb"
     _create_schema_at_version(database_path, 6)
     connection = duckdb.connect(str(database_path))
@@ -203,12 +203,12 @@ def test_v6_migrates_to_final_v8_and_preserves_protected_rows(tmp_path: Path) ->
     assert repository._connection is not None
     assert repository._connection.execute(
         "SELECT max(version) FROM schema_migrations"
-    ).fetchone() == (8,)
+    ).fetchone() == (9,)
     assert repository.get_market_snapshot_period(snapshot.period_key) == [snapshot]
     repository.close()
 
 
-def test_interim_empty_v7_migrates_to_v8_without_reinterpreting_rows(tmp_path: Path) -> None:
+def test_interim_empty_v7_migrates_to_v9_without_reinterpreting_rows(tmp_path: Path) -> None:
     database_path = tmp_path / "v7-empty.duckdb"
     _create_schema_at_version(database_path, 7)
     repository = DuckDBRepository(database_path)
@@ -217,7 +217,7 @@ def test_interim_empty_v7_migrates_to_v8_without_reinterpreting_rows(tmp_path: P
     assert repository._connection is not None
     assert repository._connection.execute(
         "SELECT max(version) FROM schema_migrations"
-    ).fetchone() == (8,)
+    ).fetchone() == (9,)
     assert repository._connection.execute(
         "SELECT count(*) FROM app_monetization_profiles"
     ).fetchone() == (0,)

@@ -13,6 +13,7 @@ AUTHORITATIVE_DOCUMENTS = (
     "docs/TREND_SCORE.md",
     "docs/PRD.md",
     "docs/CURRENT_SYSTEM.md",
+    "docs/DECISION_V1.md",
     "PROJECT_PLAN.md",
 )
 V2_ISSUES = (
@@ -72,6 +73,47 @@ def test_project_plan_contains_the_authoritative_v2_order() -> None:
         project_plan,
         flags=re.IGNORECASE | re.DOTALL,
     )
+
+
+def test_decision001_phase_b_documentation_freezes_policy_and_scope() -> None:
+    decision = _read("docs/DECISION_V1.md").lower()
+    project_plan = _read("PROJECT_PLAN.md").lower()
+    current_system = _read("docs/CURRENT_SYSTEM.md").lower()
+    required_terms = (
+        "decision001_v1",
+        "observable revenue (usd)",
+        "product greenlight",
+        "t+1",
+        "t+2",
+        "t+3",
+        "validated_fit",
+        "migration_not_validated",
+        "is_forecast=false",
+        "success probability",
+        "monetization-001 is completed and real-environment accepted",
+        "phase a",
+        "schema version 9",
+        "theme_decision_summaries",
+        "theme_launch_window_assessments",
+        "theme_decision_risks",
+        "theme_category_fit_assessments",
+        "theme_migration_hypotheses",
+        "stored-evidence",
+        "decide-themes",
+        "plan-only",
+        "skip-export",
+        "no network",
+        "real-environment acceptance",
+        "feishu-004",
+        "automation-001",
+        "duckdb is the source of truth",
+    )
+    for term in required_terms:
+        assert term in decision
+    assert "decision-001" in project_plan
+    assert "current issue" in project_plan
+    assert "phase a" in current_system
+    assert "persistence" in current_system
 
 
 def test_current_system_no_longer_describes_the_original_empty_scaffold() -> None:

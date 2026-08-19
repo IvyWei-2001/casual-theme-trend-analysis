@@ -6,10 +6,11 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from enum import StrEnum
 from math import isclose, isfinite
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Literal, Self, cast
+from typing import Any, Literal, Protocol, Self, cast
 
 import duckdb
 
@@ -22,6 +23,20 @@ from ..analysis.backtest_models import (
     ThemeBacktestSegmentMetric,
     ThemeLaunchWindowOutcome,
 )
+from ..analysis.decision_models import (
+    DECISION_HORIZONS,
+    DECISION_POLICY_VERSION,
+    CategoryFitState,
+    MigrationHypothesisStatus,
+    RiskCode,
+    ThemeCategoryFitAssessment,
+    ThemeDecisionResult,
+    ThemeDecisionRisk,
+    ThemeDecisionSummary,
+    ThemeLaunchWindowAssessment,
+    ThemeMigrationHypothesis,
+)
+from ..analysis.decision_v1 import DECISION_SOURCE_POLICY_REFERENCES
 from ..analysis.model_v2_models import (
     ThemeHorizonMetric,
     ThemeModelSummary,
@@ -69,16 +84,26 @@ from .schema import (
     THEME_BACKTEST_FEATURE_METRICS_TABLE,
     THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
     THEME_BACKTEST_SEGMENT_METRICS_TABLE,
+    THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS,
+    THEME_CATEGORY_FIT_ASSESSMENTS_TABLE,
+    THEME_DECISION_RISKS_COLUMNS,
+    THEME_DECISION_RISKS_TABLE,
+    THEME_DECISION_SUMMARIES_COLUMNS,
+    THEME_DECISION_SUMMARIES_TABLE,
     THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
     THEME_DIMENSION_MONTHLY_METRICS_TABLE,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_TABLE,
     THEME_HORIZON_METRICS_COLUMNS,
     THEME_HORIZON_METRICS_TABLE,
+    THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS,
+    THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE,
     THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
     THEME_LAUNCH_WINDOW_OUTCOMES_TABLE,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_TABLE,
+    THEME_MIGRATION_HYPOTHESES_COLUMNS,
+    THEME_MIGRATION_HYPOTHESES_TABLE,
     THEME_MODEL_SUMMARIES_COLUMNS,
     THEME_MODEL_SUMMARIES_TABLE,
     THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
@@ -150,6 +175,30 @@ _THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL = ", ".join(
 )
 _THEME_MONETIZATION_OBSERVABILITY_METRICS_PLACEHOLDERS_SQL = ", ".join(
     "?" for _ in THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS
+)
+_THEME_DECISION_SUMMARIES_COLUMNS_SQL = ", ".join(THEME_DECISION_SUMMARIES_COLUMNS)
+_THEME_DECISION_SUMMARIES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_DECISION_SUMMARIES_COLUMNS
+)
+_THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS_SQL = ", ".join(
+    THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS
+)
+_THEME_LAUNCH_WINDOW_ASSESSMENTS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS
+)
+_THEME_DECISION_RISKS_COLUMNS_SQL = ", ".join(THEME_DECISION_RISKS_COLUMNS)
+_THEME_DECISION_RISKS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_DECISION_RISKS_COLUMNS
+)
+_THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS_SQL = ", ".join(
+    THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS
+)
+_THEME_CATEGORY_FIT_ASSESSMENTS_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS
+)
+_THEME_MIGRATION_HYPOTHESES_COLUMNS_SQL = ", ".join(THEME_MIGRATION_HYPOTHESES_COLUMNS)
+_THEME_MIGRATION_HYPOTHESES_PLACEHOLDERS_SQL = ", ".join(
+    "?" for _ in THEME_MIGRATION_HYPOTHESES_COLUMNS
 )
 
 _DELETE_MARKET_PERIOD_SQL = """
@@ -342,6 +391,30 @@ _INSERT_THEME_MONETIZATION_OBSERVABILITY_METRIC_SQL = (
     f"INSERT INTO {THEME_MONETIZATION_OBSERVABILITY_METRICS_TABLE} "
     f"({_THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS_SQL}) "
     f"VALUES ({_THEME_MONETIZATION_OBSERVABILITY_METRICS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_DECISION_SUMMARY_SQL = (
+    f"INSERT INTO {THEME_DECISION_SUMMARIES_TABLE} "
+    f"({_THEME_DECISION_SUMMARIES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_DECISION_SUMMARIES_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_LAUNCH_WINDOW_ASSESSMENT_SQL = (
+    f"INSERT INTO {THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE} "
+    f"({_THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_LAUNCH_WINDOW_ASSESSMENTS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_DECISION_RISK_SQL = (
+    f"INSERT INTO {THEME_DECISION_RISKS_TABLE} ({_THEME_DECISION_RISKS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_DECISION_RISKS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_CATEGORY_FIT_ASSESSMENT_SQL = (
+    f"INSERT INTO {THEME_CATEGORY_FIT_ASSESSMENTS_TABLE} "
+    f"({_THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_CATEGORY_FIT_ASSESSMENTS_PLACEHOLDERS_SQL})"
+)
+_INSERT_THEME_MIGRATION_HYPOTHESIS_SQL = (
+    f"INSERT INTO {THEME_MIGRATION_HYPOTHESES_TABLE} "
+    f"({_THEME_MIGRATION_HYPOTHESES_COLUMNS_SQL}) "
+    f"VALUES ({_THEME_MIGRATION_HYPOTHESES_PLACEHOLDERS_SQL})"
 )
 
 
@@ -749,6 +822,158 @@ class DuckDBRepository:
             parameters,
         ).fetchall()
         return [_theme_monetization_metric_from_database_row(row) for row in rows]
+
+    def get_theme_decision_summaries(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        decision_policy_version: str | None = None,
+    ) -> list[ThemeDecisionSummary]:
+        """Read persisted DECISION-001 summaries in stable identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _decision_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            decision_policy_version=decision_policy_version,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_DECISION_SUMMARIES_COLUMNS_SQL} "
+            f"FROM {THEME_DECISION_SUMMARIES_TABLE} {where_sql} "
+            "ORDER BY scope_name, cadence, period_start, period_end, game_theme",
+            parameters,
+        ).fetchall()
+        return [_theme_decision_summary_from_database_row(row) for row in rows]
+
+    def get_theme_launch_window_assessments(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        decision_policy_version: str | None = None,
+        horizon_months: int | None = None,
+    ) -> list[ThemeLaunchWindowAssessment]:
+        """Read non-forecast launch-window assessments in stable identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _decision_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            decision_policy_version=decision_policy_version,
+            horizon_months=horizon_months,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS_SQL} "
+            f"FROM {THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE} {where_sql} "
+            "ORDER BY scope_name, cadence, period_start, period_end, game_theme, horizon_months",
+            parameters,
+        ).fetchall()
+        return [_theme_launch_window_assessment_from_database_row(row) for row in rows]
+
+    def get_theme_decision_risks(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        decision_policy_version: str | None = None,
+        risk_code: str | None = None,
+    ) -> list[ThemeDecisionRisk]:
+        """Read normalized risks in stable identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _decision_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            decision_policy_version=decision_policy_version,
+            risk_code=risk_code,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_DECISION_RISKS_COLUMNS_SQL} "
+            f"FROM {THEME_DECISION_RISKS_TABLE} {where_sql} "
+            "ORDER BY scope_name, cadence, period_start, period_end, game_theme, "
+            "risk_code, source_metric_name NULLS FIRST",
+            parameters,
+        ).fetchall()
+        return [_theme_decision_risk_from_database_row(row) for row in rows]
+
+    def get_theme_category_fit_assessments(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        decision_policy_version: str | None = None,
+        game_subgenre: str | None = None,
+    ) -> list[ThemeCategoryFitAssessment]:
+        """Read category-fit observations in stable theme/sub-genre order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _decision_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            decision_policy_version=decision_policy_version,
+            game_subgenre=game_subgenre,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS_SQL} "
+            f"FROM {THEME_CATEGORY_FIT_ASSESSMENTS_TABLE} {where_sql} "
+            "ORDER BY scope_name, cadence, period_start, period_end, game_theme, game_subgenre",
+            parameters,
+        ).fetchall()
+        return [_theme_category_fit_assessment_from_database_row(row) for row in rows]
+
+    def get_theme_migration_hypotheses(
+        self,
+        scope_name: str | None = None,
+        cadence: str = "monthly",
+        period_start: date | None = None,
+        period_end: date | None = None,
+        game_theme: str | None = None,
+        decision_policy_version: str | None = None,
+        validated_source_game_subgenre: str | None = None,
+        target_observed_game_subgenre: str | None = None,
+    ) -> list[ThemeMigrationHypothesis]:
+        """Read non-validated migration hypotheses in stable identity order."""
+
+        connection = self._require_initialized_connection()
+        where_sql, parameters = _decision_filter_sql(
+            scope_name=scope_name,
+            cadence=cadence,
+            period_start=period_start,
+            period_end=period_end,
+            game_theme=game_theme,
+            decision_policy_version=decision_policy_version,
+            validated_source_game_subgenre=validated_source_game_subgenre,
+            target_observed_game_subgenre=target_observed_game_subgenre,
+        )
+        rows = connection.execute(
+            f"SELECT {_THEME_MIGRATION_HYPOTHESES_COLUMNS_SQL} "
+            f"FROM {THEME_MIGRATION_HYPOTHESES_TABLE} {where_sql} "
+            "ORDER BY scope_name, cadence, period_start, period_end, game_theme, "
+            "validated_source_game_subgenre, target_observed_game_subgenre",
+            parameters,
+        ).fetchall()
+        return [_theme_migration_hypothesis_from_database_row(row) for row in rows]
 
     def get_monthly_market_totals(
         self,
@@ -1183,6 +1408,90 @@ class DuckDBRepository:
             [scope_name, cadence, backtest_start, backtest_end, backtest_policy_version],
         ).fetchall()
         return [_theme_backtest_segment_metric_from_database_row(row) for row in rows]
+
+    def replace_theme_decision_result(
+        self,
+        result: ThemeDecisionResult,
+        *,
+        target_period: SnapshotPeriodKey | None = None,
+    ) -> None:
+        """Atomically replace all five DECISION-001 outputs for one month."""
+
+        payload, period_key, source_policy_references = _validate_theme_decision_result(
+            result,
+            target_period=target_period,
+        )
+        (
+            summaries_tuple,
+            launches_tuple,
+            risks_tuple,
+            fits_tuple,
+            migrations_tuple,
+        ) = payload
+        validated_result = ThemeDecisionResult(
+            decision_summaries=summaries_tuple,
+            launch_window_assessments=launches_tuple,
+            decision_risks=risks_tuple,
+            category_fit_assessments=fits_tuple,
+            migration_hypotheses=migrations_tuple,
+        )
+        connection = self._require_initialized_connection()
+        parameters = _period_parameters(period_key)
+        try:
+            connection.execute("BEGIN TRANSACTION")
+            for table_name in (
+                THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE,
+                THEME_DECISION_RISKS_TABLE,
+                THEME_CATEGORY_FIT_ASSESSMENTS_TABLE,
+                THEME_MIGRATION_HYPOTHESES_TABLE,
+                THEME_DECISION_SUMMARIES_TABLE,
+            ):
+                connection.execute(
+                    f"DELETE FROM {table_name} "
+                    "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ?",
+                    parameters,
+                )
+            if summaries_tuple:
+                connection.executemany(
+                    _INSERT_THEME_DECISION_SUMMARY_SQL,
+                    [_theme_decision_summary_parameters(row) for row in summaries_tuple],
+                )
+            if launches_tuple:
+                connection.executemany(
+                    _INSERT_THEME_LAUNCH_WINDOW_ASSESSMENT_SQL,
+                    [
+                        _theme_launch_window_assessment_parameters(row)
+                        for row in launches_tuple
+                    ],
+                )
+            if risks_tuple:
+                connection.executemany(
+                    _INSERT_THEME_DECISION_RISK_SQL,
+                    [_theme_decision_risk_parameters(row) for row in risks_tuple],
+                )
+            if fits_tuple:
+                connection.executemany(
+                    _INSERT_THEME_CATEGORY_FIT_ASSESSMENT_SQL,
+                    [_theme_category_fit_assessment_parameters(row) for row in fits_tuple],
+                )
+            if migrations_tuple:
+                connection.executemany(
+                    _INSERT_THEME_MIGRATION_HYPOTHESIS_SQL,
+                    [_theme_migration_hypothesis_parameters(row) for row in migrations_tuple],
+                )
+            _verify_theme_decision_readback(
+                connection,
+                validated_result,
+                period_key=period_key,
+                source_policy_references=source_policy_references,
+            )
+            connection.execute("COMMIT")
+        except StorageValidationError:
+            _rollback(connection)
+            raise
+        except Exception:
+            _rollback(connection)
+            raise StorageValidationError("decision result replacement failed") from None
 
     def replace_theme_monthly_range(
         self,
@@ -1716,6 +2025,41 @@ class DuckDBRepository:
 
         export_theme_monetization_observability_metrics_to_parquet(self, path)
 
+    def export_theme_decision_summaries_to_parquet(self, path: str | Path) -> None:
+        """Atomically export persisted DECISION-001 summaries."""
+
+        from .parquet import export_theme_decision_summaries_to_parquet
+
+        export_theme_decision_summaries_to_parquet(self, path)
+
+    def export_theme_launch_window_assessments_to_parquet(self, path: str | Path) -> None:
+        """Atomically export non-forecast launch-window assessments."""
+
+        from .parquet import export_theme_launch_window_assessments_to_parquet
+
+        export_theme_launch_window_assessments_to_parquet(self, path)
+
+    def export_theme_decision_risks_to_parquet(self, path: str | Path) -> None:
+        """Atomically export normalized DECISION-001 risks."""
+
+        from .parquet import export_theme_decision_risks_to_parquet
+
+        export_theme_decision_risks_to_parquet(self, path)
+
+    def export_theme_category_fit_assessments_to_parquet(self, path: str | Path) -> None:
+        """Atomically export observed category-fit evidence."""
+
+        from .parquet import export_theme_category_fit_assessments_to_parquet
+
+        export_theme_category_fit_assessments_to_parquet(self, path)
+
+    def export_theme_migration_hypotheses_to_parquet(self, path: str | Path) -> None:
+        """Atomically export non-validated migration hypotheses."""
+
+        from .parquet import export_theme_migration_hypotheses_to_parquet
+
+        export_theme_migration_hypotheses_to_parquet(self, path)
+
     def _require_storage_connection(self) -> duckdb.DuckDBPyConnection:
         """Return a connection for package-internal export operations."""
 
@@ -1988,6 +2332,55 @@ def _monetization_filter_sql(
     return "WHERE " + " AND ".join(clauses), parameters
 
 
+def _decision_filter_sql(
+    *,
+    scope_name: str | None,
+    cadence: str,
+    period_start: date | None,
+    period_end: date | None,
+    game_theme: str | None = None,
+    decision_policy_version: str | None = None,
+    horizon_months: int | None = None,
+    risk_code: str | None = None,
+    game_subgenre: str | None = None,
+    validated_source_game_subgenre: str | None = None,
+    target_observed_game_subgenre: str | None = None,
+) -> tuple[str, list[object]]:
+    if cadence != "monthly":
+        raise StorageValidationError("decision tables only support monthly cadence")
+    if horizon_months is not None and horizon_months not in DECISION_HORIZONS:
+        raise StorageValidationError("horizon_months must be 1, 2, or 3")
+    clauses = ["cadence = ?"]
+    parameters: list[object] = [cadence]
+    optional_filters = (
+        ("scope_name", scope_name),
+        ("period_start", period_start),
+        ("period_end", period_end),
+        ("game_theme", game_theme),
+        ("decision_policy_version", decision_policy_version),
+        ("horizon_months", horizon_months),
+        ("risk_code", risk_code),
+        ("game_subgenre", game_subgenre),
+        ("validated_source_game_subgenre", validated_source_game_subgenre),
+        ("target_observed_game_subgenre", target_observed_game_subgenre),
+    )
+    for column_name, value in optional_filters:
+        if value is not None:
+            clauses.append(f"{column_name} = ?")
+            parameters.append(value)
+    return "WHERE " + " AND ".join(clauses), parameters
+
+
+def _decision_db_value(value: object) -> object:
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, tuple):
+        return [_decision_db_value(item) for item in value]
+    if isinstance(value, list):
+        return [_decision_db_value(item) for item in value]
+    return value
+
+
 def _market_snapshot_parameters(row: MarketSnapshotRow) -> tuple[object, ...]:
     return (
         row.scope_name,
@@ -2205,6 +2598,47 @@ def _theme_monetization_metric_parameters(
     )
 
 
+def _theme_decision_summary_parameters(row: ThemeDecisionSummary) -> tuple[object, ...]:
+    return tuple(
+        _decision_db_value(getattr(row, column))
+        for column in THEME_DECISION_SUMMARIES_COLUMNS
+    )
+
+
+def _theme_launch_window_assessment_parameters(
+    row: ThemeLaunchWindowAssessment,
+) -> tuple[object, ...]:
+    return tuple(
+        _decision_db_value(getattr(row, column))
+        for column in THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS
+    )
+
+
+def _theme_decision_risk_parameters(row: ThemeDecisionRisk) -> tuple[object, ...]:
+    return tuple(
+        _decision_db_value(getattr(row, column))
+        for column in THEME_DECISION_RISKS_COLUMNS
+    )
+
+
+def _theme_category_fit_assessment_parameters(
+    row: ThemeCategoryFitAssessment,
+) -> tuple[object, ...]:
+    return tuple(
+        _decision_db_value(getattr(row, column))
+        for column in THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS
+    )
+
+
+def _theme_migration_hypothesis_parameters(
+    row: ThemeMigrationHypothesis,
+) -> tuple[object, ...]:
+    return tuple(
+        _decision_db_value(getattr(row, column))
+        for column in THEME_MIGRATION_HYPOTHESES_COLUMNS
+    )
+
+
 def _market_snapshot_from_database_row(row: Sequence[object]) -> MarketSnapshotRow:
     values = dict(zip(MARKET_SNAPSHOT_COLUMNS, row, strict=True))
     return MarketSnapshotRow(**cast(Any, values))
@@ -2310,6 +2744,360 @@ def _theme_monetization_metric_from_database_row(
         zip(THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS, row, strict=True)
     )
     return ThemeMonetizationObservabilityMetric(**cast(Any, values))
+
+
+def _theme_decision_summary_from_database_row(
+    row: Sequence[object],
+) -> ThemeDecisionSummary:
+    values = dict(zip(THEME_DECISION_SUMMARIES_COLUMNS, row, strict=True))
+    return ThemeDecisionSummary(**cast(Any, values))
+
+
+def _theme_launch_window_assessment_from_database_row(
+    row: Sequence[object],
+) -> ThemeLaunchWindowAssessment:
+    values = dict(zip(THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS, row, strict=True))
+    return ThemeLaunchWindowAssessment(**cast(Any, values))
+
+
+def _theme_decision_risk_from_database_row(row: Sequence[object]) -> ThemeDecisionRisk:
+    values = dict(zip(THEME_DECISION_RISKS_COLUMNS, row, strict=True))
+    return ThemeDecisionRisk(**cast(Any, values))
+
+
+def _theme_category_fit_assessment_from_database_row(
+    row: Sequence[object],
+) -> ThemeCategoryFitAssessment:
+    values = dict(zip(THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS, row, strict=True))
+    return ThemeCategoryFitAssessment(**cast(Any, values))
+
+
+def _theme_migration_hypothesis_from_database_row(
+    row: Sequence[object],
+) -> ThemeMigrationHypothesis:
+    values = dict(zip(THEME_MIGRATION_HYPOTHESES_COLUMNS, row, strict=True))
+    return ThemeMigrationHypothesis(**cast(Any, values))
+
+
+class _DecisionPeriodRow(Protocol):
+    scope_name: str
+    cadence: str
+    period_start: date
+    period_end: date
+
+
+def _decision_row_period_key(row: object) -> SnapshotPeriodKey:
+    typed_row = cast(_DecisionPeriodRow, row)
+    return SnapshotPeriodKey(
+        scope_name=typed_row.scope_name,
+        cadence=typed_row.cadence,  # type: ignore[arg-type]
+        period_start=typed_row.period_start,
+        period_end=typed_row.period_end,
+    )
+
+
+def _validate_theme_decision_result(
+    result: ThemeDecisionResult,
+    *,
+    target_period: SnapshotPeriodKey | None,
+) -> tuple[
+    tuple[
+        tuple[ThemeDecisionSummary, ...],
+        tuple[ThemeLaunchWindowAssessment, ...],
+        tuple[ThemeDecisionRisk, ...],
+        tuple[ThemeCategoryFitAssessment, ...],
+        tuple[ThemeMigrationHypothesis, ...],
+    ],
+    SnapshotPeriodKey,
+    dict[str, tuple[str, ...]],
+]:
+    if not isinstance(result, ThemeDecisionResult):
+        raise StorageValidationError("decision payload must be a ThemeDecisionResult")
+    if target_period is not None and (
+        not isinstance(target_period, SnapshotPeriodKey) or target_period.cadence != "monthly"
+    ):
+        raise StorageValidationError("target_period must be a monthly SnapshotPeriodKey")
+
+    try:
+        raw_summaries = tuple(result.decision_summaries)
+        raw_launches = tuple(result.launch_window_assessments)
+        raw_risks = tuple(result.decision_risks)
+        raw_fits = tuple(result.category_fit_assessments)
+        raw_migrations = tuple(result.migration_hypotheses)
+    except Exception as error:
+        raise StorageValidationError("decision payload contains invalid output sets") from error
+    expected_types = (
+        (raw_summaries, ThemeDecisionSummary),
+        (raw_launches, ThemeLaunchWindowAssessment),
+        (raw_risks, ThemeDecisionRisk),
+        (raw_fits, ThemeCategoryFitAssessment),
+        (raw_migrations, ThemeMigrationHypothesis),
+    )
+    if any(
+        not isinstance(row, expected_type)
+        for rows, expected_type in expected_types
+        for row in rows
+    ):
+        raise StorageValidationError("decision payload contains invalid output rows")
+    try:
+        summaries = tuple(replace(row) for row in raw_summaries)
+        launches = tuple(replace(row) for row in raw_launches)
+        risks = tuple(replace(row) for row in raw_risks)
+        fits = tuple(replace(row) for row in raw_fits)
+        migrations = tuple(replace(row) for row in raw_migrations)
+    except Exception as error:
+        raise StorageValidationError(f"decision rows failed validation: {error}") from error
+    all_rows: tuple[object, ...] = (
+        *summaries,
+        *launches,
+        *risks,
+        *fits,
+        *migrations,
+    )
+    if target_period is None:
+        if not all_rows:
+            raise StorageValidationError(
+                "an empty decision result requires an explicit target_period"
+            )
+        period_key = _decision_row_period_key(all_rows[0])
+    else:
+        period_key = target_period
+    if period_key.cadence != "monthly":
+        raise StorageValidationError("decision result period must be monthly")
+    if (
+        period_key.period_start.day != 1
+        or period_key.period_end != _decision_month_end(period_key.period_start)
+    ):
+        raise StorageValidationError("decision result period must be a natural month")
+    if any(_decision_row_period_key(row) != period_key for row in all_rows):
+        raise StorageValidationError("all decision rows must share one target period")
+
+    if len({row.identity for row in summaries}) != len(summaries):
+        raise StorageValidationError("decision summaries contain duplicate identities")
+    if len({(*row.period_key, row.game_theme, row.horizon_months) for row in launches}) != len(
+        launches
+    ):
+        raise StorageValidationError("launch-window rows contain duplicate identities")
+    if len(
+        {
+            (
+                row.scope_name,
+                row.cadence,
+                row.period_start,
+                row.period_end,
+                row.game_theme,
+                row.risk_code.value,
+            )
+            for row in risks
+        }
+    ) != len(risks):
+        raise StorageValidationError("decision risks contain duplicate identities")
+    if len({row.identity for row in fits}) != len(fits):
+        raise StorageValidationError("category-fit rows contain duplicate identities")
+    if len({row.identity for row in migrations}) != len(migrations):
+        raise StorageValidationError("migration hypotheses contain duplicate identities")
+
+    summary_themes = {row.game_theme for row in summaries}
+    summary_identities = {row.identity for row in summaries}
+    launch_themes = {row.game_theme for row in launches}
+    if launch_themes != summary_themes or len(launches) != len(summaries) * len(DECISION_HORIZONS):
+        raise StorageValidationError("decision summary population does not reconcile to launches")
+    if any(row.identity[:-1] not in summary_identities for row in launches):
+        raise StorageValidationError("launch-window row has no decision summary")
+    summary_source_policies = {
+        row.identity: row.source_policy_references for row in summaries
+    }
+    for row in launches:
+        parent_references = summary_source_policies.get(row.identity[:-1])
+        if parent_references is None:
+            raise StorageValidationError("launch-window row has no decision summary")
+        if row.source_policy_references != parent_references:
+            raise StorageValidationError(
+                "launch-window source_policy_references must match parent summary"
+            )
+    if any(row.identity[:5] not in summary_identities for row in risks):
+        raise StorageValidationError("risk row has no decision summary")
+    if any(row.identity[:5] not in summary_identities for row in fits):
+        raise StorageValidationError("category-fit row has no decision summary")
+    if any(row.identity[:5] not in summary_identities for row in migrations):
+        raise StorageValidationError("migration hypothesis has no decision summary")
+    launches_by_theme: dict[str, set[int]] = defaultdict(set)
+    for row in launches:
+        launches_by_theme[row.game_theme].add(row.horizon_months)
+    if any(horizons != set(DECISION_HORIZONS) for horizons in launches_by_theme.values()):
+        raise StorageValidationError("each decision summary must have T+1, T+2, and T+3")
+    if any(row.game_subgenre is None for row in fits):
+        raise StorageValidationError("category-fit rows cannot have NULL game_subgenre")
+    if any(
+        row.validated_source_game_subgenre == row.target_observed_game_subgenre
+        for row in migrations
+    ):
+        raise StorageValidationError("migration source and target must differ")
+    if any(row.is_validated_fit is not False for row in migrations):
+        raise StorageValidationError("migration hypotheses cannot be validated fit")
+    if any(row.requires_product_validation is not True for row in migrations):
+        raise StorageValidationError("migration hypotheses require product validation")
+    fits_by_identity = {row.identity: row for row in fits}
+    expected_supporting_codes = (
+        "validated_source_fit",
+        "observed_target_fit",
+    )
+    expected_limitation_codes = (RiskCode.MIGRATION_NOT_VALIDATED,)
+    for migration_row in migrations:
+        source_identity = (
+            *migration_row.period_key,
+            migration_row.game_theme,
+            migration_row.validated_source_game_subgenre,
+        )
+        target_identity = (
+            *migration_row.period_key,
+            migration_row.game_theme,
+            migration_row.target_observed_game_subgenre,
+        )
+        source_fit = fits_by_identity.get(source_identity)
+        if source_fit is None:
+            raise StorageValidationError("migration source category fit is missing")
+        if source_fit.fit_state != CategoryFitState.VALIDATED_FIT:
+            raise StorageValidationError(
+                "migration source category fit must be validated_fit"
+            )
+        target_fit = fits_by_identity.get(target_identity)
+        if target_fit is None:
+            raise StorageValidationError("migration target category fit is missing")
+        if target_fit.fit_state != CategoryFitState.OBSERVED_FIT:
+            raise StorageValidationError(
+                "migration target category fit must be observed_fit"
+            )
+        if migration_row.supporting_evidence_codes != expected_supporting_codes:
+            raise StorageValidationError(
+                "migration supporting_evidence_codes must match the frozen evidence"
+            )
+        if migration_row.risk_limitation_codes != expected_limitation_codes:
+            raise StorageValidationError(
+                "migration risk_limitation_codes must contain only migration_not_validated"
+            )
+        if (
+            migration_row.hypothesis_status
+            != MigrationHypothesisStatus.REQUIRES_PRODUCT_VALIDATION
+        ):
+            raise StorageValidationError(
+                "migration hypothesis_status must require product validation"
+            )
+        if migration_row.is_validated_fit is not False:
+            raise StorageValidationError("migration hypotheses cannot be validated fit")
+        if migration_row.requires_product_validation is not True:
+            raise StorageValidationError("migration hypotheses require product validation")
+
+    policies = {row.decision_policy_version for row in summaries}
+    policies.update(row.decision_policy_version for row in launches)
+    policies.update(row.decision_policy_version for row in risks)
+    policies.update(row.decision_policy_version for row in fits)
+    policies.update(row.decision_policy_version for row in migrations)
+    if policies and policies != {DECISION_POLICY_VERSION}:
+        raise StorageValidationError("decision rows must use DECISION001_V1")
+    allowed_source_policy_references = {
+        DECISION_SOURCE_POLICY_REFERENCES,
+        (*DECISION_SOURCE_POLICY_REFERENCES, MONETIZATION_POLICY_VERSION),
+    }
+    if any(
+        row.source_policy_references not in allowed_source_policy_references
+        for row in summaries
+    ):
+        raise StorageValidationError("decision summaries use inconsistent source policies")
+    source_policy_references = {
+        row.game_theme: row.source_policy_references for row in summaries
+    }
+    timestamps = {row.calculated_at for row in summaries}
+    timestamps.update(row.calculated_at for row in launches)
+    timestamps.update(row.calculated_at for row in risks)
+    timestamps.update(row.calculated_at for row in fits)
+    timestamps.update(row.calculated_at for row in migrations)
+    if len(timestamps) > 1:
+        raise StorageValidationError("decision rows must use one calculation timestamp")
+
+    return (
+        (summaries, launches, risks, fits, migrations),
+        period_key,
+        source_policy_references,
+    )
+
+
+def _verify_theme_decision_readback(
+    connection: duckdb.DuckDBPyConnection,
+    expected: ThemeDecisionResult,
+    *,
+    period_key: SnapshotPeriodKey,
+    source_policy_references: Mapping[str, tuple[str, ...]],
+) -> None:
+    parameters = _period_parameters(period_key)
+    summary_rows = connection.execute(
+        f"SELECT {_THEME_DECISION_SUMMARIES_COLUMNS_SQL} "
+        f"FROM {THEME_DECISION_SUMMARIES_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY scope_name, cadence, period_start, period_end, game_theme",
+        parameters,
+    ).fetchall()
+    launch_rows = connection.execute(
+        f"SELECT {_THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS_SQL} "
+        f"FROM {THEME_LAUNCH_WINDOW_ASSESSMENTS_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY scope_name, cadence, period_start, period_end, game_theme, horizon_months",
+        parameters,
+    ).fetchall()
+    risk_rows = connection.execute(
+        f"SELECT {_THEME_DECISION_RISKS_COLUMNS_SQL} "
+        f"FROM {THEME_DECISION_RISKS_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY scope_name, cadence, period_start, period_end, game_theme, "
+        "risk_code, source_metric_name NULLS FIRST",
+        parameters,
+    ).fetchall()
+    fit_rows = connection.execute(
+        f"SELECT {_THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS_SQL} "
+        f"FROM {THEME_CATEGORY_FIT_ASSESSMENTS_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY scope_name, cadence, period_start, period_end, game_theme, game_subgenre",
+        parameters,
+    ).fetchall()
+    migration_rows = connection.execute(
+        f"SELECT {_THEME_MIGRATION_HYPOTHESES_COLUMNS_SQL} "
+        f"FROM {THEME_MIGRATION_HYPOTHESES_TABLE} "
+        "WHERE scope_name = ? AND cadence = ? AND period_start = ? AND period_end = ? "
+        "ORDER BY scope_name, cadence, period_start, period_end, game_theme, "
+        "validated_source_game_subgenre, target_observed_game_subgenre",
+        parameters,
+    ).fetchall()
+    readback = ThemeDecisionResult(
+        decision_summaries=tuple(
+            _theme_decision_summary_from_database_row(row) for row in summary_rows
+        ),
+        launch_window_assessments=tuple(
+            _theme_launch_window_assessment_from_database_row(row) for row in launch_rows
+        ),
+        decision_risks=tuple(_theme_decision_risk_from_database_row(row) for row in risk_rows),
+        category_fit_assessments=tuple(
+            _theme_category_fit_assessment_from_database_row(row) for row in fit_rows
+        ),
+        migration_hypotheses=tuple(
+            _theme_migration_hypothesis_from_database_row(row) for row in migration_rows
+        ),
+    )
+    if readback != expected:
+        raise StorageValidationError("decision result readback did not match payload")
+    source_index = THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS.index("source_policy_references")
+    for raw_row in launch_rows:
+        theme = cast(str, raw_row[4])
+        actual = tuple(cast(Sequence[str], raw_row[source_index]))
+        if actual != source_policy_references.get(theme):
+            raise StorageValidationError("launch source-policy readback did not match parent")
+
+
+def _decision_month_end(month_start: date) -> date:
+    if month_start.month == 12:
+        next_month = date(month_start.year + 1, 1, 1)
+    else:
+        next_month = date(month_start.year, month_start.month + 1, 1)
+    return next_month.fromordinal(next_month.toordinal() - 1)
 
 
 def _validate_theme_monthly_range(

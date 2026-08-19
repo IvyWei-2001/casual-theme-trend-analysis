@@ -17,11 +17,16 @@ from .schema import (
     MONTHLY_MARKET_TOTALS_COLUMNS,
     THEME_BACKTEST_FEATURE_METRICS_COLUMNS,
     THEME_BACKTEST_SEGMENT_METRICS_COLUMNS,
+    THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS,
+    THEME_DECISION_RISKS_COLUMNS,
+    THEME_DECISION_SUMMARIES_COLUMNS,
     THEME_DIMENSION_MONTHLY_METRICS_COLUMNS,
     THEME_GROWTH_SOURCE_METRICS_COLUMNS,
     THEME_HORIZON_METRICS_COLUMNS,
+    THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS,
     THEME_LAUNCH_WINDOW_OUTCOMES_COLUMNS,
     THEME_MARKET_STRUCTURE_METRICS_COLUMNS,
+    THEME_MIGRATION_HYPOTHESES_COLUMNS,
     THEME_MODEL_SUMMARIES_COLUMNS,
     THEME_MONETIZATION_OBSERVABILITY_METRICS_COLUMNS,
     THEME_MONTHLY_METRICS_COLUMNS,
@@ -338,6 +343,111 @@ def export_theme_backtest_segment_metrics_to_parquet(
             "segment_name",
             "segment_value",
             "outcome_name",
+        ),
+    )
+
+
+def export_theme_decision_summaries_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export all persisted DECISION-001 summaries in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_decision_summaries",
+        columns=THEME_DECISION_SUMMARIES_COLUMNS,
+        order_by=("scope_name", "cadence", "period_start", "period_end", "game_theme"),
+    )
+
+
+def export_theme_launch_window_assessments_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export all non-forecast launch-window assessments in stable order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_launch_window_assessments",
+        columns=THEME_LAUNCH_WINDOW_ASSESSMENTS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "cadence",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "horizon_months",
+        ),
+    )
+
+
+def export_theme_decision_risks_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export all DECISION-001 risks in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_decision_risks",
+        columns=THEME_DECISION_RISKS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "cadence",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "risk_code",
+            "source_metric_name NULLS FIRST",
+        ),
+    )
+
+
+def export_theme_category_fit_assessments_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export all category-fit observations in stable identity order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_category_fit_assessments",
+        columns=THEME_CATEGORY_FIT_ASSESSMENTS_COLUMNS,
+        order_by=(
+            "scope_name",
+            "cadence",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "game_subgenre",
+        ),
+    )
+
+
+def export_theme_migration_hypotheses_to_parquet(
+    repository: StorageRepositoryProtocol,
+    path: str | Path,
+) -> None:
+    """Export all non-validated migration hypotheses in stable order."""
+
+    _export_table(
+        repository,
+        path=path,
+        table_name="theme_migration_hypotheses",
+        columns=THEME_MIGRATION_HYPOTHESES_COLUMNS,
+        order_by=(
+            "scope_name",
+            "cadence",
+            "period_start",
+            "period_end",
+            "game_theme",
+            "validated_source_game_subgenre",
+            "target_observed_game_subgenre",
         ),
     )
 

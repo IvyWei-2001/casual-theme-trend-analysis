@@ -91,7 +91,7 @@ counts without storage or file access. The accepted project boundary covers
 `feature_metric_row_count=228`, `segment_metric_row_count=336`, and
 `verification=passed`.
 
-### 6. MONETIZATION-001 - monetization proxy observability (current)
+### 6. MONETIZATION-001 - monetization proxy observability (completed and real-environment accepted)
 
 Derive an explicitly labeled candidate heuristic offline from stored
 `market_snapshots` only. `revenue_absolute` is third-party-platform observable
@@ -106,11 +106,28 @@ Future `collect-month` reuses its already selected market rows without a second
 request or historical recalculation.
 
 ### 7. DECISION-001 - recommendation, risk, confidence, category fit, and
-migration evidence
+migration evidence (current issue; Phase B)
 
-Compose explainable recommendations from the approved dimensions. Separate
-validated Game Sub-genre fit from migration hypotheses and expose risk,
-confidence, evidence coverage, and next validation actions.
+Phase A freezes policy version `DECISION001_V1` and implements the pure typed
+calculation layer over existing normalized AGG-002, MODEL-002, BACKTEST-001,
+legacy 6M Momentum, and MONETIZATION-001 evidence. Phase B persists its exact
+immutable theme decision summaries, exactly three non-forecast launch-window
+assessments, normalized risks, Game Sub-genre fit rows, and explicitly
+unvalidated migration hypotheses in schema version 9. It adds deterministic
+typed readers, atomic target-month replacement, a stored-evidence-only
+workflow, the `decide-themes` CLI, and five complete ZSTD Parquet exports. The
+authoritative thresholds, rule order, enums,
+limitations, and output identities are documented in
+[`docs/DECISION_V1.md`](DECISION_V1.md).
+
+The Phase B workflow reads stored evidence only, never reads raw future
+launch-window outcomes, and never recalculates upstream results. Plan-only
+validates the completed natural month before configuration/logging and makes
+no database or file access. `--skip-export` verifies DuckDB and writes no
+decision Parquet. Business-facing metric wording for this issue is
+`observable Revenue (USD)`; `revenue_absolute` remains the technical source
+field. Development uses temporary data only; no real-environment acceptance,
+FEISHU-004, or AUTOMATION-001 is included.
 
 ### 8. FEISHU-004 - business tables, role views, and dashboards
 

@@ -97,6 +97,29 @@ class CollectMonthRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class DecideThemesRequest:
+    """Validated inputs for one stored-evidence DECISION-001 run."""
+
+    month: str
+    database_path: Path
+    export_directory: Path
+    plan_only: bool = False
+    skip_export: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.month, str) or not self.month.strip():
+            raise WorkflowError("month must be a non-empty string")
+        for field_name in ("database_path", "export_directory"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (Path, str)) or not str(value).strip():
+                raise WorkflowError(f"{field_name} must be a non-empty path")
+            object.__setattr__(self, field_name, Path(value))
+        for field_name in ("plan_only", "skip_export"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise WorkflowError(f"{field_name} must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class DeriveMonetizationRequest:
     """Validated inputs for offline inclusive-range monetization derivation."""
 
@@ -455,6 +478,43 @@ class AggregateThemesSummary:
     @property
     def verification(self) -> str:
         """Return the sanitized readback status used by CLI summaries."""
+
+        return "passed" if self.verification_passed else "not_run"
+
+
+@dataclass(frozen=True, slots=True)
+class DecideThemesSummary:
+    """Sanitized result of a stored-evidence DECISION-001 run."""
+
+    month: str
+    period_start: date
+    period_end: date
+    scope_name: str | None
+    decision_policy_version: str
+    summary_row_count: int
+    launch_window_row_count: int
+    risk_row_count: int
+    category_fit_row_count: int
+    migration_hypothesis_row_count: int
+    recommendation_distribution: tuple[tuple[str, int], ...]
+    confidence_distribution: tuple[tuple[str, int], ...]
+    market_size_distribution: tuple[tuple[str, int], ...]
+    growth_quality_distribution: tuple[tuple[str, int], ...]
+    verification_passed: bool
+    database_path: Path
+    summaries_parquet_path: Path | None
+    launch_windows_parquet_path: Path | None
+    risks_parquet_path: Path | None
+    category_fits_parquet_path: Path | None
+    migrations_parquet_path: Path | None
+    plan_only: bool
+    skip_export: bool
+    started_at: datetime
+    completed_at: datetime
+
+    @property
+    def verification(self) -> str:
+        """Return the sanitized readback status used by the CLI."""
 
         return "passed" if self.verification_passed else "not_run"
 
